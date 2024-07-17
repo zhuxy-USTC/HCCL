@@ -50,7 +50,7 @@ function clean()
         fi
     fi
 
-    mkdir -p ${BUILD_DIR}
+    mkdir -p ${BUILD_DIR} ${OUTPUT_DIR}
 }
 
 function cmake_config()
