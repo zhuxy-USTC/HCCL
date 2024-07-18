@@ -106,7 +106,8 @@ public:
     HcclResult CreateCommForAlltoAllFullMesh(const std::string &tag, DeviceMem &sendBuf, DeviceMem &recvBuf);
     HcclResult CreateAlltoAllVCommMem(DeviceMem& inputMem, DeviceMem& outputMem) const;
     HcclResult BuildAlltoAllVScratchMem(const std::string &tag, u64 workSpaceMemSize);
-    HcclResult ParallelTaskLoaderProcess(const std::string &tag, Stream &stream);
+    HcclResult ParallelTaskLoaderProcess(const std::string &tag, Stream &stream, SubCommInfo &outerCommInfo,
+    std::vector<Stream> &ringStreams);
 
     HcclResult GetTopoType(TopoType &topoType);
     HcclResult GetAlgoLevel1DefaultSwitch(bool &isAlgoLevel1Default, HcclCMDType opType);
@@ -122,8 +123,7 @@ public:
         std::vector<std::shared_ptr<ThreadManage>>& threadManager);
     innerStreamInfo_t* GetStreamInfoWithoutCheck(const std::string &tag);
     HcclResult SetPipelineSliceNum(u64 piplineSliceNum);
-    HcclResult GetAlltoAllStatus(DeviceMem &tinySendRecvMem, bool &isAlltoAllZCopyMode,
-        std::map<std::string, bool> &isAlltoAllZCopyModeMap);
+    HcclResult GetAlltoAllStatus(DeviceMem &tinySendRecvMem, bool &isAlltoAllZCopyMode);
     HcclResult UpdateAlltoAllStatus(bool &isAlltoAllZCopyMode, bool &needRecreateAlltoallComm,
         std::map<std::string, bool> &isAlltoAllZCopyModeMap);
     u64 GetOtherRankAllocScratchSize(
@@ -150,11 +150,16 @@ public:
     HcclResult CreateComm(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem, AlgType algType,
         u32 root = INVALID_VALUE_RANKID, bool isP2p = false, bool isBatchSendRecv = false, bool meshSinglePlane = false,
         bool aivMode = false, std::set<u32> batchSendRecvtargetRanks = std::set<u32>());
-    HcclResult CalcCommPlaneInfo(const std::string &tag, const CommParaInfo &commParaInfo,
-        std::vector<SingleSubCommTransport> &commTransport, TransportMemType inPutMemType,
-        TransportMemType outPutMemType);
-
+    HcclResult GetCommPlaneRanks(std::vector<std::vector<std::vector<u32>>> &CommPlaneRanks);
+    HcclResult GetIsBridgeVector(std::vector<bool> &isBridgeVector);
     HcclResult ClearOpResource(const std::string &tag);
+    HcclResult GetTopoAttr(HcclTopoAttr &topoAttr);
+    HcclResult GetAlgoAttr(HcclAlgoAttr &algoAttr);
+    HcclResult GetDispatcher(HcclDispatcher &dispatcher);
+    HcclResult GetVirtualDispatcher(HcclDispatcher &vdispatcher);
+    HcclResult GetParallelTaskLoader(ParallelTaskLoader* &parallelTaskLoader);
+    HcclResult GetIsUsedRdmaMap(std::unordered_map<u32, bool> &isUsedRdmaMap);
+    HcclResult GetRankVecInfo(std::vector<std::vector<std::vector<u32>>> &serverAndsuperPodToRank);
     void Break()
     {
         if (Is310P3Common()) {
@@ -206,11 +211,11 @@ public:
         std::unordered_map<std::string, std::map<u32, HcclIpAddress>> &rankDevicePhyIdNicInfoMap,
         std::vector<u32> &ranksPort, bool isSetHDCModeInfo, bool isUseRankPort);
 
-    u8 GetDeterministicConfig() const;      // 获取确定性计算配置
-    HcclResult SetDeterministicConfig(const u8 deterministic);  // 设置确定性计算配置
-    // 用于batchsendrecv增量建链获取更新已建链的对端rank号
-    HcclResult GetTotalTargetRankSet(std::set<u32>& totalTargetRankSet);
-    HcclResult UpdateTotalTargetRankSet(std::set<u32>& totalTargetRankSet);
+    u64 GetInCCLbufferSize() const; // 获取CCL缓存区大小，用于Executor计算scratch大小
+    bool Is310P3Common()
+    {
+        return !isHaveCpuRank_ && !Is310PDevice() && deviceType_ == DevType::DEV_TYPE_310P3;
+    }
 
 private:
     void SetAlgoAttr(HcclAlgoAttr &algoAttr);
@@ -280,10 +285,6 @@ private:
     void UnRegisterToHeartBeat();
     void UnRegisterToHeartBeat(const std::string& tag);
 
-    bool Is310P3Common()
-    {
-        return !isHaveCpuRank_ && !Is310PDevice() && deviceType_ == DevType::DEV_TYPE_310P3;
-    }
     /* ---------------以下为私有成员变量定义领域-------------------------- */
     HcclTopoAttr topoAttr_;
     HcclAlgoAttr algoAttr_;
@@ -342,8 +343,6 @@ private:
     bool isAlltoAllZCopyMode_ = false;
     bool needRecreateAlltoallComm_ = false;
     std::map<std::string, bool> isAlltoAllZCopyModeMap_;
-    // batchsendrecv增量建链，记录已经建链的对端userRank号
-    std::set<u32> totalTargetRankSet_;
     // 按照 tag 记录全局所有卡上 alltoall 算子的中转内存大小
     std::unordered_map<std::string, std::unordered_map<u32, u64>> allRankAlltoallScratchMemSize_;
     bool isSingleMeshAggregation_ = false;

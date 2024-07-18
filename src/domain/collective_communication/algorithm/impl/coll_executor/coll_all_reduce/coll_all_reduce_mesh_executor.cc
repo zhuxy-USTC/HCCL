@@ -11,8 +11,10 @@
 #include "coll_all_reduce_mesh_executor.h"
 
 namespace hccl {
-CollAllReduceMeshExecutor::CollAllReduceMeshExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAllReduceExecutor(pImpl)
+
+CollAllReduceMeshExecutor::CollAllReduceMeshExecutor(const HcclDispatcher dispatcher,
+                                                     std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
     DMAReduceFlag_ = false;
 }
@@ -23,8 +25,8 @@ void CollAllReduceMeshExecutor::ParseParam(const OpParam& param)
     bool isInlineReduce = IsSupportSDMAReduce(param.inputPtr, param.outputPtr,
         param.DataDes.dataType, param.reduceType);
     meshSinglePlane_ = (topoAttr_.deviceType == DevType::DEV_TYPE_910B) &&
-        hcclImpl_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_DISABLE && isInlineReduce &&
-        (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
+        !topoMatcher_->GetExternalInputHcclDeterministic() &&
+        isInlineReduce && (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
 }
 
 HcclResult CollAllReduceMeshExecutor::CalcStreamNum(u32& streamNum)
@@ -103,8 +105,7 @@ HcclResult CollAllReduceMeshExecutor::KernelRun(const OpParam &param, ExecMem &e
 
     CHK_RET(ActiveSlaveStreams(param.stream));
 
-    if (hcclImpl_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_DISABLE &&
-        (param.DataDes.dataType != HCCL_DATA_TYPE_INT64) &&
+    if (!topoMatcher_->GetExternalInputHcclDeterministic() && (param.DataDes.dataType != HCCL_DATA_TYPE_INT64) &&
         ((topoAttr_.deviceType == DevType::DEV_TYPE_910B && param.reduceType != HCCL_REDUCE_PROD) ||
         (IsSupportHighPerf() && param.reduceType == HCCL_REDUCE_SUM))) {
         CHK_RET(MultiStreamReduceScatterMeshAtomic(param.tag, execMem.inputMem, execMem.outputMem, execMem.count,
@@ -211,7 +212,7 @@ HcclResult CollAllReduceMeshExecutor::KernelRun(const OpParam &param, ExecMem &e
 
 bool CollAllReduceMeshExecutor::IsSupportHighPerf()
 {
-    return ((GetExternalInputHcclHighPerfEnable() != 0) &&
+    return ((topoMatcher_->GetExternalInputHcclHighPerfEnable() != 0) &&
             (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB));
 }
 

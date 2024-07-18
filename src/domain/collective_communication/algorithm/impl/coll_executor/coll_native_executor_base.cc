@@ -12,17 +12,24 @@
 #include "profiling_manager_pub.h"
 namespace hccl {
 
-CollNativeExecutorBase::CollNativeExecutorBase(std::unique_ptr<hcclImpl> &pImpl)
-    : CollExecutorBase(pImpl), dispatcher_(pImpl->dispatcher_),
-    algoAttr_(pImpl->algoAttr_), topoAttr_(pImpl->topoAttr_),
-    is310P3Common_(hcclImpl_->Is310P3Common())
+CollNativeExecutorBase::CollNativeExecutorBase(const HcclDispatcher dispatcher,
+    std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollExecutorBase(dispatcher, topoMatcher), topoAttr_(topoMatcher_->GetTopoInfo()),
+      algoAttr_(topoMatcher_->GetAlgoInfo())
 {
-    hcclImpl_->GetTopoType(topoType_);
+    topoType_ = topoAttr_.topoType;
+    is310P3Common_ = topoAttr_.is310P3Common;
 }
 
 void CollNativeExecutorBase::ParseParam(const OpParam& param)
 {
     tag_ = param.tag;
+    root_ = param.root;
+}
+
+bool CollNativeExecutorBase::CheckNeedRecreateComm(u64 lastScratchMemSize)
+{
+    return false;
 }
 
 // ----------------------资源计算接口----------------------
@@ -49,22 +56,7 @@ HcclResult CollNativeExecutorBase::CalcResRequest(const OpParam& param, AlgResou
         resourceRequest.streamNum, resourceRequest.notifyNum, resourceRequest.scratchMemSize,
         resourceRequest.needAivBuffer);
     // 打印建链诉求
-    for (u32 levelIndex = 0; levelIndex < COMM_LEVEL_RESERVED; levelIndex++) {
-        LevelNSubCommTransport &levelTransport = resourceRequest.opTransport[levelIndex];
-        u32 ringSize = levelTransport.size();
-        for (u32 ringIndex = 0; ringIndex < ringSize; ringIndex++) {
-            SingleSubCommTransport &subCommTransport = levelTransport[ringIndex];
-            u32 rankSize = subCommTransport.transportRequests.size();
-            for (u32 rankIndex = 0; rankIndex < rankSize; rankIndex++) {
-                if (subCommTransport.transportRequests[rankIndex].isValid == true) {
-                    HCCL_INFO("[CollNativeExecutorBase][CalcResRequest]" \
-                        "levelIndex[%u], ringIndex[%u], rankIndex[%u], userRank[%u], remoteRank[%u]",
-                        levelIndex, ringIndex, rankIndex, subCommTransport.transportRequests[rankIndex].localUserRank,
-                        subCommTransport.transportRequests[rankIndex].remoteUserRank);
-                }
-            }
-        }
-    }
+    PrintTransportRequest(resourceRequest);
     return HCCL_SUCCESS;
 }
 
@@ -109,7 +101,7 @@ HcclResult CollNativeExecutorBase::CalcCommPlaneInfo(const std::string &tag, con
     std::vector<SingleSubCommTransport> &commTransport, TransportMemType inPutMemType,
     TransportMemType outPutMemType)
 {
-    return hcclImpl_->CalcCommPlaneInfo(tag, commParaInfo, commTransport, inPutMemType, outPutMemType);
+    return topoMatcher_->CalcCommPlaneInfo(tag, commParaInfo, commTransport, inPutMemType, outPutMemType);
 }
 
 HcclResult CollNativeExecutorBase::CalcLevel1CommInfo(TransportMemType inputType,
@@ -118,7 +110,7 @@ HcclResult CollNativeExecutorBase::CalcLevel1CommInfo(TransportMemType inputType
 {
     HCCL_INFO("[CollNativeExecutorBase][CalcInnerCommInfo]tag[%s]start", tag_.c_str());
 
-    CommParaInfo commParaLevel1(COMM_LEVEL1, CommType::COMM_TAG_MAX);
+    CommParaInfo commParaLevel1(COMM_LEVEL1, CommType::COMM_TAG_MAX, root_);
     if (UseInterServerRingAlgo(algType_)) {
         commParaLevel1.commType = CommType::COMM_TAG_RING_INNER;
         HCCL_INFO("[CollNativeExecutorBase][CalcInnerCommInfo]tag[%s] Calc RingCommInfo", tag_.c_str());
@@ -137,7 +129,7 @@ HcclResult CollNativeExecutorBase::CalcLevel1CommInfo(TransportMemType inputType
     }
     commParaLevel1.forceRdma = false;
     CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel1, opTransport[COMM_LEVEL1], inputType, outputType));
-    if (GetExternalInputEnableRdmaSdmaConcurrent() && UseInterServerRingAlgo(algType_)) {
+    if (topoMatcher_->GetExternalInputEnableRdmaSdmaConcurrent() && UseInterServerRingAlgo(algType_)) {
         CommParaInfo commParaLevel1Rdma(COMM_LEVEL1_RDMA, CommType::COMM_TAG_RING_INNER);
         commParaLevel1Rdma.forceRdma = true;
         CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel1Rdma, opTransport[COMM_LEVEL1_RDMA], inputType,
@@ -162,6 +154,26 @@ HcclResult CollNativeExecutorBase::CalcLevel2CommInfo(TransportMemType inputType
     return HCCL_SUCCESS;
 }
 
+HcclResult CollNativeExecutorBase::PrintTransportRequest(AlgResourceRequest& resourceRequest)
+{
+    for (u32 levelIndex = 0; levelIndex < COMM_LEVEL_RESERVED; levelIndex++) {
+        LevelNSubCommTransport &levelTransport = resourceRequest.opTransport[levelIndex];
+        u32 ringSize = levelTransport.size();
+        for (u32 ringIndex = 0; ringIndex < ringSize; ringIndex++) {
+            SingleSubCommTransport &subCommTransport = levelTransport[ringIndex];
+            u32 rankSize = subCommTransport.transportRequests.size();
+            for (u32 rankIndex = 0; rankIndex < rankSize; rankIndex++) {
+                if (subCommTransport.transportRequests[rankIndex].isValid == true) {
+                    HCCL_INFO("[CollNativeExecutorBase][CalcResRequest]" \
+                        "levelIndex[%u], ringIndex[%u], rankIndex[%u], userRank[%u], remoteRank[%u]",
+                        levelIndex, ringIndex, rankIndex, subCommTransport.transportRequests[rankIndex].localUserRank,
+                        subCommTransport.transportRequests[rankIndex].remoteUserRank);
+                }
+            }
+        }
+    }
+    return HCCL_SUCCESS;
+}
 // ----------------------算法编排接口----------------------
 HcclResult CollNativeExecutorBase::KernelRun(const OpParam &param, ExecMem &execMem)
 {
@@ -240,6 +252,7 @@ SubCommInfo CollNativeExecutorBase::GetSubCommInfo(const CommPlane levelIndex, c
     info.localRank = transportInfo.userRank2subCommRank[topoAttr_.userRank];
     info.localRankSize = transportInfo.transportRequests.size();
     info.links = transportInfo.links;
+    info.virtualLinks = transportInfo.virtualLinks;
     return info;
 }
 
@@ -262,6 +275,11 @@ bool CollNativeExecutorBase::UseInterServerRingAlgo(AlgType algType)
     return GetLevel1AlgType(algType) == AlgTypeLevel1::ALG_LEVEL1_RING;
 }
 
+bool CollNativeExecutorBase::UseInterServerHDAlgo(AlgType algType)
+{
+    return GetLevel1AlgType(algType) == AlgTypeLevel1::ALG_LEVEL1_HD;
+}
+
 bool CollNativeExecutorBase::UseInterServerNHRAlgo(AlgType algType)
 {
     return GetLevel1AlgType(algType) == AlgTypeLevel1::ALG_LEVEL1_NHR;
@@ -282,6 +300,11 @@ bool CollNativeExecutorBase::UseLevel2RingAlgo(AlgType algType)
     return GetLevel2AlgType(algType) == AlgTypeLevel2::ALG_LEVEL2_RING;
 }
 
+bool CollNativeExecutorBase::UseInterServerPipelineAlgo(AlgType algType)
+{
+    return GetLevel1AlgType(algType) == AlgTypeLevel1::ALG_LEVEL1_PIPELINE;
+}
+
 AlgTypeLevel2 CollNativeExecutorBase::GetLevel2AlgType(const AlgType algType) const
 {
     const u32 algLevel2 = static_cast<u32>(algType) >> (HCCL_LEVEL_ALGO_WIDTH * 2);
@@ -299,4 +322,21 @@ HcclResult CollNativeExecutorBase::BuildResourceRequest(u64 scratchMemSize, u32 
     return HCCL_SUCCESS;
 }
 
+HcclResult CollNativeExecutorBase::GetRankByUserRank(CommPlane levelIndex, u32 subLevelIndex, u32 userRank, u32 &rank)
+{
+    CHK_RET(CheckCommSize(levelIndex, subLevelIndex + 1));
+    SingleSubCommTransport &transportInfo =
+        const_cast<SingleSubCommTransport&>(algResResp_->opTransportResponse[levelIndex][subLevelIndex]);
+    rank = transportInfo.userRank2subCommRank[userRank];
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollNativeExecutorBase::GetUserRankByRank(CommPlane levelIndex, u32 subLevelIndex, u32 rank, u32 &userRank)
+{
+    CHK_RET(CheckCommSize(levelIndex, subLevelIndex + 1));
+    SingleSubCommTransport &transportInfo =
+        const_cast<SingleSubCommTransport&>(algResResp_->opTransportResponse[levelIndex][subLevelIndex]);
+    userRank = transportInfo.subCommRank2UserRank[rank];
+    return HCCL_SUCCESS;
+}
 }

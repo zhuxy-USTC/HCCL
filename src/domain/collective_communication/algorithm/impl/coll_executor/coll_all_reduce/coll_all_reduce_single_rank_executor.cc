@@ -11,8 +11,10 @@
 #include "coll_all_reduce_single_rank_executor.h"
 
 namespace hccl {
-CollAllReduceSingleRankExecutor::CollAllReduceSingleRankExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAllReduceExecutor(pImpl)
+
+CollAllReduceSingleRankExecutor::CollAllReduceSingleRankExecutor(const HcclDispatcher dispatcher,
+                                                                 std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
 }
 

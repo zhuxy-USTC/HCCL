@@ -21,6 +21,7 @@
 #include "stream_pub.h"
 #include "local_notify.h"
 #include "hccl_opbase_atrace_info_pub.h"
+#include "common.h"
 
 namespace hccl {
 using RankId = u32;
@@ -64,6 +65,8 @@ struct SingleSubCommTransport {
     bool supportDataReceivedAck = false;
     LinkMode linkMode = LinkMode::LINK_DUPLEX_MODE;
     bool enableUseOneDoorbell = false;
+    bool needVirtualLink =false; // for alltoall 多线程性能提升使用
+    std::vector<LINK> virtualLinks; // for alltoall 多线程性能提升使用
 };
 
 using LevelNSubCommTransport = std::vector<SingleSubCommTransport>;
@@ -103,9 +106,9 @@ struct OpParam {
     u64 inputSize;
     void* outputPtr;
     u64 outputSize;
-    HcclReduceOp reduceType;
-    SyncMode syncMode;
-    RankId root;
+    HcclReduceOp reduceType = HcclReduceOp::HCCL_REDUCE_RESERVED;
+    SyncMode syncMode = SyncMode::DEFAULT_TIMEWAITSYNCMODE;
+    RankId root = INVALID_VALUE_RANKID;
     RankId dstRank;
     RankId srcRank;
     HcclOpBaseAtraceInfo* opBaseAtraceInfo = nullptr;
@@ -128,12 +131,14 @@ struct OpParam {
             u32 itemNum;
         } BatchSendRecvDataDes;
     };
+    HcclCMDType opType = HcclCMDType::HCCL_CMD_INVALID;
 };
 
 struct SubCommInfo {
     u32 localRank;
     u32 localRankSize;
     std::vector<LINK> links;
+    std::vector<LINK> virtualLinks; // for alltoall 多线程性能提升使用
 };
 
 }   // namespace hccl

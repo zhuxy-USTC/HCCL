@@ -11,7 +11,7 @@
 #include "calc_ring_transport_req.h"
 
 namespace hccl {
-CalcRingTransportReq::CalcRingTransportReq(std::vector<std::vector<RankInfo>> &subCommPlaneVector,
+CalcRingTransportReq::CalcRingTransportReq(std::vector<std::vector<u32>> &subCommPlaneVector,
     std::vector<bool> &isBridgeVector, u32 userRank)
     : CalcTransportReqBase(subCommPlaneVector, isBridgeVector, userRank)
 {
@@ -23,7 +23,7 @@ CalcRingTransportReq::~CalcRingTransportReq()
 
 HcclResult CalcRingTransportReq::CalcTransportRequest(const std::string &tag, TransportMemType inputMemType,
     TransportMemType outputMemType, const CommParaInfo &commParaInfo,
-    std::vector<SingleSubCommTransport> &commTransport)
+    std::vector<SingleSubCommTransport> &commTransport, u32 subUserRankRoot)
 {
     u32 ringSize = subCommPlaneVector_.size();
     commTransport.resize(ringSize);
@@ -54,7 +54,7 @@ HcclResult CalcRingTransportReq::CalcTransportRequest(const std::string &tag, Tr
                 rankIndex == (rank + rankSize - HCCL_RANK_OFFSET) % rankSize) {
                 tmpTransport.isValid = true;
                 tmpTransport.localUserRank  = userRank_;
-                tmpTransport.remoteUserRank = subCommPlaneVector_[ringIndex][rankIndex].userRank;
+                tmpTransport.remoteUserRank = subCommPlaneVector_[ringIndex][rankIndex];
                 tmpTransport.inputMemType = inputMemType;
                 tmpTransport.outputMemType = outputMemType;
                 HCCL_INFO("[CommFactory][CalcRingCommInfo] param_.tag[%s] ringIndex[%u], localRank[%u], "\

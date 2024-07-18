@@ -23,12 +23,13 @@ const u32 DISPLAY_RANKNUM_PERLINE = 8;
 using namespace std;
 TopoInfoExchangeServer::TopoInfoExchangeServer(HcclIpAddress &hostIP, u32 hostPort,
     const std::vector<HcclIpAddress> whitelist, HcclNetDevCtx netDevCtx,
-    const std::unique_ptr<HcclSocket> &listenSocket)
+    std::shared_ptr<HcclSocket> listenSocket, const std::string &identifier)
     : hostIP_(hostIP),
       hostPort_(hostPort),
       whitelist_(whitelist),
       netDevCtx_(netDevCtx),
-      listenSocket_(listenSocket)
+      listenSocket_(listenSocket),
+      identifier_(identifier)
 {
 }
 
@@ -40,38 +41,55 @@ HcclResult TopoInfoExchangeServer::Setup()
 {
     HcclResult ret;
     HcclResult error = HCCL_SUCCESS;
-    std::map<std::string, std::shared_ptr<HcclSocket>> connectSockets;
+
     do {
-        ret = Connect(connectSockets);
+        ret = Connect(connectSockets_);
         CHK_PRT_BREAK(ret != HCCL_SUCCESS,
-            HCCL_ERROR("[TopoInfoExchangeServer][Setup]cluster topo exchange server connect "\
-                "client failed"), error = ret);
+            HCCL_ERROR("[TopoInfoExchangeServer][Setup]cluster topo exchange server connect client failed"),
+            error = ret);
         HCCL_INFO("cluster topo exchange server connect with all agent success.");
 
         RankTable_t rankTable;
-        ret = GetRanksBasicInfo(connectSockets, rankTable);
-        CHK_PRT_BREAK(ret != HCCL_SUCCESS,
-            HCCL_ERROR("[TopoInfoExchangeServer][Setup]GetRanksBasicInfo failed"), error = ret);
+        ret = GetRanksBasicInfo(connectSockets_, rankTable);
+        CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[TopoInfoExchangeServer][Setup]GetRanksBasicInfo failed"),
+            error = ret);
         HCCL_INFO("cluster topo exchange server get rank basic info from all agent success.");
 
         TopoInfoExchangeDispather dispatcher(this);
-        ret = dispatcher.BroadcastRankTable(connectSockets, rankTable);
+        ret = dispatcher.BroadcastRankTable(connectSockets_, rankTable);
         CHK_PRT_BREAK(ret != HCCL_SUCCESS,
             HCCL_ERROR("[TopoInfoExchangeServer][Setup]Broadcast Rank Basic Infos failed"), error = ret);
         HCCL_INFO("cluster topo exchange server send rank basic info to all agent success.");
 
-        ret = Disconnect(connectSockets);
+        ret = StopSocketListen(whitelist_, hostIP_, hostPort_);
         CHK_PRT_BREAK(ret != HCCL_SUCCESS,
-            HCCL_ERROR("[TopoInfoExchangeServer][Setup]topo exchange server disconnect "\
-                "socket failed."), error = ret);
+            HCCL_ERROR("[TopoInfoExchangeServer][Setup]topo exchange server stop socket listen failed."), error = ret);
     } while (0);
 
-    CHK_RET(StopNetwork(whitelist_, hostIP_, hostPort_));
+    if (error) {
+        CHK_RET(Disconnect(connectSockets_));
+        CHK_RET(StopNetwork(whitelist_, hostIP_, hostPort_));
+    }
 
     HCCL_INFO("cluster topo exchange server completed, exit[%u].", error);
 
     return error;
 }
+
+HcclResult TopoInfoExchangeServer::Teardown()
+{
+    CHK_RET(Disconnect(connectSockets_));
+    CHK_RET(StopNetwork(whitelist_, hostIP_, hostPort_));
+    return HCCL_SUCCESS;
+}
+
+HcclResult TopoInfoExchangeServer::GetConnections(std::map<std::string, std::shared_ptr<HcclSocket>> &connectSockets)
+{
+    connectSockets = connectSockets_;
+    return HCCL_SUCCESS;
+}
+
+
 HcclResult TopoInfoExchangeServer::SetupByMasterInfo()
 {
     isByMasterInfo_ = true;
@@ -93,7 +111,7 @@ HcclResult TopoInfoExchangeServer::Connect(std::map<std::string, std::shared_ptr
         }
 
         std::shared_ptr<HcclSocket> socket;
-        std::string tag = TOPO_DETECT_TAG + "_" + std::to_string(hostPort_);
+        std::string tag = TOPO_DETECT_TAG + "_" + identifier_ + "_" + std::to_string(hostPort_);
         HcclResult ret = listenSocket_->Accept(tag, socket);
         if (ret == HCCL_SUCCESS) {
             HCCL_INFO("listenSocket_->Accept completed.");
@@ -164,9 +182,11 @@ HcclResult TopoInfoExchangeServer::DisplayConnectionedRank(
 
 HcclResult TopoInfoExchangeServer::Disconnect(std::map<std::string, std::shared_ptr<HcclSocket>> &connectSockets)
 {
+    std::unique_lock<std::mutex> lock(lock_);
     for (auto &socket : connectSockets) {
         CHK_RET(DisconnectSocket(socket.second));
     }
+    connectSockets.clear();
     return HCCL_SUCCESS;
 }
 
@@ -179,7 +199,7 @@ HcclResult TopoInfoExchangeServer::DeleteSocketWhiteList(u32 port,
         wlistInfo.connLimit = HOST_SOCKET_CONN_LIMIT;
         wlistInfo.remoteIp.addr = ip.GetBinaryAddress().addr;
         wlistInfo.remoteIp.addr6 = ip.GetBinaryAddress().addr6;
-        std::string tag = TOPO_DETECT_TAG + "_" + std::to_string(port);
+        std::string tag = TOPO_DETECT_TAG + "_" + identifier_ + "_" + std::to_string(port);
         s32 sRet = memcpy_s(&wlistInfo.tag[0], sizeof(wlistInfo.tag), tag.c_str(), tag.size() + 1);
         if (sRet != EOK) {
             HCCL_ERROR("[Delete][SocketWhiteList]memory copy failed. errorno[%d]", sRet);
@@ -194,21 +214,26 @@ HcclResult TopoInfoExchangeServer::DeleteSocketWhiteList(u32 port,
     return HCCL_SUCCESS;
 }
 
+HcclResult TopoInfoExchangeServer::StopSocketListen(const std::vector<HcclIpAddress> &whitelist,
+    HcclIpAddress &hostIP, u32 hostPort)
+{
+    if (listenSocket_) {
+        if (GetExternalInputHcclEnableWhitelist() == HCCL_WHITELIST_ON) {
+            CHK_RET(DeleteSocketWhiteList(hostPort, whitelist));
+        }
+        CHK_RET(listenSocket_->DeInit());
+        listenSocket_ = nullptr;
+    }
+    return HCCL_SUCCESS;
+}
+
 HcclResult TopoInfoExchangeServer::StopNetwork(const std::vector<HcclIpAddress> &whitelist,
     HcclIpAddress &hostIP, u32 hostPort)
 {
-    if (GetExternalInputHcclEnableWhitelist() == HCCL_WHITELIST_ON) {
-        CHK_RET(DeleteSocketWhiteList(hostPort, whitelist));
-    }
+    std::unique_lock<std::mutex> lock(lock_);
+    CHK_RET(StopSocketListen(whitelist, hostIP, hostPort));
 
-    if (listenSocket_) {
-        CHK_RET(listenSocket_->DeInit());
-    }
-
-    if (netDevCtx_) {
-        HcclNetCloseDev(netDevCtx_);
-        netDevCtx_ = nullptr;
-    }
+    netDevCtx_ = nullptr;
     return HCCL_SUCCESS;
 }
 

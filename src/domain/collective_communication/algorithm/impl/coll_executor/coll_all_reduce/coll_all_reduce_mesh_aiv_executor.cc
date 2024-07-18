@@ -11,8 +11,10 @@
 #include "coll_all_reduce_mesh_aiv_executor.h"
 
 namespace hccl {
-CollAllReduceMeshAivExecutor::CollAllReduceMeshAivExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAllReduceExecutor(pImpl)
+
+CollAllReduceMeshAivExecutor::CollAllReduceMeshAivExecutor(const HcclDispatcher dispatcher,
+                                                           std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
     DMAReduceFlag_ = false;
 }

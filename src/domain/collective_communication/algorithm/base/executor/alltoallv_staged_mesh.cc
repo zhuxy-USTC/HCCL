@@ -38,7 +38,7 @@ HcclResult AlltoAllVStagedMesh::Prepare(DeviceMem &sendMem, DeviceMem &recvMem, 
     subStreams_ = subStreams;
     isAlltoAllZCopyMode_ = isAlltoAllZCopyMode;
 
-    HCCL_DEBUG("[AlltoAllVStagedMesh][Prepare] finished");
+    HCCL_DEBUG("[AlltoAllVStagedMesh][Prepare] finished and isAlltoAllZCopyMode_[%d]", isAlltoAllZCopyMode_);
     return HCCL_SUCCESS;
 }
 

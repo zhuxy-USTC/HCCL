@@ -20,20 +20,21 @@
 namespace hccl {
 class CalcTransportReqBase {
 public:
-    explicit CalcTransportReqBase(std::vector<std::vector<RankInfo>> &subCommPlaneVector,
+    explicit CalcTransportReqBase(std::vector<std::vector<u32>> &subCommPlaneVector,
         std::vector<bool> &isBridgeVector, u32 userRank);
 
     virtual ~CalcTransportReqBase();
 
     virtual HcclResult CalcTransportRequest(const std::string &tag, TransportMemType inputMemType,
         TransportMemType outputMemType, const CommParaInfo &commParaInfo,
-        std::vector<SingleSubCommTransport> &commTransport);
+        std::vector<SingleSubCommTransport> &commTransport, u32 subUserRankRoot = INVALID_VALUE_RANKID);
 
 protected:
     // 获取本rank在子通信域(多平面)内当前平面的rank号
-    const u32 GetSubCollectiveRank(const std::vector<RankInfo> &vecPara) const;
+    const u32 GetSubCollectiveRank(const std::vector<u32> &vecPara) const;
+    HcclResult GetRankByUserRank(const std::vector<u32> &vecPara, const u32 userRank, u32 &rank) const;
 
-    const std::vector<std::vector<RankInfo>> &subCommPlaneVector_;
+    const std::vector<std::vector<u32>> &subCommPlaneVector_;
     const std::vector<bool> &isBridgeVector_;
     const u32 userRank_;
 };

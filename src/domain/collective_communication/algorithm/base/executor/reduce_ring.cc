@@ -31,8 +31,8 @@ HcclResult ReduceRing::RunAsync(const u32 rank, const u32 rankSize,
         HCCL_E_PARA);
 
     HcclResult ret = HCCL_SUCCESS;
-    HCCL_INFO("ReduceRing run: rank[%u] totalrank[%u] inputmem[%p] output[%p] count[%llu]", \
-        rank, rankSize, inputMem_.ptr(), outputMem_.ptr(), count_);
+    HCCL_INFO("ReduceRing run: rank[%u] totalrank[%u] root[%u] inputmem[%p] output[%p] count[%llu]", \
+        rank, rankSize, root_, inputMem_.ptr(), outputMem_.ptr(), count_);
 
     // 如果ranksize为1, inline reduce和普通跨片reduce操作一致，从input->output
     if (rankSize == 1) {

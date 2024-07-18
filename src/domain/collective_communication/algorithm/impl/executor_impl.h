@@ -78,6 +78,10 @@
 #include "reduce_scatter_nb_pub.h"
 #include "reduce_scatter_pipeline_pub.h"
 #include "all_reduce_opbase_pipeline_pub.h"
+#include "allltoall_pipeline_mesh_pairwise_ping_pong_pub.h"
+#include "allltoall_pipeline_mesh_pairwise_ccl_enough_pub.h"
+#include "allltoall_pipeline_base_pub.h"
+#include "alltoallv_mesh_read_only_pub.h"
 
 namespace hccl {
 }

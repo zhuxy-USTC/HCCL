@@ -18,7 +18,7 @@
 namespace hccl {
 class BatchSendRecvOperator : public CommonOperator {
 public:
-    BatchSendRecvOperator(std::unique_ptr<hcclImpl> &pImpl);
+    BatchSendRecvOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~BatchSendRecvOperator();
     HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName, std::string& newTag);
 };

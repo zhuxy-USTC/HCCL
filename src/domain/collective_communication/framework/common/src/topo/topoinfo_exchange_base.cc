@@ -40,7 +40,9 @@ HcclResult TopoInfoExchangeBase::SaveClusterInfo(const RankTable_t &clusterInfo)
 
 HcclResult TopoInfoExchangeBase::DisconnectSocket(std::shared_ptr<HcclSocket> socket) const
 {
-    socket->Close();
+    if (socket) {
+        socket->Close();
+    }
     return HCCL_SUCCESS;
 }
 

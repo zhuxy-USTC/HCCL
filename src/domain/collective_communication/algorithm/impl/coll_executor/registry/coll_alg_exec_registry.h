@@ -19,19 +19,21 @@
 
 namespace hccl {
 
-using CollExecCreator = std::function<CollExecutorBase *(std::unique_ptr<hcclImpl> &)>;
-template <typename P> static CollExecutorBase *DefaultExecCreator(std::unique_ptr<hcclImpl> &pImpl)
+using CollExecCreator = std::function<CollExecutorBase *(const HcclDispatcher, std::unique_ptr<TopoMatcher> &)>;
+template <typename P>
+static CollExecutorBase *DefaultExecCreator(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher)
 {
     static_assert(std::is_base_of<CollExecutorBase, P>::value,
         "Executor type must derived from Hccl::CollExecutorBase");
-    return new (std::nothrow) P(pImpl);
+    return new (std::nothrow) P(dispatcher, topoMatcher);
 }
 
 class CollAlgExecRegistry {
 public:
     static CollAlgExecRegistry *Instance();
     HcclResult Register(const std::string &tag, const CollExecCreator &collAlgExecCreator);
-    std::unique_ptr<CollExecutorBase> GetAlgExec(const std::string &tag, std::unique_ptr<hcclImpl> &pImpl);
+    std::unique_ptr<CollExecutorBase> GetAlgExec(const std::string &tag, const HcclDispatcher dispatcher,
+                                                 std::unique_ptr<TopoMatcher> &topoMatcher);
 
 private:
     std::unordered_map<std::string, const CollExecCreator> execCreators_;
@@ -45,6 +47,5 @@ private:
 #define REGISTER_EXEC_HELPER_1(ctr, tag, name, collExecBase) REGISTER_EXEC_HELPER(ctr, tag, name, collExecBase)
 
 #define REGISTER_EXEC(tag, name, collExecBase) REGISTER_EXEC_HELPER_1(__COUNTER__, tag, name, collExecBase)
-
 }   // namespace hccl
 #endif

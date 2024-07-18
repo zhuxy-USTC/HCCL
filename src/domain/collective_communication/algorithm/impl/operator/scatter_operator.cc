@@ -12,16 +12,18 @@
 #include "device_capacity.h"
 #include "rank_consistent.h"
 #include "executor_impl.h"
+#include "hccl_alg.h"
 
 
 namespace hccl {
 
-ScatterOperator::ScatterOperator(std::unique_ptr<hcclImpl> &pImpl)
-    : CommonOperator(pImpl, HcclCMDType::HCCL_CMD_SCATTER)
+ScatterOperator::ScatterOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CommonOperator(pImpl, topoMatcher, HcclCMDType::HCCL_CMD_SCATTER)
 {
-    // 由于scatter只支持server间ring和nb，如果非nb需要重定向到ring
-    if (!UseInterServerNHRAlgo(algType_) && !UseInterServerNBAlgo(algType_)) {
-        HCCL_INFO("[ScatterOperator][ScatterOperator] algType[%d] is not supported, reset algType=ring", algType_);
+    // 由于scatter只支持server间ring、nb和nhr，其他算法需要重定向到ring
+    if (!UseInterServerNHRAlgo(algType_) && !UseInterServerNBAlgo(algType_) && !UseInterServerRingAlgo(algType_)) {
+        HCCL_INFO("[ScatterOperator][ScatterOperator] algType[%s] is not supported, reset algType=ring",
+            HcclAlg::AlgTypeToStr(algType_).c_str());
         SetInterServerRingAlgo(algType_);
     }
 }
@@ -469,4 +471,50 @@ HcclResult ScatterOperator::ScatterRingExecutor(const std::string &tag, DeviceMe
 
     return HCCL_SUCCESS;
 }
+
+HcclResult ScatterOperator::SelectAlg(const std::string& tag, const OpParam& param, std::string& algName,
+    std::string& newTag)
+{
+    HcclResult ret = HCCL_SUCCESS;
+    newTag = param.tag;
+    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && UseInterServerHDAlgo(algType_)) {
+        u32 part1Size = 2 * (moduleNum_ - (1 << static_cast<u32>(log2(moduleNum_))));
+        u32 rootId = param.root / deviceNumPerAggregation_;
+        std::string appendTag = std::to_string((rootId >= part1Size) || ((rootId % 2) == 0));
+        newTag = newTag + '_' + appendTag;
+        if (param.opBaseAtraceInfo != nullptr) {
+            CHK_RET(param.opBaseAtraceInfo->SavealgtypeTraceInfo(appendTag, param.tag));
+        }
+    }
+
+    // 由于scatter只支持server间ring,nb和NHR，如果不是需要重定向到ring
+    if (!UseInterServerNHRAlgo(algType_) && !UseInterServerNBAlgo(algType_) && !UseInterServerRingAlgo(algType_)) {
+        HCCL_INFO("[ScatterOperator][Scatter] algType[%s] is not supported, reset algType=ring",
+            HcclAlg::AlgTypeToStr(algType_).c_str());
+        ret = SetInterServerRingAlgo(algType_);
+        CHK_PRT_RET(ret != HCCL_SUCCESS,
+            HCCL_ERROR("[ScatterOperator][Scatter]errNo[0x%016llx] tag[%s],scatter set inter server "\
+                "algo failed", HCCL_ERROR_CODE(ret), newTag.c_str()), ret);
+    }
+
+    bool isMeshTopo = topoType_ == TopoType::TOPO_TYPE_NP_MESH || topoType_ == TopoType::TOPO_TYPE_4P_MESH ||
+        topoType_ == TopoType::TOPO_TYPE_2P_MESH || topoType_ == TopoType::TOPO_TYPE_1P_MESH;
+    bool isRingTopo = topoType_ == TopoType::TOPO_TYPE_NP_SINGLE_RING || topoType_ == TopoType::TOPO_TYPE_8P_RING ||
+        topoType_ == TopoType::TOPO_TYPE_NP_DOUBLE_RING;
+
+    if (isMeshTopo) {
+        algName = "ScatterMeshExecutor";
+    } else if (isRingTopo) {
+        algName = "ScatterRingExecutor";
+    } else {
+        algName = "ScatterCommExecutor";
+    }
+    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+        newTag = newTag + algName;
+        HCCL_INFO("[SelectAlg] Scatter newTag is [%s] algName is [%s]", newTag.c_str(), algName.c_str());
+    }
+    return HCCL_SUCCESS;
+}
+
+REGISTER_OP(HcclCMDType::HCCL_CMD_SCATTER, Scatter, ScatterOperator);
 }

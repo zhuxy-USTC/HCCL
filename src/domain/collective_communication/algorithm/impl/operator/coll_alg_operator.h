@@ -18,14 +18,22 @@
 #include "ccl_buffer_manager.h"
 #include "hccl_opbase_atrace_info_pub.h"
 #include "device_capacity.h"
+#include "topo_matcher.h"
 
 #include "coll_alg_param.h"
 #include "coll_executor_base.h"
 namespace hccl {
-class CollAlgOperator {
+struct PreProcessMetaInfo {
+    HcclCMDType opType;
+    std::vector<u64> inputData;
+    u64 inputSize;
+    u64 outputSize;
+};
+constexpr u64 MAX_ALLTOALL_MESH_ALGO_RANK_INTRA_MESH = 16;
 
+class CollAlgOperator {
 public:
-    CollAlgOperator(std::unique_ptr<hcclImpl> &pImpl, HcclCMDType opType);
+    CollAlgOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher, HcclCMDType opType);
     virtual ~CollAlgOperator() = default;
 
     virtual HcclResult SelectAlg(const std::string& tag,
@@ -35,9 +43,17 @@ public:
     virtual HcclResult Orchestrate(const std::string& algName,
         const OpParam& param, const AlgResourceResponse& algResource);
     // batchsendrecv判断是否需要增量建链
-    bool NeedIncrCreateLink(const std::string& algName, const OpParam& param);
     HcclResult CalcIncreLinkRequest(const std::string& algName, const OpParam& param,
         AlgResourceRequest& resourceRequest);
+
+    virtual bool JudgeIfNeedPreProcessAndGetParam(const OpParam& param,
+        std::unique_ptr<PreProcessMetaInfo> &preMetaInfo);
+    virtual HcclResult PreparePreOpParam(OpParam& preProcessOpParam,
+        const std::unique_ptr<PreProcessMetaInfo> &preMetaInfo, Stream &preProcessStream);
+    virtual void SetPreProcessResult(HostMem hostCollectBuffer);
+    virtual bool CheckNeedRecreateComm(const std::string& algName, u64 lastScratchMemSize);
+    static bool NAFullmeshSatisfyHighPerfAlltoallMeshCondition(DevType deviceType, u32 rankSize);
+    static bool FullmeshPairwiseSatisfyHighPerfAlltoallMeshCondition(DevType deviceType, u32 rankSize);
 
 protected:
     bool IsAlgTypeLevel0Mesh(AlgTypeLevel0 &originalAlgTypeLevel0) const;
@@ -161,8 +177,6 @@ protected:
     std::string identifier_;
     OpMode opMode;
 
-    const HcclDispatcher dispatcher_; // dispatcher放到最后析构
-    const HcclDispatcher vDispatcher_; // virtualDispatcher放到最后析构
     CCLBufferManager &cclBufferManager_;
     const std::unique_ptr<NotifyPool> &notifyPool_;
 
@@ -189,6 +203,10 @@ protected:
     std::unordered_map<u32, u32> pairLinkCounter_; // server内所有device间的链路类型计数
     std::vector<RankInfo> &rankInfoList_; // world group内rank的信息, 按照rank id递增依次排列
     std::unique_ptr<hcclImpl> &hcclImpl_;
+    std::unique_ptr<CollExecutorBase> executor_;
+    std::unique_ptr<TopoMatcher> &topoMatcher_;
+    HcclDispatcher dispatcher_; // dispatcher放到最后析构
+    HcclDispatcher vDispatcher_; // virtualDispatcher放到最后析构
 private:
 
     virtual HcclResult SelectAlgoTypeForReduceScatter(float delay, u64 recvCurSize, float bandWidth,
@@ -211,6 +229,7 @@ private:
         AlgTypeLevel1 &algType, bool isInlineReduce = false, bool isRdmaReduce = false, bool isAivMode = false);
     void SetAlgoAttr();
     void SetTopoAttr();
+    void SetExecutorAttr();
 
     std::map<HcclCMDType, std::function<HcclResult(float, u64, float, AlgTypeLevel1 &)>> selectFuncMap_ = {
         {HcclCMDType::HCCL_CMD_REDUCE_SCATTER,
@@ -223,8 +242,6 @@ private:
             std::bind(&CollAlgOperator::SelectAlgoTypeForAllReduce, this,
                 std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4)},
     };
-
-    std::unique_ptr<CollExecutorBase> executor_;
 };
 }   // namespace hccl
 

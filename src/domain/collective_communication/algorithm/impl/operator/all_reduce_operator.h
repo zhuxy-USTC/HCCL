@@ -24,7 +24,7 @@ enum class HcclDataCountType {
 
 class AllReduceOperator : public CommonOperator {
 public:
-    AllReduceOperator(std::unique_ptr<hcclImpl> &pImpl);
+    AllReduceOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~AllReduceOperator();
     HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName, std::string& newTag);
     HcclResult GetAllReduceScratchSize(const u32 count, const HcclDataType dataType, u64 &scratchSize);
@@ -39,6 +39,8 @@ private:
     HcclResult SelectAlgfor910A(const OpParam& param, std::string& algName);
 
     HcclResult SelectAlgfor910B(const OpParam& param, std::string& algName);
+
+    HcclResult SelectAlgfor91073(const OpParam& param, std::string& algName);
 
     HcclResult MeshTopoSelector(std::string& algName, u64 unitSize);
 

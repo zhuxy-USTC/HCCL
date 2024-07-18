@@ -35,11 +35,13 @@ constexpr u64 PIPELINE_MIN_SIZE = 32 * 1024; // 当数据量大于等于32KB时�
 constexpr u64 PIPELINE_ALLREDUCE_MIN_SIZE = 1024 * 1024; // 当数据量大于等于1MB时，allreduce使能pipeline模式
 constexpr u64 PIPELINE_MIN_SIZE_NO_LITE = 2 * 1024 * 1024; // 如不支持RDMALite，当数据量大于等于2MB时，使能pipeline模式
 
-CollAlgOperator::CollAlgOperator(std::unique_ptr<hcclImpl> &pImpl, HcclCMDType opType)
-    : dispatcher_(pImpl->dispatcher_), vDispatcher_(pImpl->vDispatcher_),
-      cclBufferManager_(pImpl->cclBufferManager_), notifyPool_(pImpl->notifyPool_),
-      rankInfoList_(pImpl->rankInfoList_), hcclImpl_(pImpl)
+CollAlgOperator::CollAlgOperator(std::unique_ptr<hcclImpl> &pImpl,
+                                 std::unique_ptr<TopoMatcher> &topoMatcher, HcclCMDType opType)
+    : cclBufferManager_(pImpl->cclBufferManager_), notifyPool_(pImpl->notifyPool_),
+      rankInfoList_(pImpl->rankInfoList_), hcclImpl_(pImpl), topoMatcher_(topoMatcher)
 {
+    hcclImpl_->GetDispatcher(dispatcher_);
+    hcclImpl_->GetVirtualDispatcher(vDispatcher_);
     SetTopoAttr();
     SetAlgoAttr();
     hcclImpl_->GetAlgTypeDirect(algType_, opType);
@@ -53,15 +55,24 @@ HcclResult CollAlgOperator::SelectAlg(const std::string& tag,
     return HCCL_SUCCESS;
 }
 
+bool CollAlgOperator::CheckNeedRecreateComm(const std::string& algName, u64 lastScratchMemSize)
+{
+    if (executor_.get() == nullptr) {
+        executor_ = CollAlgExecRegistry::Instance()->GetAlgExec(algName, dispatcher_, topoMatcher_);
+        SetExecutorAttr();
+    }
+    return executor_->CheckNeedRecreateComm(lastScratchMemSize);
+}
+
 HcclResult CollAlgOperator::CalcResRequest(const std::string& algName, const OpParam& param,
     AlgResourceRequest& resourceRequest)
 {
     if (executor_.get() == nullptr) {
-        executor_ = CollAlgExecRegistry::Instance()->GetAlgExec(algName, hcclImpl_);
+        executor_ = CollAlgExecRegistry::Instance()->GetAlgExec(algName, dispatcher_, topoMatcher_);
         CHK_PRT_RET(executor_.get() == nullptr,
             HCCL_ERROR("[CollAlgOperator][CalcResRequest]Fail to find executor for algName[%s]", algName.c_str()),
             HCCL_E_PARA);
-        executor_->SetAlgType(algType_);
+        SetExecutorAttr();
     }
     return executor_->CalcResRequest(param, resourceRequest);
 }
@@ -71,36 +82,43 @@ HcclResult CollAlgOperator::Orchestrate(const std::string& algName, const OpPara
 {
     HCCL_INFO("[CollAlgOperator][Orchestrate]algName[%s]", algName.c_str());
     if (executor_.get() == nullptr) {
-        executor_ = CollAlgExecRegistry::Instance()->GetAlgExec(algName, hcclImpl_);
+        executor_ = CollAlgExecRegistry::Instance()->GetAlgExec(algName, dispatcher_, topoMatcher_);
         CHK_PRT_RET(executor_.get() == nullptr,
             HCCL_ERROR("[CollAlgOperator][Orchestrate]Fail to find executor for algName[%s]", algName.c_str()),
             HCCL_E_PARA);
-        executor_->SetAlgType(algType_);
+        SetExecutorAttr();
     }
+
     return executor_->Orchestrate(param, algResource);
 }
 
-bool CollAlgOperator::NeedIncrCreateLink(const std::string& algName, const OpParam& param)
-{
-    if (executor_.get() == nullptr) {
-        executor_ = CollAlgExecRegistry::Instance()->GetAlgExec(algName, hcclImpl_);
-        CHK_PRT_RET(executor_.get() == nullptr,
-            HCCL_ERROR("[BatchSendRecvOperator][NeedIncrCreateLink]Fail to find executor for algName[%s]",
-            algName.c_str()), HCCL_E_PARA);
-    }
-    return executor_->NeedIncrCreateLink(param);
-}
- 
 HcclResult CollAlgOperator::CalcIncreLinkRequest(const std::string& algName, const OpParam& param,
     AlgResourceRequest& resourceRequest)
 {
     if (executor_.get() == nullptr) {
-        executor_ = CollAlgExecRegistry::Instance()->GetAlgExec(algName, hcclImpl_);
+        executor_ = CollAlgExecRegistry::Instance()->GetAlgExec(algName, dispatcher_, topoMatcher_);
         CHK_PRT_RET(executor_.get() == nullptr,
-            HCCL_ERROR("[BatchSendRecvOperator][NeedIncrCreateLink]Fail to find executor for algName[%s]",
+            HCCL_ERROR("[BatchSendRecvOperator][CalcIncreLinkRequest]Fail to find executor for algName[%s]",
             algName.c_str()), HCCL_E_PARA);
     }
     return executor_->CalcIncreLinkRequest(param, resourceRequest);
+}
+
+bool CollAlgOperator::JudgeIfNeedPreProcessAndGetParam(const OpParam& param,
+    std::unique_ptr<PreProcessMetaInfo> &preMetaInfo)
+{
+    return false;
+}
+
+HcclResult CollAlgOperator::PreparePreOpParam(OpParam& preProcessOpParam,
+    const std::unique_ptr<PreProcessMetaInfo> &preMetaInfo, Stream &preProcessStream)
+{
+    return HCCL_SUCCESS;
+}
+
+void CollAlgOperator::SetPreProcessResult(HostMem hostCollectBuffer)
+{
+    return;
 }
 
 void CollAlgOperator::SetTopoAttr()
@@ -138,6 +156,17 @@ void CollAlgOperator::SetAlgoAttr()
     isHaveCpuRank_ = hcclImpl_->isHaveCpuRank_;
     inlineReduceSwitchOn_ = hcclImpl_->inlineReduceSwitchOn_;
     identifier_ = hcclImpl_->identifier_;
+    return;
+}
+
+void CollAlgOperator::SetExecutorAttr()
+{
+    executor_->SetAlgType(algType_);
+    executor_->SetVirtualDispatcher(vDispatcher_);
+    executor_->SetCCLInBuffer(hcclImpl_->GetInCCLbufferSize());
+    ParallelTaskLoader* parallelTaskLoader = nullptr;
+    hcclImpl_->GetParallelTaskLoader(parallelTaskLoader);
+    executor_->SetParallelTaskLoader(parallelTaskLoader);
     return;
 }
 
@@ -234,7 +263,7 @@ HcclResult CollAlgOperator::GetDefaultAlgoLevel1V2(HcclCMDType hcclCMDType, u64 
     // 对于不支持Rdma Lite的场景，下发性能较差，RS和AG需要一个很大的数据量（AR的一半）才能掩盖下发时间
     u64 pipelineMinSize = (isSupportRdmaLite_) ? (PIPELINE_MIN_SIZE) : (PIPELINE_MIN_SIZE_NO_LITE);
     if (((hcclCMDType == HcclCMDType::HCCL_CMD_REDUCE_SCATTER && isInlineReduce && isRdmaReduce &&
-        hcclImpl_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_DISABLE) ||
+        topoMatcher_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_DISABLE) ||
         hcclCMDType == HcclCMDType::HCCL_CMD_ALLGATHER) &&
         deviceNumPerAggregation_ != 1 && curSize >= pipelineMinSize && IsAlgTypeLevel0Mesh(originalAlgTypeLevel0)) {
         algType = AlgTypeLevel1::ALG_LEVEL1_PIPELINE;
@@ -247,7 +276,7 @@ HcclResult CollAlgOperator::GetDefaultAlgoLevel1V2(HcclCMDType hcclCMDType, u64 
         // 计算每个slice的大小
         u64 allreduceCurSize = 0;
         allreduceCurSize = curSize / (moduleNum_ * deviceNumPerAggregation_);
-        if ((isInlineReduce && isRdmaReduce) && hcclImpl_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_DISABLE &&
+        if ((isInlineReduce && isRdmaReduce) && topoMatcher_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_DISABLE &&
             deviceNumPerAggregation_ != 1 && allreduceCurSize >= pipelineMinSize && !isAivMode &&
             IsAlgTypeLevel0Mesh(originalAlgTypeLevel0)) {
             algType = AlgTypeLevel1::ALG_LEVEL1_PIPELINE;
@@ -378,6 +407,7 @@ HcclResult CollAlgOperator::SetInterServerHDAlgo(AlgType &algType) const
 
         case AlgType::ALG_NP_DOUBLE_RING_PLUS_PIPELINE:
         case AlgType::ALG_DOUBLE_RING_PLUS_RING:
+        case AlgType::ALG_NP_DOUBLE_RING_PLUS_NB:
             algType = AlgType::ALG_DOUBLE_RING_PLUS_HD;
             break;
         default:
@@ -655,6 +685,44 @@ HcclResult CollAlgOperator::SelectAlgoTypeForReduce(float delay, u64 curSize, fl
     }
     algType = (hdCost < ringCost) ? AlgTypeLevel1::ALG_LEVEL1_HD : AlgTypeLevel1::ALG_LEVEL1_RING;
     return HCCL_SUCCESS;
+}
+
+bool CollAlgOperator::NAFullmeshSatisfyHighPerfAlltoallMeshCondition(DevType deviceType, u32 rankSize)
+{
+    bool rankSizeSupport = (rankSize <= MAX_ALLTOALL_MESH_ALGO_RANK_INTRA_MESH);
+    bool isDevice91073 = (deviceType == DevType::DEV_TYPE_910_73);
+    bool oneLevelUseMesh =
+        (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[0] == HcclAlgoType::HCCL_ALGO_TYPE_NA &&
+        GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[1] == HcclAlgoType::HCCL_ALGO_TYPE_FULLMESH);
+    bool isHCCS = !GetExternalInputInterHccsDisable();
+    HCCL_DEBUG("[CollAlgOperator][AlltoAllVCOutPlace]isDevice91073 %u oneLevelUseMesh %u isHCCS %u",
+        isDevice91073, oneLevelUseMesh, isHCCS);
+    CHK_PRT_CONT(!(oneLevelUseMesh && !isDevice91073),
+        HCCL_WARNING("[CollAlgOperator][NAFullmeshSatisfyHighPerfAlltoallMeshCondition] alltoall read only algorithm only "
+            "support 91073 device type, use default algorithm type"));
+    CHK_PRT_CONT(!(oneLevelUseMesh && !isHCCS),
+        HCCL_WARNING("[CollAlgOperator][NAFullmeshSatisfyHighPerfAlltoallMeshCondition] alltoall read only algorithm depends "
+            "on HCCS, use default algorithm type"));
+    return (isDevice91073 && oneLevelUseMesh && rankSizeSupport && isHCCS);
+}
+
+bool CollAlgOperator::FullmeshPairwiseSatisfyHighPerfAlltoallMeshCondition(DevType deviceType, u32 rankSize)
+{
+    bool rankSizeSupport = (rankSize <= MAX_ALLTOALL_MESH_ALGO_RANK_INTRA_MESH);
+    bool isDevice91073 = (deviceType == DevType::DEV_TYPE_910_73);
+    bool twoLevelIntraUseMesh =
+        (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[0] == HcclAlgoType::HCCL_ALGO_TYPE_FULLMESH &&
+        GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[1] == HcclAlgoType::HCCL_ALGO_TYPE_PAIRWISE);
+    bool isHCCS = !GetExternalInputInterHccsDisable();
+    HCCL_DEBUG("[CollAlgOperator][AlltoAllVCOutPlace]isDevice91073 %u twoLevelIntraUseMesh %u isHCCS %u",
+        isDevice91073, twoLevelIntraUseMesh, isHCCS);
+    CHK_PRT_CONT(!(twoLevelIntraUseMesh && !isDevice91073),
+        HCCL_WARNING("[CollAlgOperator][FullmeshPairwiseSatisfyHighPerfAlltoallMeshCondition] alltoall read only algorithm only "
+            "support 91073 device type, use default algorithm type"));
+    CHK_PRT_CONT(!(twoLevelIntraUseMesh && !isHCCS),
+        HCCL_WARNING("[CollAlgOperator][FullmeshPairwiseSatisfyHighPerfAlltoallMeshCondition] alltoall read only algorithm depends "
+            "on HCCS, use default algorithm type"));
+    return (isDevice91073 && twoLevelIntraUseMesh && rankSizeSupport && isHCCS);
 }
 
 }   // namesapce hccl

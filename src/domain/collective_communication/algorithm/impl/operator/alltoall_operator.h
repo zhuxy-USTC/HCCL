@@ -12,32 +12,35 @@
 #define ALLTOALL_OPERATOR_H
 
 #include "coll_alg_operator.h"
-
 namespace hccl {
-constexpr u64 MAX_ALLTOALL_MESH_ALGO_RANK_INTRA_MESH = 16;
-
 class AlltoAllOperator : public CollAlgOperator {
 public:
-    AlltoAllOperator(std::unique_ptr<hcclImpl> &pImpl);
+    AlltoAllOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~AlltoAllOperator();
-    HcclResult AlltoAllV(const void *sendBuf, const void *sendCounts, const void *sdispls,
-        HcclDataType sendType, const void *recvBuf, const void *recvCounts, const void *rdispls, HcclDataType recvType,
-        Stream stream, const std::string &tag);
-    HcclResult AlltoAllVOutPlace(const void *sendBuf, const void *sendCounts, const void *sdispls,
-        HcclDataType sendType, const void *recvBuf, const void *recvCounts, const void *rdispls, HcclDataType recvType,
-        Stream stream, const std::string &tag);
-    HcclResult AlltoAllVC(const void *sendBuf, const void *sendCountMatrix, HcclDataType sendType,
-        const void *recvBuf, HcclDataType recvType, Stream stream, const std::string &tag);
-    HcclResult AlltoAllVCOutPlace(const void *sendBuf, const void *sendCountMatrix, HcclDataType sendType,
-        const void *recvBuf, HcclDataType recvType, Stream stream, const std::string &tag);
-    HcclResult AlltoAll(const void *sendBuf, u64 sendCount, HcclDataType sendType,
-        const void *recvBuf, u64 recvCount, HcclDataType recvType, Stream stream, const std::string &tag);
+
     HcclResult GetAlltoAllStagedWorkSpaceMemSize(u64 *sendCounts, u64 *sdispls, HcclDataType sendType,
         u64 *recvCounts, u64 *rdispls, HcclDataType recvType, u64 &memSize);
     HcclResult GetAlltoAllStagedWorkSpaceMemSize(std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo,
         u64 &memSize);
-    static bool NAFullmeshSatisfyHighPerfAlltoallMeshCondition(DevType deviceType, u32 rankSize);
-    static bool FullmeshPairwiseSatisfyHighPerfAlltoallMeshCondition(DevType deviceType, u32 rankSize);
+
+    HcclResult CheckSendRecvParams(const std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo);
+    HcclResult GetAlltoAllvSendRecvInfo(const OpParam& param, const HostMem &alltoallAddrInfoGathered);
+    HcclResult GetAlltoAllvcSendRecvInfo(const void *sendCountMatrix, HcclDataType sendType, HcclDataType recvType);
+    void UpdateAlltoAllCopyMode(std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo, std::string& copyMode);
+    HcclResult SelectAlgforAlltoAll(const OpParam& param, std::string& algName, std::string& copyMode);
+    HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName, std::string& newTag);
+
+    HcclResult GetAlltoAllvAllAddrInfo(u64 *sendLength, u64 *sendOffset, u64 *recvLength, u64 *recvOffset,
+        Stream &stream, std::unique_ptr<PreProcessMetaInfo> &preMetaInfo);
+    HcclResult PrepareAlltoAllAddrInfo(const void *sendCounts, const void *sdispls, HcclDataType sendType,
+        const void *recvCounts, const void *rdispls, HcclDataType recvType, Stream &stream,
+        std::unique_ptr<PreProcessMetaInfo> &preMetaInfo);
+    HcclResult PreparePreOpParam(OpParam& preProcessOpParam, const std::unique_ptr<PreProcessMetaInfo> &preMetaInfo,
+        Stream &preProcessStream);
+    bool JudgeIfNeedPreProcessAndGetParam(const OpParam& param, std::unique_ptr<PreProcessMetaInfo> &preMetaInfo);
+    void SetPreProcessResult(HostMem hostCollectBuffer);
+    HcclResult SetExcutorExtraInfo(const std::string& algName);
+
 private:
     std::vector<u64> GenerateSendCountMatrix(u64 count, u32 rankSize);
 
@@ -54,7 +57,6 @@ private:
         Stream &stream, const std::string &tag);
     HcclResult RunAlltoAllVStaged(DeviceMem &sendBuf, HcclDataType sendType, DeviceMem &recvBuf, HcclDataType recvType,
         std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo, Stream &stream, const std::string &tag);
-
     HcclResult PrepareAlltoAllVStaged1(DeviceMem &sendBuf, DeviceMem &recvBuf, DeviceMem &scratchMem,
         std::map<u32, std::list<OneSendRecvAddrInfo>> &sendAddrInfosIntra,
         std::map<u32, std::list<OneSendRecvAddrInfo>> &recvAddrInfosIntra,
@@ -85,15 +87,11 @@ private:
         u64 inputCount, HcclDataType dataType, Stream stream);
     bool HasMassTasks(std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo);
 
-    HcclResult AlltoAllVForOneRankSize(const void *sendBuf, const void *sendCounts, const void *sdispls,
-        HcclDataType sendType, const void *recvBuf, const void *recvCounts, const void *rdispls, HcclDataType recvType,
-        Stream stream, const std::string &tag);
-    HcclResult AlltoAllVCForOneRankSize(const void *sendBuf, const void *sendCountMatrix, HcclDataType sendType,
-        const void *recvBuf, HcclDataType recvType, Stream stream, const std::string &tag);
-   
     bool isAlltoAllZCopyMode_ = false;
     std::map<std::string, bool> isAlltoAllZCopyModeMap_;
     DeviceMem tinySendRecvMem_; // 在sendCount/recvCount全0时, 使用tinySendRecvMem_, 避免使用空deviceMem
+    HostMem hostCollectBuffer_;
+    std::vector<SendRecvInfo> allMeshAggregationSendRecvInfo_;
 };
 }
 

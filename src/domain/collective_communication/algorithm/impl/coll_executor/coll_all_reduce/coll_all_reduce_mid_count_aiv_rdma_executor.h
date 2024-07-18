@@ -19,7 +19,7 @@
 namespace hccl {
 class CollAllReduceMidCountAivRdmaExecutor : public CollAllReduceExecutor {
 public:
-    CollAllReduceMidCountAivRdmaExecutor(std::unique_ptr<hcclImpl> &pImpl);
+    CollAllReduceMidCountAivRdmaExecutor(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollAllReduceMidCountAivRdmaExecutor() = default;
 
     HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes) override;

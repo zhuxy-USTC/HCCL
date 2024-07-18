@@ -11,8 +11,10 @@
 #include "coll_all_reduce_mesh_mid_count_executor.h"
 
 namespace hccl {
-CollAllReduceMeshMidCountExecutor::CollAllReduceMeshMidCountExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAllReduceExecutor(pImpl)
+
+CollAllReduceMeshMidCountExecutor::CollAllReduceMeshMidCountExecutor(const HcclDispatcher dispatcher,
+                                                                     std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
     CCLMemSlice_ = false;
     DMAReduceFlag_ = true;

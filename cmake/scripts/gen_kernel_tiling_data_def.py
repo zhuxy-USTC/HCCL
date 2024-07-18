@@ -29,7 +29,7 @@ def gen_tiling(tiling_header_file):
             if (line.startswith('BEGIN_TILING_DATA_DEF')):
                 single_tiling_source += '#pragma pack(push, 8)\n'
                 single_tiling_source += 'struct '
-                struct_def  = re.findall(pattern, line)[0]
+                struct_def = re.findall(pattern, line)[0]
                 single_tiling_source += struct_def + ' {\n'
             elif (line.startswith('TILING_DATA_FIELD_DEF_ARR')):
                 field_params = re.findall(pattern, line)[0]
@@ -64,7 +64,7 @@ if __name__ == '__main__':
 """
     print("[LOG]:  ", sys.argv[1], sys.argv[2])
     file_list = []
-    for root, dirs, files in os.walk(sys.argv[1]):
+    for root, files in os.walk(sys.argv[1]):
         for file in files:
             if file.endswith("tilingdata.h"):
                 file_list.append(os.path.join(root, file))

@@ -25,10 +25,12 @@ namespace hccl {
 class TopoInfoExchangeServer : public TopoInfoExchangeBase {
 public:
     explicit TopoInfoExchangeServer(HcclIpAddress &hostIP, u32 hostPort, const std::vector<HcclIpAddress> whitelist,
-        HcclNetDevCtx netDevCtx, const std::unique_ptr<HcclSocket> &listenSocket);
+        HcclNetDevCtx netDevCtx, const std::shared_ptr<HcclSocket> listenSocket, const std::string &identifier);
     ~TopoInfoExchangeServer() override;
     HcclResult Setup();
     HcclResult SetupByMasterInfo();
+    HcclResult Teardown();
+    HcclResult GetConnections(std::map<std::string, std::shared_ptr<HcclSocket>> &connectSockets);
 
 private:
     HcclResult Connect(std::map<std::string, std::shared_ptr<HcclSocket>> &connectSockets);
@@ -36,6 +38,8 @@ private:
     HcclResult Disconnect(std::map<std::string, std::shared_ptr<HcclSocket>> &connectSockets);
     HcclResult DeleteSocketWhiteList(u32 port, const std::vector<HcclIpAddress> &whitelist);
     HcclResult StopNetwork(const std::vector<HcclIpAddress> &whitelist,
+        HcclIpAddress &hostIP, u32 hostPort);
+    HcclResult StopSocketListen(const std::vector<HcclIpAddress> &whitelist,
         HcclIpAddress &hostIP, u32 hostPort);
     HcclResult GetRanksBasicInfo(
         const std::map<std::string, std::shared_ptr<HcclSocket>> &connectSockets, RankTable_t &rankTable);
@@ -57,8 +61,11 @@ private:
     SocketHandle socketHandle_;
     std::vector<HcclIpAddress> whitelist_;
     HcclNetDevCtx netDevCtx_{nullptr};
-    const std::unique_ptr<HcclSocket> &listenSocket_;
+    std::shared_ptr<HcclSocket> listenSocket_;
     friend class TopoInfoExchangeDispather;
+    std::map<std::string, std::shared_ptr<HcclSocket>> connectSockets_;
+    std::mutex lock_;
+    std::string identifier_;
 };
 }  // namespace hccl
 

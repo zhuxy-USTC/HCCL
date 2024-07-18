@@ -11,8 +11,8 @@
 #include "coll_all_reduce_for_310p_ring_executor.h"
 
 namespace hccl {
-CollAllReduceFor310PRingExecutor::CollAllReduceFor310PRingExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAllReduceExecutor(pImpl)
+CollAllReduceFor310PRingExecutor::CollAllReduceFor310PRingExecutor(const HcclDispatcher dispatcher,
+    std::unique_ptr<TopoMatcher> &topoMatcher) : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
     DMAReduceFlag_ = false;
 }

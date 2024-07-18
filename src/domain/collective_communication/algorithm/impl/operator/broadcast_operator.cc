@@ -13,10 +13,11 @@
 #include "rank_consistent.h"
 #include "executor_impl.h"
 #include "stream_active_manager.h"
+#include "coll_alg_op_registry.h"
 
 namespace hccl {
-BroadCastOperator::BroadCastOperator(std::unique_ptr<hcclImpl> &pImpl)
-    : CommonOperator(pImpl, HcclCMDType::HCCL_CMD_BROADCAST)
+BroadCastOperator::BroadCastOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CommonOperator(pImpl, topoMatcher, HcclCMDType::HCCL_CMD_BROADCAST)
 {
     // 由于bcast/allgather/reducescatter/reduce/send/recv暂不支持server间ring，需继续使用HD或NHR
     if (!UseInterServerNHRAlgo(algType_) && !UseInterServerNHRV1Algo(algType_) && !UseInterServerNBAlgo(algType_)) {
@@ -185,6 +186,8 @@ HcclResult BroadCastOperator::BroadcastOutPlace(const std::string &tag, void *pt
 
     auto originalAlgTypeLevel0 = GetLevel0AlgType(algType_);
     bool isMeshTopo            = IsAlgTypeLevel0Mesh(originalAlgTypeLevel0);
+    bool isDMAreduceOn91073     = (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE
+                              && (deviceType_ == DevType::DEV_TYPE_910_73) && !isMeshTopo);
 
     std::string newTag = tag;
     if (UseInterServerHDAlgo(algType_)) {
@@ -220,14 +223,23 @@ HcclResult BroadCastOperator::BroadcastOutPlace(const std::string &tag, void *pt
         HCCL_INFO("BroadcastOutPlace:curPtr[%p], curCount[%llu], curSize[%llu]", curPtr, curCount, curSize);
         HcclResult ret;
         /* 入参的正确性由HCCL确保 */
-        DeviceMem commMem = inCCLbuffer.range(0, curSize);
-        DeviceMem userMem(curPtr, curSize);
-        if (userRank_ == root) { // 本rank为root节点，非root节点不需要拷贝到中转内存
-            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, commMem, userMem, stream));
-        }
-        ret = Broadcast(newTag, inCCLbuffer.ptr(), curCount, dataType, root, stream);
-        if (realUserRank_ != root) {
-            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, userMem, commMem, stream));
+        if (isDMAreduceOn91073) {
+            HcomCollOpInfo opInfo;
+            opInfo.inputAddr = curPtr;
+            opInfo.outputAddr = curPtr;
+            opInfo.count = count;
+            opInfo.dataType = dataType;
+            ret = Broadcast(newTag, inCCLbuffer.ptr(), curCount, dataType, root, stream, &opInfo);
+        } else {
+            DeviceMem commMem = inCCLbuffer.range(0, curSize);
+            DeviceMem userMem(curPtr, curSize);
+            if (userRank_ == root) { // 本rank为root节点，非root节点不需要拷贝到中转内存
+                CHK_RET(HcclD2DMemcpyAsync(dispatcher_, commMem, userMem, stream));
+            }
+            ret = Broadcast(newTag, inCCLbuffer.ptr(), curCount, dataType, root, stream);
+            if (realUserRank_ != root) {
+                CHK_RET(HcclD2DMemcpyAsync(dispatcher_, userMem, commMem, stream));
+            }
         }
         CHK_PRT_RET(ret != HCCL_SUCCESS,
             HCCL_ERROR("[Loop][Broadcast]errNo[0x%016llx] OP_BASE hcclComm broadcast, tag[%s], input_ptr[%p], "
@@ -1158,4 +1170,114 @@ HcclResult BroadCastOperator::GetRankSliceSize(HcclDataType dataType, const u64 
 
     return HCCL_SUCCESS;
 }
+
+HcclResult BroadCastOperator::SelectAlg(const std::string& tag, const OpParam& param, std::string& algName,
+                                        std::string& newTag)
+{
+    HcclResult ret;
+    if (Is310P3Common()) {
+        ret = SelectAlgfor310P3(param, algName);
+    } else if (Is310PDevice() && topoType_ == TopoType::TOPO_TYPE_2P_MESH) {
+        ret = SelectAlgfor310P(param, algName);
+    } else if (deviceType_ == DevType::DEV_TYPE_910) {
+        ret = SelectAlgfor910A(param, algName);
+    } else if (deviceType_ == DevType::DEV_TYPE_910B) {
+        ret = SelectAlgfor910B(param, algName);
+    } else if (deviceType_ == DevType::DEV_TYPE_910_73) {
+        ret = SelectAlgfor91073(param, algName);
+    } else {
+        HCCL_ERROR("[SelectAlg] device type[%d] is out of range for selector.", deviceType_);
+        return HCCL_E_NOT_SUPPORT;
+    }
+    if (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+        newTag = tag;
+    } else {
+        if (UseInterServerHDAlgo(algType_)) {
+            u32 part1Size = 2 * (moduleNum_ - (1 << static_cast<u32>(log2(moduleNum_))));
+            u32 rootId = param.root / deviceNumPerAggregation_;
+            std::string appendTag = std::to_string((rootId >= part1Size) || ((rootId % 2) == 0));
+            newTag = newTag + '_' + appendTag;
+            if (param.opBaseAtraceInfo != nullptr) {
+                CHK_RET(param.opBaseAtraceInfo->SavealgtypeTraceInfo(appendTag, param.tag));
+            }
+        } else if (Is310P3Common()) {
+            newTag = tag + algName;
+        } else {
+            AlgTypeLevel1 algType1 = GetLevel1AlgType(algType_);
+            auto level1Iter = HCCL_ALGO_LEVEL1_NAME_MAP.find(algType1);
+            newTag = tag + level1Iter->second + algName;
+        }
+    }
+    HCCL_INFO("[SelectAlg] broadcast newTag is [%s]", newTag.c_str());
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[BroadCastSelector][SelectAlg]tag[%s], broadcast failed, return[%d]", tag.c_str(), ret), ret);
+    return ret;
+}
+
+HcclResult BroadCastOperator::SelectAlgfor310P3(const OpParam& param, std::string& algName)
+{
+    algName = "BroadCastCommFor310P";
+    HCCL_INFO("[SelectAlgfor310P3] broadcast SelectAlgfor310P3 is algName [%s]", algName.c_str());
+    return HCCL_SUCCESS;
+}
+
+HcclResult BroadCastOperator::SelectAlgfor310P(const OpParam& param, std::string& algName)
+{
+    algName = "BroadcastPlusBroadcast";
+    HCCL_INFO("[SelectAlgfor310P] broadcast SelectAlgfor310P is algName [%s]", algName.c_str());
+    return HCCL_SUCCESS;
+}
+
+HcclResult BroadCastOperator::SelectAlgfor910A(const OpParam& param, std::string& algName)
+{
+    bool isMeshTopo = topoType_ == TopoType::TOPO_TYPE_4P_MESH || topoType_ == TopoType::TOPO_TYPE_2P_MESH;
+    bool isRingTopo = topoType_ == TopoType::TOPO_TYPE_NP_SINGLE_RING || topoType_ == TopoType::TOPO_TYPE_8P_RING;
+
+    if (isMeshTopo) {
+        algName = "BroadCastMeshExecutor";
+    } else if (topoType_ == TopoType::TOPO_TYPE_4P_RING) {
+        algName = "BroadCast4pRingExecutor";
+    } else if (isRingTopo) {
+        algName = "BroadCastRingExecutor";
+    } else {
+        algName = "BroadCastComm";
+    }
+    HCCL_INFO("[SelectAlgfor910A] broadcast SelectAlgfor910A is algName [%s]", algName.c_str());
+    return HCCL_SUCCESS;
+}
+
+HcclResult BroadCastOperator::SelectAlgfor910B(const OpParam& param, std::string& algName)
+{
+    bool isMeshTopo = topoType_ == TopoType::TOPO_TYPE_NP_MESH || topoType_ == TopoType::TOPO_TYPE_4P_MESH ||
+        topoType_ == TopoType::TOPO_TYPE_2P_MESH || topoType_ == TopoType::TOPO_TYPE_1P_MESH;
+    bool isRingTopo = topoType_ == TopoType::TOPO_TYPE_NP_SINGLE_RING || topoType_ == TopoType::TOPO_TYPE_8P_RING;
+
+    if (isMeshTopo) {
+        algName = "BroadCastMeshExecutor";
+    } else if (topoType_ == TopoType::TOPO_TYPE_4P_RING) {
+        algName = "BroadCast4pRingExecutor";
+    } else if (isRingTopo) {
+        algName = "BroadCastRingExecutor";
+    } else {
+        algName = "BroadCastComm";
+    }
+    HCCL_INFO("[SelectAlgfor910B] broadcast SelectAlgfor910B is algName [%s]", algName.c_str());
+    return HCCL_SUCCESS;
+}
+
+HcclResult BroadCastOperator::SelectAlgfor91073(const OpParam& param, std::string& algName)
+{
+    if (topoType_ == TopoType::TOPO_TYPE_NP_SINGLE_RING) {
+        algName = "BroadCastRingExecutor";
+    } else if (topoType_ == TopoType::TOPO_TYPE_NP_DOUBLE_RING) {
+        algName = "BroadCastDoubleRingExecutor";
+    } else {
+        algName = "BroadCastComm";
+    }
+    HCCL_INFO("[SelectAlgfor91073] broadcast SelectAlgfor91073 is algName [%s]", algName.c_str());
+    return HCCL_SUCCESS;
+}
+
+REGISTER_OP(HcclCMDType::HCCL_CMD_BROADCAST, Broadcast, BroadCastOperator);
+
 }

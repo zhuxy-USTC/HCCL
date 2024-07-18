@@ -12,8 +12,8 @@
 #include "executor_impl.h"
 
 namespace hccl {
-GatherOperator::GatherOperator(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAlgOperator(pImpl, HcclCMDType::HCCL_CMD_GATHER)
+GatherOperator::GatherOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAlgOperator(pImpl, topoMatcher, HcclCMDType::HCCL_CMD_GATHER)
 {
 }
 

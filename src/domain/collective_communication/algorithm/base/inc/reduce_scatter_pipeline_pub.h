@@ -23,6 +23,7 @@
 #include "executor_base_pub.h"
 #include "reducer_pub.h"
 #include "sender_pub.h"
+#include "coll_alg_param.h"
 
 namespace hccl {
 constexpr u32 PIPELINE_DEPTH = 3;
@@ -32,13 +33,14 @@ public:
     explicit ReduceScatterPipeline (const HcclDispatcher dispatcher, const u64 reduceAttrBitMap);
     ~ReduceScatterPipeline() override;
 
+    // 适配新CollExecutor接口
     HcclResult Prepare(HcomCollOpInfo *opInfo,
                        DeviceMem &cclBuffer,
                        const u64 count,
                        const u64 bufferSize,
                        const u64 offset,
-                       std::unique_ptr<CommBase> &commOuter,
-                       std::unique_ptr<CommBase> &commInner,
+                       const SubCommInfo &outerCommInfo,
+                       const SubCommInfo &innerCommInfo,
                        Stream &mainStream,
                        std::vector<Stream> &subStream,
                        std::vector<std::shared_ptr<LocalNotify>> &notifyMain,

@@ -40,6 +40,8 @@ const std::string HCCL_ALLTOALL = "ALLTOALL";
 const std::string HCCL_ALLTOALLV = "ALLTOALLV";
 const std::string HCCL_ALLTOALLVC = "ALLTOALLVC";
 
+map<std::string, shared_ptr<TopoInfoDetect>> g_topoDetectServerPtrMap;
+
 HcclResult CallMsprofReportHostApi(hccl::hcclComm* hcclComm, HcclCMDType cmdType, uint64_t beginTime, u64 count,
     HcclDataType dataType, std::string tag)
 {
@@ -322,8 +324,9 @@ HcclResult HcclGetRootInfo(HcclRootInfo *rootInfo)
     CHK_RET(InitExternalInput());
 
     HcclRootHandle rootHandle;
-    TopoInfoDetect topoDetectServer;
-    CHK_RET(topoDetectServer.SetupServer(rootHandle));
+    std::shared_ptr<TopoInfoDetect> topoDetectServer = std::make_shared<TopoInfoDetect>();
+    CHK_SMART_PTR_NULL(topoDetectServer);
+    CHK_RET(topoDetectServer->SetupServer(rootHandle));
 
     if (sizeof(HcclRootHandle) > HCCL_ROOT_INFO_BYTES) {
         HCCL_ERROR("[Get][RootInfo]hccl root info overflow. max length: %u, actual:%zu, identifier[%s]",
@@ -336,6 +339,8 @@ HcclResult HcclGetRootInfo(HcclRootInfo *rootInfo)
             sizeof(HcclRootHandle)), HCCL_E_MEMORY);
     }
 
+    HcclOpInfoCtx& opBaseInfo = GetHcclOpInfoCtx();
+    opBaseInfo.hcclCommTopoInfoDetectServer.insert({rootHandle.identifier, topoDetectServer});
     /* 首节点诊断信息记录 */
     HCCL_RUN_INFO("[HCCL_TRACE]HcclGetRootInfo success, take time [%lld]us, identifier[%s]",
         DURATION_US(TIME_NOW() - startut), rootHandle.identifier);
@@ -383,6 +388,35 @@ HcclResult HcclGetCommHandle(const char *commName, std::shared_ptr<hccl::hcclCom
     return HCCL_SUCCESS;
 }
 
+HcclResult HcclGetCommConnections(const HcclRootHandle &rootHandle, HcclCommConnections &commConnections)
+{
+    HcclOpInfoCtx& opBaseInfo = GetHcclOpInfoCtx();
+    auto iterServer = opBaseInfo.hcclCommTopoInfoDetectServer.find(rootHandle.identifier);
+    if (iterServer == opBaseInfo.hcclCommTopoInfoDetectServer.end()) {
+        commConnections.isRoot = false;
+    } else {
+        commConnections.isRoot = true;
+        CHK_RET(iterServer->second->GetServerConnections(commConnections.serverConnections));
+    }
+
+    auto iterAgent = opBaseInfo.hcclCommTopoInfoDetectAgent.find(rootHandle.identifier);
+    if (iterAgent == opBaseInfo.hcclCommTopoInfoDetectAgent.end()) {
+        HCCL_ERROR("hccl get agent connections failed, rootHandle.identifier=%s", rootHandle.identifier);
+        return HCCL_E_PARA;
+    } else {
+        CHK_RET(iterAgent->second->GetAgentConnection(commConnections.agentConnection));
+    }
+    return HCCL_SUCCESS;
+}
+
+void HcclCloseCommConnections(const std::string &identifier)
+{
+    HcclOpInfoCtx& opBaseInfo = GetHcclOpInfoCtx();
+    opBaseInfo.hcclCommTopoInfoDetectServer.erase(identifier);
+    opBaseInfo.hcclCommTopoInfoDetectAgent.erase(identifier);
+    return;
+}
+
 HcclResult InitCommRootInfo(const u32 nRanks, const u32 rank, const HcclRootHandle &rootHandle,
     const CommConfig &commConfig, HcclComm *comm)
 {
@@ -397,35 +431,47 @@ HcclResult InitCommRootInfo(const u32 nRanks, const u32 rank, const HcclRootHand
             rootHandle.identifier));
         CHK_SMART_PTR_NULL(pComm);
 
-        TopoInfoDetect topoDetectAgent;
-        ret = topoDetectAgent.SetupAgent(nRanks, rank, rootHandle);
-        CHK_PRT_BREAK(ret != HCCL_SUCCESS,
-            HCCL_ERROR("[InitCommRootInfo]errNo[0x%016llx] setup topo detect error", HCCL_ERROR_CODE(ret)),
-            errorFlag = true);
+        std::shared_ptr<TopoInfoDetect> topoDetectAgent = std::make_shared<TopoInfoDetect>();
+        CHK_SMART_PTR_NULL(topoDetectAgent);
+        ret = topoDetectAgent->SetupAgent(nRanks, rank, rootHandle);
+        CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[Init][CommRootInfo]errNo[0x%016llx] setup topo detect error",
+            HCCL_ERROR_CODE(ret)), errorFlag = true);
 
         RankTable_t rankTable;
-        ret = topoDetectAgent.GetCluterInfo(rankTable);
-        CHK_PRT_BREAK(ret != HCCL_SUCCESS,
-            HCCL_ERROR("[InitCommRootInfo]errNo[0x%016llx] GetCluterInfo error", HCCL_ERROR_CODE(ret)),
-            errorFlag = true);
+        ret = topoDetectAgent->GetCluterInfo(rankTable);
+        CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[Init][CommRootInfo]errNo[0x%016llx] GetCluterInfo error",
+            HCCL_ERROR_CODE(ret)), errorFlag = true);
 
         /* 初始化hccl comm */
         HcclBasicRankInfo localRankInfo;
-        ret = topoDetectAgent.GetLocalRankInfo(localRankInfo);
-        CHK_PRT_BREAK(ret != HCCL_SUCCESS,
-            HCCL_ERROR("[InitCommRootInfo]errNo[0x%016llx] GetLocalRankInfo error.", HCCL_ERROR_CODE(ret)),
-            errorFlag = true);
+        ret = topoDetectAgent->GetLocalRankInfo(localRankInfo);
+        CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[Init][CommRootInfo]errNo[0x%016llx] GetLocalRankInfo error.",
+            HCCL_ERROR_CODE(ret)), errorFlag = true);
 
         ret = GetSelfClusterInfo(localRankInfo, params);
         CHK_PRT_BREAK(ret != HCCL_SUCCESS,
             HCCL_ERROR("[InitCommRootInfo]errNo[0x%016llx] GetRankInfo error.", HCCL_ERROR_CODE(ret)),
             errorFlag = true);
 
-        ret = topoDetectAgent.Teardown(rootHandle);
+        ret = topoDetectAgent->WaitComplete(rootHandle);
         CHK_PRT_BREAK(ret != HCCL_SUCCESS,
-            HCCL_ERROR("[InitCommRootInfo]errNo[0x%016llx] teardown topo detect error", HCCL_ERROR_CODE(ret)),
+            HCCL_ERROR("[InitCommRootInfo]errNo[0x%016llx] wait complete topo detect error", HCCL_ERROR_CODE(ret)),
             errorFlag = true);
         CHK_RET(DisplayRanktableInfo(rankTable));
+
+        bool retryEnable = GetExternalInputIntraServerRetryEnable() || GetExternalInputInterServerRetryEnable() ||
+            GetExternalInputInterSuperPodRetryEnable();
+        if (retryEnable) {
+            opBaseHcom.hcclCommTopoInfoDetectAgent.insert({ rootHandle.identifier, topoDetectAgent });
+            ret = HcclGetCommConnections(rootHandle, params.commConnections);
+            CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[Init][RootInfo]HcclGetCommConnections failed."),
+                errorFlag = true);
+        } else {
+            ret = topoDetectAgent->Teardown();
+            CHK_PRT_BREAK(ret != HCCL_SUCCESS,
+                HCCL_ERROR("[Init][RootInfo]errNo[0x%016llx] Teardown topo detect error", HCCL_ERROR_CODE(ret)),
+                errorFlag = true);
+        }
 
         ret = InitWorkflowMode(HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
         CHK_PRT_BREAK(ret != HCCL_SUCCESS,
@@ -476,36 +522,38 @@ HcclResult InitCommRootInfo(const u32 nRanks, const u32 rank, const HcclRootHand
     return HCCL_SUCCESS;
 }
 
-HcclResult HcclCommInitRootInfo(uint32_t nRanks, const HcclRootInfo *rootInfo, uint32_t rank, HcclComm *comm)
+HcclResult HcclCommInitRootInfoInner(uint32_t nRanks, const HcclRootInfo *rootInfo, uint32_t rank,
+                                     HcclComm *comm, string &identifier)
 {
     HcclResult ret = HCCL_SUCCESS;
     HcclUs startut = TIME_NOW();
 
-    s32 deviceLogicId = 0;
-    CHK_RET(hrtGetDeviceRefresh(&deviceLogicId));
-
-    CHK_PRT_RET((nRanks == 0), HCCL_ERROR("[Init][CommRootInfo]errNo[0x%016llx] nRanks[%u] should be greater than 0.",
-        HCCL_ERROR_CODE(HCCL_E_PARA), nRanks), HCCL_E_PARA);
-
-    CHK_PRT_RET((rank >= nRanks), HCCL_ERROR("[Init][CommRootInfo]errNo[0x%016llx] rank[%u] should be less than "\
-        "nRanks[%u].", HCCL_ERROR_CODE(HCCL_E_PARA), rank, nRanks), HCCL_E_PARA);
-    CHK_SMART_PTR_NULL(comm);
     CHK_SMART_PTR_NULL(rootInfo);
-
     HcclRootHandle rootHandle;
     s32 sRet = memcpy_s(&rootHandle, sizeof(HcclRootHandle), rootInfo->internal, sizeof(HcclRootHandle));
-    CHK_PRT_RET(sRet != EOK, HCCL_ERROR("[Init][RootInfo]memcpy root info fail. errorno[%d] "\
+    CHK_PRT_RET(sRet != EOK, HCCL_ERROR("[Init][RootInfoInner]memcpy root info fail. errorno[%d] "\
         "params:destMaxSize[%u], count[%u]", sRet, sizeof(HcclRootHandle),
         sizeof(HcclRootHandle)), HCCL_E_MEMORY);
     rootHandle.identifier[ROOTINFO_INDENTIFIER_MAX_LENGTH - 1] = '\0';
+    identifier = rootHandle.identifier;
+
+    s32 deviceLogicId = 0;
+    CHK_RET(hrtGetDeviceRefresh(&deviceLogicId));
+
+    CHK_PRT_RET((nRanks == 0), HCCL_ERROR("[Init][CommRootInfoInner]errNo[0x%016llx] nRanks[%u] should "\
+        "be greater than 0.", HCCL_ERROR_CODE(HCCL_E_PARA), nRanks), HCCL_E_PARA);
+
+    CHK_PRT_RET((rank >= nRanks), HCCL_ERROR("[Init][CommRootInfoInner]errNo[0x%016llx] rank[%u] should "\
+        "be less than nRanks[%u].", HCCL_ERROR_CODE(HCCL_E_PARA), rank, nRanks), HCCL_E_PARA);
+    CHK_SMART_PTR_NULL(comm);
 
     ret = InitExternalInput();
-    CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Init][CommRootInfo]errNo[0x%016llx] init external input error",
-        HCCL_ERROR_CODE(ret)), HCCL_E_PARA);
+    CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Init][CommRootInfoInner]errNo[0x%016llx] init "\
+        "external input error", HCCL_ERROR_CODE(ret)), HCCL_E_PARA);
     /* 接口交互信息日志 */
-    HCCL_RUN_INFO("Entry-HcclCommInitRootInfo:ranks[%u], rank[%u], rootinfo: host ip[%s] port[%u] nicDeploy[%d]" \
-        " identifier[%s], deviceLogicId[%d]", nRanks, rank, rootHandle.ip, rootHandle.port, rootHandle.nicDeploy,
-        rootHandle.identifier, deviceLogicId);
+    HCCL_RUN_INFO("Entry-HcclCommInitRootInfoInner:ranks[%u], rank[%u], rootinfo: host ip[%s] port[%u] "\
+        "nicDeploy[%d] identifier[%s], deviceLogicId[%d]", nRanks, rank, rootHandle.ip, rootHandle.port,
+        rootHandle.nicDeploy, rootHandle.identifier, deviceLogicId);
 
     CommConfig commConfig;
 
@@ -517,36 +565,28 @@ HcclResult HcclCommInitRootInfo(uint32_t nRanks, const HcclRootInfo *rootInfo, u
         ret);
 
     /* 关键状态记录 */
-    HCCL_RUN_INFO("[HCCL_TRACE]HcclCommInitRootInfo success, take time [%lld]us, rankNum[%u], rank[%u]",
+    HCCL_RUN_INFO("[HCCL_TRACE]HcclCommInitRootInfoInner success, take time [%lld]us, rankNum[%u], rank[%u]",
         DURATION_US(TIME_NOW() - startut), nRanks, rank);
     return HCCL_SUCCESS;
 }
 
-HcclResult HcclCommInitRootInfoConfig(uint32_t nRanks, const HcclRootInfo *rootInfo, uint32_t rank,
-    const HcclCommConfig *config, HcclComm *comm)
+HcclResult HcclCommInitRootInfo(uint32_t nRanks, const HcclRootInfo *rootInfo, uint32_t rank, HcclComm *comm)
+{
+    HcclResult ret = HCCL_SUCCESS;
+    string identifier;
+    ret = HcclCommInitRootInfoInner(nRanks, rootInfo, rank, comm, identifier);
+    if (g_topoDetectServerPtrMap.find(identifier) != g_topoDetectServerPtrMap.end()) {
+        g_topoDetectServerPtrMap[identifier] = nullptr;
+    }
+    return ret;
+}
+
+HcclResult HcclCommInitRootInfoConfigInner(uint32_t nRanks, const HcclRootInfo *rootInfo, uint32_t rank,
+    const HcclCommConfig *config, HcclComm *comm, string &identifier)
 {
     HcclResult ret = HCCL_SUCCESS;
     HcclUs startut = TIME_NOW();
 
-    // 检查配置参数是否为空
-    RPT_INPUT_ERR(config == nullptr, "EI0003", std::vector<std::string>({"ccl_op", "parameter", "value", "tips"}),\
-        std::vector<std::string>({"HcclCommInitRootInfoConfig", "config", "nullptr", "please check comm"}));
-    CHK_SMART_PTR_NULL(config);
-
-    s32 deviceLogicId = 0;
-    CHK_RET(hrtGetDeviceRefresh(&deviceLogicId));
-
-    CHK_PRT_RET((nRanks == 0),
-        HCCL_ERROR("[Init][CommRootInfoConfig]errNo[0x%016llx] nRanks[%u] should be greater than 0.",
-        HCCL_ERROR_CODE(HCCL_E_PARA), nRanks),
-        HCCL_E_PARA);
-
-    CHK_PRT_RET((rank >= nRanks),
-        HCCL_ERROR("[Init][CommRootInfoConfig]errNo[0x%016llx] rank[%u] should be less than "
-        "nRanks[%u].",
-        HCCL_ERROR_CODE(HCCL_E_PARA), rank, nRanks),
-        HCCL_E_PARA);
-    CHK_SMART_PTR_NULL(comm);
     CHK_SMART_PTR_NULL(rootInfo);
 
     HcclRootHandle rootHandle;
@@ -555,34 +595,66 @@ HcclResult HcclCommInitRootInfoConfig(uint32_t nRanks, const HcclRootInfo *rootI
         "params:destMaxSize[%u], count[%u]", sRet, sizeof(HcclRootHandle),
         sizeof(HcclRootHandle)), HCCL_E_MEMORY);
     rootHandle.identifier[ROOTINFO_INDENTIFIER_MAX_LENGTH - 1] = '\0';
+    identifier = rootHandle.identifier;
+
+    // 检查配置参数是否为空
+    RPT_INPUT_ERR(config == nullptr, "EI0003", std::vector<std::string>({"ccl_op", "parameter", "value", "tips"}),\
+        std::vector<std::string>({"HcclCommInitRootInfoConfigInner", "config", "nullptr", "please check comm"}));
+    CHK_SMART_PTR_NULL(config);
+
+    s32 deviceLogicId = 0;
+    CHK_RET(hrtGetDeviceRefresh(&deviceLogicId));
+
+    CHK_PRT_RET((nRanks == 0),
+        HCCL_ERROR("[Init][CommRootInfoConfigInner]errNo[0x%016llx] nRanks[%u] should be greater than 0.",
+        HCCL_ERROR_CODE(HCCL_E_PARA), nRanks),
+        HCCL_E_PARA);
+
+    CHK_PRT_RET((rank >= nRanks),
+        HCCL_ERROR("[Init][CommRootInfoConfigInner]errNo[0x%016llx] rank[%u] should be less than nRanks[%u].",
+        HCCL_ERROR_CODE(HCCL_E_PARA), rank, nRanks),
+        HCCL_E_PARA);
+    CHK_SMART_PTR_NULL(comm);
 
     ret = InitExternalInput();
-    CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Init][CommRootInfoConfig]errNo[0x%016llx] init external input error",
-        HCCL_ERROR_CODE(ret)), HCCL_E_PARA);
+    CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Init][CommRootInfoConfigInner]errNo[0x%016llx] init "\
+        "external input error", HCCL_ERROR_CODE(ret)), HCCL_E_PARA);
 
     /* 读取用户配置 */
     CommConfig commConfig;
     ret = commConfig.Load(config, rootHandle.identifier);
     CHK_PRT_RET(ret != HCCL_SUCCESS,
-        HCCL_ERROR("[Init][CommRootInfoConfig]errNo[0x%016llx] load comm config failed.", HCCL_ERROR_CODE(ret)),
-        HCCL_E_PARA);
+        HCCL_ERROR("[Init][CommRootInfoConfigInner]errNo[0x%016llx] load comm config failed.",
+        HCCL_ERROR_CODE(ret)), HCCL_E_PARA);
 
     /* 接口交互信息日志 */
-    HCCL_RUN_INFO("Entry-HcclCommInitRootInfoConfig:ranks[%u], rank[%u], rootinfo: host ip[%s] port[%u] nicDeploy[%d]" \
-        " identifier[%s], deviceLogicId[%d]", nRanks, rank, rootHandle.ip, rootHandle.port, rootHandle.nicDeploy,
-        rootHandle.identifier, deviceLogicId);
+    HCCL_RUN_INFO("Entry-HcclCommInitRootInfoConfigInner:ranks[%u], rank[%u], rootinfo: host ip[%s] "\
+        "port[%u] nicDeploy[%d] identifier[%s], deviceLogicId[%d]", nRanks, rank, rootHandle.ip,
+        rootHandle.port, rootHandle.nicDeploy, rootHandle.identifier, deviceLogicId);
 
     /* --------------初始化------------------------- */
     ret = InitCommRootInfo(nRanks, rank, rootHandle, commConfig, comm);
     CHK_PRT_RET(ret != HCCL_SUCCESS,
-        HCCL_ERROR("[Init][CommRootInfoConfig]errNo[0x%016llx]HcclCommInitRootInfoConfig failed.",
+        HCCL_ERROR("[Init][CommRootInfoConfigInner]errNo[0x%016llx]HcclCommInitRootInfoConfigInner failed.",
         HCCL_ERROR_CODE(ret)),
         ret);
 
-    HCCL_RUN_INFO("[HCCL_TRACE]HcclCommInitRootInfoConfig success, take time [%lld]us, rankNum[%u], rank[%u]",
-        DURATION_US(TIME_NOW() - startut), nRanks, rank);
+    HCCL_RUN_INFO("[HCCL_TRACE]HcclCommInitRootInfoConfigInner success, take time [%lld]us, "\
+        "rankNum[%u], rank[%u]", DURATION_US(TIME_NOW() - startut), nRanks, rank);
 
     return HCCL_SUCCESS;
+}
+
+HcclResult HcclCommInitRootInfoConfig(uint32_t nRanks, const HcclRootInfo *rootInfo, uint32_t rank,
+    const HcclCommConfig *config, HcclComm *comm)
+{
+    HcclResult ret = HCCL_SUCCESS;
+    string identifier;
+    ret = HcclCommInitRootInfoConfigInner(nRanks, rootInfo, rank, config, comm, identifier);
+    if (g_topoDetectServerPtrMap.find(identifier) != g_topoDetectServerPtrMap.end()) {
+        g_topoDetectServerPtrMap[identifier] = nullptr;
+    }
+    return ret;
 }
 
 HcclResult HcclSetConfig(HcclConfig config, HcclConfigValue configValue)
@@ -1110,11 +1182,7 @@ HcclResult HcclSend(void* sendBuf, uint64_t count, HcclDataType dataType, uint32
 
     CHK_RET_AND_PRINT_IDE(SetDefaultQosConfig(hcclComm), tag.c_str());
 
-    if (!GetExternalInputHcclEnableFfts()) {
-        CHK_RET_AND_PRINT_IDE(SendLoop(tag, sendBuf, count, dataType, destRank, hcclComm, stream), tag.c_str());
-    } else {
-        CHK_RET_AND_PRINT_IDE(hcclComm->SendOutPlace(tag, sendBuf, count, dataType, destRank, stream), tag.c_str());
-    }
+    CHK_RET_AND_PRINT_IDE(hcclComm->SendOutPlace(tag, sendBuf, count, dataType, destRank, stream), tag.c_str());
 
     HCCL_PROFILER_DEL_STREAM(stream);
     HCCL_PROFILER_DEL_TAG(tag);
@@ -1187,11 +1255,7 @@ HcclResult HcclRecv(void* recvBuf, uint64_t count, HcclDataType dataType, uint32
 
     CHK_RET_AND_PRINT_IDE(SetDefaultQosConfig(hcclComm), tag.c_str());
 
-    if (!GetExternalInputHcclEnableFfts()) {
-        CHK_RET_AND_PRINT_IDE(ReceiveLoop(tag, recvBuf, count, dataType, srcRank, hcclComm, stream), tag.c_str());
-    } else {
-        CHK_RET_AND_PRINT_IDE(hcclComm->ReceiveOutPlace(tag, recvBuf, count, dataType, srcRank, stream), tag.c_str());
-    }
+    CHK_RET_AND_PRINT_IDE(hcclComm->ReceiveOutPlace(tag, recvBuf, count, dataType, srcRank, stream), tag.c_str());
 
     HCCL_PROFILER_DEL_STREAM(stream);
     HCCL_PROFILER_DEL_TAG(tag);
@@ -1231,6 +1295,7 @@ HcclResult HcclCommDestroy(HcclComm comm)
     if (comm == opBaseHcom.pComm.get()) {
         group = opBaseHcom.pComm->GetIdentifier();
         opBaseHcom.pComm = nullptr;
+        HcclCloseCommConnections(group);
     } else {
         HCCL_RUN_INFO("com is not global com");
         group = hcclComm->GetIdentifier();
@@ -1242,6 +1307,7 @@ HcclResult HcclCommDestroy(HcclComm comm)
     auto iter = opBaseHcom.opGroup2CommMap.find(group);
     if (iter != opBaseHcom.opGroup2CommMap.end()) {
         opBaseHcom.opGroup2CommMap.erase(group);
+        HcclCloseCommConnections(group);
     } else {
         HCCL_ERROR("[HcclCommDestroy] comm is not exist, comm=%p, group=%s, deviceLogicId=%d", comm, group.c_str(),
             deviceLogicId);
@@ -1363,118 +1429,6 @@ HcclResult ReduceScatterLoop(const std::string &tag, void *inputPtr, void *outpu
 
         CHK_PRT_RET((curCount == 0), HCCL_ERROR("[Loop][ReduceScatter]In OP_BASE curCount is zero"), HCCL_E_PARA);
         inputOffset = curSize;
-        outputOffset = curSize;
-    }
-
-    return HCCL_SUCCESS;
-}
-
-HcclResult SendLoop(const std::string &tag, void *inputPtr, const u64 &count,
-    HcclDataType dataType, int destRank, hccl::hcclComm *hcclComm, rtStream_t stream)
-{
-    void *commInputPtr = nullptr;
-    u64 commInputSize;
-    HcclResult ret;
-
-    ret = hcclComm->GetInCCLbuffer(commInputPtr, commInputSize);
-    CHK_PRT_RET(ret != HCCL_SUCCESS,
-        HCCL_ERROR("errNo[0x%016llx] Op_base get comm inbuffer error", HCCL_ERROR_CODE(ret)), ret);
-
-    u32 qosCfg = INVALID_QOSCFG; // qos不使能的情况下为全F
-    CHK_RET(hcclComm->GetQosCfg(qosCfg));
-
-    u32 unitSize;
-    ret = SalGetDataTypeSize(dataType, unitSize);
-    CHK_PRT_RET(ret != HCCL_SUCCESS,
-        HCCL_ERROR("errNo[0x%016llx] get datatype size error", HCCL_ERROR_CODE(ret)), ret);
-
-    char *curInputPtr = static_cast<char *>(inputPtr);
-    u64 inputOffset = 0;
-    u64 countLeft = count;
-    while (countLeft > 0) {
-        curInputPtr += inputOffset;
-        HCCL_DEBUG("-OP_BASE-SendLoop:inputOffset[%llu]", inputOffset);
-        u64 curCount = ((countLeft * unitSize) > commInputSize) ? (commInputSize / unitSize) : countLeft;
-        u64 curSize = curCount * unitSize; // 单位 byte
-
-        HCCL_DEBUG("-OP_BASE-SendLoop:curInputPtr[%p], curCount[%llu], curSize[%llu]",
-            curInputPtr, curCount, curSize);
-        ret = hrtMemAsyncCopyByQos(commInputPtr, curSize, curInputPtr, curSize,
-            HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_DEVICE_TO_DEVICE, stream, qosCfg);
-        CHK_PRT_RET(ret != HCCL_SUCCESS,
-            HCCL_ERROR("In OP_BASE inputbuffer transit, memcopy failed."), HCCL_E_MEMORY);
-
-        /* 记录指令信息用于一致性校验 */
-        ret = RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_SEND, tag,
-            curCount, dataType, 0, commInputSize, HCCL_WORLD_GROUP);
-        CHK_PRT_RET(ret != HCCL_SUCCESS,
-            HCCL_ERROR("errNo[0x%016llx] record CMD with parameter error", HCCL_ERROR_CODE(ret)), ret);
-        /* 入参的正确性由HCCL确保 */
-        ret = hcclComm->send(const_cast<char *>(tag.c_str()), commInputPtr, curCount, dataType, destRank, stream);
-        CHK_PRT_RET(ret != HCCL_SUCCESS,
-            HCCL_ERROR("errNo[0x%016llx] op_base hcclComm send error, tag[%s], input_ptr[%p], "\
-            "count[%llu], data_type[%s]", HCCL_ERROR_CODE(ret), tag.c_str(),
-            commInputPtr, curCount, GetDataTypeEnumStr(dataType).c_str()), ret);
-        ret = RankConsistent::GetInstance().DelOpPara(tag);
-        CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("errNo[0x%016llx] delete CMD with parameters error. tag[%s]",
-            HCCL_ERROR_CODE(ret), tag.c_str()), ret);
-        CHK_PRT_RET((curCount == 0), HCCL_ERROR("In OP_BASE curCount is zero"), HCCL_E_PARA);
-        countLeft -= curCount;
-        inputOffset = curSize;
-    }
-
-    return HCCL_SUCCESS;
-}
-
-HcclResult ReceiveLoop(const std::string &tag, void *outputPtr, const u64 &count,
-    HcclDataType dataType, int srcRank, hccl::hcclComm *hcclComm, rtStream_t stream)
-{
-    void *commOutputPtr = nullptr;
-    u64 commOutputSize;
-    HcclResult ret;
-
-    ret = hcclComm->GetOutCCLbuffer(commOutputPtr, commOutputSize);
-    CHK_PRT_RET(ret != HCCL_SUCCESS,
-        HCCL_ERROR("errNo[0x%016llx] Op_base get comm outbuffer error", HCCL_ERROR_CODE(ret)), ret);
-    u32 qosCfg = INVALID_QOSCFG; // qos不使能的情况下为全F
-    CHK_RET(hcclComm->GetQosCfg(qosCfg));
-
-    u32 unitSize;
-    ret = SalGetDataTypeSize(dataType, unitSize);
-    CHK_PRT_RET(ret != HCCL_SUCCESS,
-        HCCL_ERROR("errNo[0x%016llx] get datatype size error", HCCL_ERROR_CODE(ret)), ret);
-
-    char *curOutputPtr = static_cast<char *>(outputPtr);
-    u64 outputOffset = 0;
-    u64 countLeft = count;
-    while (countLeft > 0) {
-        curOutputPtr += outputOffset;
-        HCCL_DEBUG("-OP_BASE-ReceiveLoop:outputOffset[%llu]", outputOffset);
-        u64 curCount = ((countLeft * unitSize) > commOutputSize) ? (commOutputSize / unitSize) : countLeft;
-        u64 curSize = curCount * unitSize; // 单位 byte
-
-        HCCL_DEBUG("-OP_BASE-ReceiveLoop:curOutputPtr[%p], curCount[%llu], curSize[%llu]",
-            curOutputPtr, curCount, curSize);
-        /* 记录指令信息用于一致性校验 */
-        ret = RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_RECEIVE, tag,
-            curCount, dataType, 0, commOutputSize, HCCL_WORLD_GROUP);
-        CHK_PRT_RET(ret != HCCL_SUCCESS,
-            HCCL_ERROR("errNo[0x%016llx] record CMD with parameter error", HCCL_ERROR_CODE(ret)), ret);
-        /* 入参的正确性由HCCL确保 */
-        ret = hcclComm->receive(const_cast<char *>(tag.c_str()), commOutputPtr,
-            curCount, dataType, srcRank, stream);
-        CHK_PRT_RET(ret != HCCL_SUCCESS,
-            HCCL_ERROR("errNo[0x%016llx] op_base hcclComm receive error, tag[%s], "\
-            "output_ptr[%p], count[%llu], data_type[%s]", HCCL_ERROR_CODE(ret), tag.c_str(),
-            commOutputPtr, curCount, GetDataTypeEnumStr(dataType).c_str()), ret);
-        ret = RankConsistent::GetInstance().DelOpPara(tag);
-        CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("errNo[0x%016llx] delete CMD with parameters error. tag[%s]",
-            HCCL_ERROR_CODE(ret), tag.c_str()), ret);
-        ret = hrtMemAsyncCopyByQos(curOutputPtr, curSize, commOutputPtr, curSize,
-            HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_DEVICE_TO_DEVICE, stream, qosCfg);
-        CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("In OP_BASE outputbuffer transit, memcopy failed."), HCCL_E_MEMORY);
-        CHK_PRT_RET((curCount == 0), HCCL_ERROR("In OP_BASE curCount is zero"), HCCL_E_PARA);
-        countLeft -= curCount;
         outputOffset = curSize;
     }
 
@@ -1972,11 +1926,6 @@ HcclResult ReduceLoop(const std::string &tag, void *inputPtr, void *outputPtr, c
     return HCCL_SUCCESS;
 }
 
-/*
- * **********************************************************************
- * 单算子GatherAllToAllV的函数接口，目前不对外开放，仅图模式动态shape使用
- * **********************************************************************
- */
 HcclResult HcclGatherAlltoAllV(HcomGatherAllToAllVParams params, HcclComm comm, aclrtStream stream)
 {
     HcclUs startut = TIME_NOW();

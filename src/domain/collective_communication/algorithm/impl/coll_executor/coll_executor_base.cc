@@ -12,14 +12,32 @@
 
 namespace hccl {
 
-CollExecutorBase::CollExecutorBase(std::unique_ptr<hcclImpl> &pImpl)
-    : hcclImpl_(pImpl)
+CollExecutorBase::CollExecutorBase(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher)
+    : dispatcher_(dispatcher), topoMatcher_(topoMatcher)
 {
 }
 
 HcclResult CollExecutorBase::SetAlgType(const AlgType algType)
 {
     algType_ = algType;
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollExecutorBase::SetVirtualDispatcher(const HcclDispatcher vDispatcher)
+{
+    vDispatcher_ = vDispatcher;
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollExecutorBase::SetCCLInBuffer(u64 cclbufferSize)
+{
+    inCCLbufferSize_ = cclbufferSize;
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollExecutorBase::SetParallelTaskLoader(ParallelTaskLoader* parallelTaskLoader)
+{
+    parallelTaskLoader_ = parallelTaskLoader;
     return HCCL_SUCCESS;
 }
 
@@ -33,14 +51,46 @@ HcclResult CollExecutorBase::RunTemplate(const std::unique_ptr<ExecutorBase> &ex
         commInfo.localRank, commInfo.localRankSize), ret);
     return HCCL_SUCCESS;
 }
-
-bool CollExecutorBase::NeedIncrCreateLink(const OpParam& param)
-{
-    return false;
-}
  
 HcclResult CollExecutorBase::CalcIncreLinkRequest(const OpParam& param, AlgResourceRequest &resourceRequest)
 {
     return HCCL_SUCCESS;
 }
+HcclResult CollExecutorBase::RunAlltoAllTemplate(const std::unique_ptr<AlltoAllVPairWise> &executor,
+    const SubCommInfo &commInfo)
+{
+    HcclResult ret = executor->RunAsync(commInfo.localRank, commInfo.localRankSize, commInfo.links);
+    CHK_PRT_RET(ret == HCCL_E_AGAIN, HCCL_WARNING("[CollExecutorBase][RunAlltoAllTemplate]" \
+        "group has been destroyed. Break!"), ret);
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[CollExecutorBase][RunAlltoAllTemplate]run executor rank[%u] rank size[%u] failed",
+        commInfo.localRank, commInfo.localRankSize), ret);
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollExecutorBase::RunAlltoAllVTemplateStaged(const std::unique_ptr<AlltoAllVStagedBase> &executor,
+    const SubCommInfo &commInfo)
+{
+    HcclResult ret = executor->RunAsync(commInfo.localRank, commInfo.localRankSize, commInfo.links);
+    CHK_PRT_RET(ret == HCCL_E_AGAIN, HCCL_WARNING("[CollExecutorBase][RunAlltoAllVTemplateStaged]" \
+        "group has been destroyed. Break!"), ret);
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[CollExecutorBase][RunAlltoAllVTemplateStaged]run executor rank[%u] rank size[%u] failed",
+        commInfo.localRank, commInfo.localRankSize), ret);
+    return HCCL_SUCCESS;
+}
+
+// deprecated
+HcclResult CollExecutorBase::RunTemplateWithVirtualLink(const std::unique_ptr<AlltoAllVStagedBase> &executor,
+    const SubCommInfo &commInfo)
+{
+    HcclResult ret = executor->RunAsync(commInfo.localRank, commInfo.localRankSize, commInfo.virtualLinks);
+    CHK_PRT_RET(ret == HCCL_E_AGAIN, HCCL_WARNING("[CollExecutorBase][RunTemplateWithVirtualLink]" \
+        "group has been destroyed. Break!"), ret);
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[CollExecutorBase][RunTemplateWithVirtualLink]run executor rank[%u] rank size[%u] failed",
+        commInfo.localRank, commInfo.localRankSize), ret);
+    return HCCL_SUCCESS;
+}
+
 }

@@ -25,12 +25,12 @@ TaskLoader::~TaskLoader()
     }
 }
 
-void TaskLoader::Prepare(Stream *stream, void *commPtr)
+void TaskLoader::Prepare(Stream *stream, SubCommInfo outerCommInfo)
 {
     // 参数保存
     stream_ = stream;
     HCCL_INFO("[TaskLoader] Prepare stream[%p]", stream_->ptr());
-    commPtr_ = commPtr;
+    commInfo_ = outerCommInfo;
     executeResult_ = HCCL_SUCCESS;
 }
 
@@ -98,10 +98,18 @@ void TaskLoader::WaitDone()
 HcclResult TaskLoader::ExecuteTransPortTaskInfo(TaskLogicInfo &info)
 {
     u32 index = info.taskLogicCmd.index;
-    hccl::CommBase *comm = static_cast<hccl::CommBase *>(commPtr_);
-    CHK_SMART_PTR_NULL(comm);
 
-    std::shared_ptr<Transport> destTransport = comm->GetTrasportInfoByVTransportInfoIndex(index);
+    std::shared_ptr<Transport> destTransport = nullptr;
+    if (commInfo_.virtualLinks.size() <= index) {
+        HCCL_ERROR("[ExecuteTransPortTaskInfo]index[%u] is bigger than vlink size[%llu]", index,
+            commInfo_.virtualLinks.size());
+    } else if (commInfo_.links.size() <= index) {
+        HCCL_ERROR("[ExecuteTransPortTaskInfo]index[%u] is bigger than link size[%llu]", index,
+            commInfo_.links.size());
+    } else {
+        destTransport = commInfo_.links[index];
+    }
+
     CHK_SMART_PTR_NULL(destTransport);
 
     switch (info.taskFuncType) {
@@ -222,4 +230,11 @@ uint32_t TaskLoader::GetTid()
     HCCL_INFO("[TaskLoader][GetTid]deviceLogicId_[%d], threadId_[%u]", deviceLogicId_, threadId_);
     return threadId_;
 }
+
+HcclResult TaskLoader::ClearTagCommInfo()
+{
+    commInfo_ = SubCommInfo{};
+    return HCCL_SUCCESS;
+}
+
 }  // namespace hccl

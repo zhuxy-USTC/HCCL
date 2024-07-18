@@ -22,6 +22,7 @@
 #include "mem_device_pub.h"
 #include "stream_pub.h"
 #include "executor_base_pub.h"
+#include "coll_alg_param.h"
 
 namespace hccl {
 class A2aPipelineMemory {
@@ -44,6 +45,11 @@ public:
 
     virtual HcclResult Prepare(u32 userRank, A2aPipelineMemory A2aPipelineMemory,
         std::unique_ptr<CommBase> &commOuter, std::unique_ptr<CommBase> &commInner,
+        Stream &mainStream, std::vector<Stream> &subStream,
+        std::vector<std::shared_ptr<LocalNotify>> &notifyMain, std::vector<std::shared_ptr<LocalNotify>> &notifySub);
+    // 适配新CollExecutor接口
+    virtual HcclResult Prepare(u32 userRank, A2aPipelineMemory A2aPipelineMemory,
+        const SubCommInfo &outerCommInfo, const SubCommInfo &innerCommInfo,
         Stream &mainStream, std::vector<Stream> &subStream,
         std::vector<std::shared_ptr<LocalNotify>> &notifyMain, std::vector<std::shared_ptr<LocalNotify>> &notifySub);
 

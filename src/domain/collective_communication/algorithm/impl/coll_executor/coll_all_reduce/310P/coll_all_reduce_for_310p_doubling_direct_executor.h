@@ -15,7 +15,8 @@ namespace hccl {
 class CollAllReduceFor310PDoublingDirectExecutor : public CollAllReduceExecutor {
 
 public:
-    CollAllReduceFor310PDoublingDirectExecutor(std::unique_ptr<hcclImpl> &pImpl);
+    CollAllReduceFor310PDoublingDirectExecutor(const HcclDispatcher dispatcher,
+                                               std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollAllReduceFor310PDoublingDirectExecutor() = default;
 
 private:

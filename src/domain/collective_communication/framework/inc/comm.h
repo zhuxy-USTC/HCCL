@@ -13,6 +13,7 @@
 
 #include "hccl_common.h"
 #include "common.h"
+#include "hccl_socket.h"
 
 // profiling状态
 enum class HcomProfilingMode {
@@ -32,6 +33,12 @@ enum class HcclTopoLevel {
 };
 
 namespace hccl {
+using HcclCommConnections = struct HcclCommConnectionsDef {
+    bool isRoot{false};
+    std::shared_ptr<HcclSocket> agentConnection{nullptr};
+    std::map<std::string, std::shared_ptr<HcclSocket>> serverConnections;
+};
+
 using HcclCommParams = struct TagHCCLCollectiveParams {
     /**
     通信域的基本构建信息，通信域标识、节点数及本节点的编号
@@ -57,6 +64,7 @@ using HcclCommParams = struct TagHCCLCollectiveParams {
     CommAttr attr;
     WorkMode commWorkMode = WorkMode::HCCL_MODE_NORMAL;
     std::string identifier;
+    HcclCommConnections commConnections;
     TagHCCLCollectiveParams()
         : id{0}, rank(INVALID_VALUE_RANKID), userRank(INVALID_VALUE_RANKID), totalRanks(0xFFFFFFFF),
           logicDevId(-1), deviceType(DevType::DEV_TYPE_COUNT), profilingMode(HcomProfilingMode::PROFILING_CLOSE),

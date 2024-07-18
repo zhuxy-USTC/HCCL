@@ -16,8 +16,8 @@
 
 namespace hccl {
 
-ReduceOperator::ReduceOperator(std::unique_ptr<hcclImpl> &pImpl)
-    : CommonOperator(pImpl, HcclCMDType::HCCL_CMD_REDUCE)
+ReduceOperator::ReduceOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CommonOperator(pImpl, topoMatcher, HcclCMDType::HCCL_CMD_REDUCE)
 {
     if (UseInterServerNHRAlgo(algType_) || UseInterServerNHRV1Algo(algType_) || UseInterServerNBAlgo(algType_) ||
         UseInterServerPipelineAlgo(algType_)) {
@@ -85,7 +85,7 @@ HcclResult ReduceOperator::Reduce(const std::string &tag, void *inputPtr, void *
         HCCL_ERROR("[ReduceOperator][Reduce]errNo[0x%016llx] tag[%s],reduce run failed", HCCL_ERROR_CODE(ret),
             tag.c_str()), ret);
 
-    HCCL_INFO("tag[%s],reduce run success,take time [%lld]us.", tag.c_str(), DURATION_US(TIME_NOW() - startut));
+    HCCL_INFO("tag[%s], rank[%u] root[%u] reduce run success,take time [%lld]us.", tag.c_str(), userRank_, root, DURATION_US(TIME_NOW() - startut));
     return HCCL_SUCCESS;
 }
 
@@ -389,7 +389,7 @@ HcclResult ReduceOperator::ReduceMeshExecutor(const std::string &tag, DeviceMem 
         }
     }
     std::vector<std::unique_ptr<CommBase>> &commMeshVec = currComm->commOuter;
-    if (hcclImpl_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_DISABLE && (dataType != HCCL_DATA_TYPE_INT64) &&
+    if (topoMatcher_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_DISABLE && (dataType != HCCL_DATA_TYPE_INT64) &&
         (deviceType_ == DevType::DEV_TYPE_910B && op != HCCL_REDUCE_PROD)) {
         CHK_RET(MultiStreamReduceScatterMeshAtomic(tag, inputMem, outputMem, count, dataType, op,
             dataSegsSlice, stream, commMeshVec));
@@ -503,12 +503,11 @@ HcclResult ReduceOperator::ReduceDoubleRingExecutor(const std::string &tag, Devi
         "!=multiRingsSliceZero size[%llu]", ringNum, multiRingsSliceZero.size()), HCCL_E_INTERNAL);
     CHK_RET(MultiRingReduceScatter(tag, inputMem, outputMem, count, dataType, op, multiRingsSliceZero, stream,
         PROF_STAGE_0));
-    HCCL_INFO("[ReduceDoubleRingExecutor]reduce double ring stage0 run success");
+    HCCL_INFO("[ReduceDoubleRingExecutor]stage0 run success");
     u32 commIndex = 0;
     u64 level1Size = 0;
     u32 segmentIdx = 0;
-    CHK_RET(hcclImpl_->PrepareInnerCommInfo(segmentIdx, commIndex, level1Size,
-        currComm->commOuter, multiRingsSliceZero, tag));
+    CHK_RET(hcclImpl_->PrepareInnerCommInfo(segmentIdx, commIndex, level1Size, currComm->commOuter, multiRingsSliceZero, tag));
     u64 level1Count = level1Size / perDataSize;
     if (devNumInLevel2_ <= 1) {
         bRet = commIndex >= currComm->commInner.size();
@@ -522,10 +521,10 @@ HcclResult ReduceOperator::ReduceDoubleRingExecutor(const std::string &tag, Devi
         std::unique_ptr<ExecutorBase> innerExecutor;
         if (UseInterServerRingAlgo(algType_)) {
             innerExecutor.reset(new (std::nothrow) ReduceRing(dispatcher_, reduceAttr));
-            HCCL_INFO("[ReduceDoubleRingExecutor]reduce ring: using ring algo inter-server.");
+            HCCL_INFO("[ReduceDoubleRingExecutor]using ring algo inter-server.");
         } else {
             innerExecutor.reset(new (std::nothrow) ReduceRecursiveHalvingDoubling(dispatcher_, reduceAttr));
-            HCCL_INFO("[ReduceDoubleRingExecutor]reduce ring: using Recursive halving-doubling algo inter-server.");
+            HCCL_INFO("[ReduceDoubleRingExecutor]using Recursive halving-doubling algo inter-server.");
         }
         CHK_SMART_PTR_NULL(currComm->commInner[commIndex]);
         u32 rankSize = (currComm->commInner[commIndex]->RankSize());
@@ -539,13 +538,14 @@ HcclResult ReduceOperator::ReduceDoubleRingExecutor(const std::string &tag, Devi
         // 节点间的hd 使用环0来记录
         CHK_SMART_PTR_NULL(innerExecutor);
         CHK_RET(innerExecutor->Prepare(
-            reduceInput, reduceOutput, reduceOutput, level1Count, dataType, stream, op, OUTER_BRIDGE_RANK_ID,
+            reduceInput, reduceOutput, reduceOutput, level1Count, dataType, stream, op, planeRoot,
             std::vector<Slice>(0), dataSegsSlice[segmentIdx].offset));
         CHK_RET(innerExecutor->RegisterProfiler(
             (rankSize << PROF_RANKSIZE_OFFSET_OF_PLANEID) + commInner->Rank(),
             PROF_STAGE_1, HCCL_EXEC_STEP_NOT_SET, stream));
         CHK_RET(commInner->RunExecutor(innerExecutor));
     } else {
+        //节点间 reduce scatter
         CHK_RET(ExecutorBase::PrepareSliceData(level1Count, perDataSize, sliceNum, 0, dataSegsSlice));
         bRet = commIndex >= currComm->commInner.size();
         CHK_PRT_RET(bRet, HCCL_ERROR("[ReduceDoubleRingExecutor] commIndex[%u] >= ",\
@@ -555,19 +555,23 @@ HcclResult ReduceOperator::ReduceDoubleRingExecutor(const std::string &tag, Devi
         DeviceMem reducescatterOutput = outputMem.range(dataSegsSlice[segmentIdx].offset, level1Size);
         u64 reduceAttr = GetReduceAttr(reducescatterInput, reducescatterOutput, dataType, op);
         std::unique_ptr<ExecutorBase> level1RSExecutor;
+        u32 subUserrankRoot = hcclImpl_->GetSubRootUserRank(userRank_, root);
+        u32 planeRoot = 0;
+        std::unique_ptr<CommBase> &commInner = currComm->commInner[commIndex];
+        CHK_RET(commInner->GetRankByUserRank(subUserrankRoot, planeRoot));
         if (UseInterServerRingAlgo(algType_)) {
             level1RSExecutor.reset(new (std::nothrow) ReduceScatterRing(dispatcher_, reduceAttr));
             CHK_SMART_PTR_NULL(level1RSExecutor);
             CHK_RET(level1RSExecutor->Prepare(
                 reducescatterInput, reducescatterInput, reducescatterOutput, level1Count, dataType, stream, op,
-                OUTER_BRIDGE_RANK_ID, dataSegsSlice, dataSegsSlice[segmentIdx].offset));
+                planeRoot, dataSegsSlice, dataSegsSlice[segmentIdx].offset));
             HCCL_INFO("[ReduceDoubleRingExecutor]reducescatter ring: using ring algo inter-server.");
         } else {
             level1RSExecutor.reset(new (std::nothrow) ReduceScatterRecursiveHalvingDoubling(dispatcher_, reduceAttr));
             CHK_SMART_PTR_NULL(level1RSExecutor);
             CHK_RET(level1RSExecutor->Prepare(
                 reducescatterInput, reducescatterOutput, reducescatterOutput, level1Count, dataType, stream, op,
-                OUTER_BRIDGE_RANK_ID, dataSegsSlice, dataSegsSlice[segmentIdx].offset));
+                planeRoot, dataSegsSlice, dataSegsSlice[segmentIdx].offset));
             HCCL_INFO("[ReduceDoubleRingExecutor]reducescatter ring: using halving-doubling algo inter-server.");
         }
         CHK_RET(level1RSExecutor->RegisterProfiler(
@@ -584,7 +588,11 @@ HcclResult ReduceOperator::ReduceDoubleRingExecutor(const std::string &tag, Devi
         bRet = commIndex >= currComm->commLevel2.size();
         CHK_PRT_RET(bRet, HCCL_ERROR("[ReduceDoubleRingExecutor] commIndex[%u] >= ",\
             "(tag[%s])comm size[%llu]", commIndex, tag.c_str(), currComm->commLevel2.size()), HCCL_E_INTERNAL);
-        CHK_SMART_PTR_NULL(currComm->commLevel2[commIndex]);
+        std::unique_ptr<CommBase> &commSuperpod = currComm->commLevel2[commIndex];
+        CHK_PTR_NULL(commSuperpod);
+        u32 subUserrankRootSupperPod = hcclImpl_->GetSubRootUserRankWithSuperPod(userRank_, root);
+        u32 planeRootSupperPod = 0;
+        CHK_RET(commSuperpod->GetRankByUserRank(subUserrankRootSupperPod,planeRootSupperPod));
         u32 rankSize = currComm->commLevel2[COMM_INDEX_0]->RankSize();
         DeviceMem reduceInput = inputMem.range(dataSegsSlice[segmentIdx].offset, rSize);
         DeviceMem reduceOutput = outputMem.range(dataSegsSlice[segmentIdx].offset, rSize);
@@ -598,7 +606,7 @@ HcclResult ReduceOperator::ReduceDoubleRingExecutor(const std::string &tag, Devi
             HCCL_INFO("[ReduceDoubleRingExecutor]reducescatter ring: using halving-doubling algo inter-server.");
         }
         CHK_RET(level2RExecutor->Prepare(
-            reduceInput, reduceOutput, reduceOutput, arCount, dataType, stream, op, OUTER_BRIDGE_RANK_ID,
+            reduceInput, reduceOutput, reduceOutput, arCount, dataType, stream, op, planeRootSupperPod,
             std::vector<Slice>(0), dataSegsSlice[segmentIdx].offset));
         CHK_SMART_PTR_NULL(level2RExecutor);
         CHK_RET(level2RExecutor->RegisterProfiler(
@@ -613,7 +621,7 @@ HcclResult ReduceOperator::ReduceDoubleRingExecutor(const std::string &tag, Devi
         level1GExecutor.reset(new (std::nothrow) GatherRing(dispatcher_));
         CHK_SMART_PTR_NULL(level1GExecutor);
         CHK_RET(level1GExecutor->Prepare(gatherOutput, gatherOutput, gatherOutput, arCount, dataType, stream,
-            HcclReduceOp::HCCL_REDUCE_RESERVED, OUTER_BRIDGE_RANK_ID, dataSegsSlice,
+            HcclReduceOp::HCCL_REDUCE_RESERVED, planeRoot, dataSegsSlice,
             dataSegsSlice[segmentIdx].offset));
         CHK_RET(level1GExecutor->RegisterProfiler(
             (sliceNum << PROF_RANKSIZE_OFFSET_OF_PLANEID) + currComm->commInner[commIndex]->Rank(),
@@ -621,7 +629,7 @@ HcclResult ReduceOperator::ReduceDoubleRingExecutor(const std::string &tag, Devi
         CHK_RET(currComm->commInner[commIndex]->RunExecutor(level1GExecutor));
         HCCL_INFO("[ReduceDoubleRingExecutor]reduce double ring [superpod] level1 gather run success");
     }
-    HCCL_INFO("[ReduceDoubleRingExecutor]reduce double ring stage1 run success");
+    HCCL_INFO("[ReduceDoubleRingExecutor]stage1 run success");
     u32 rootRank = 0;
     std::unique_ptr<CommBase> &commOuter = currComm->commOuter[COMM_INDEX_0];
     CHK_SMART_PTR_NULL(commOuter);
@@ -635,4 +643,85 @@ HcclResult ReduceOperator::ReduceDoubleRingExecutor(const std::string &tag, Devi
     HCCL_INFO("[ReduceDoubleRingExecutor]reduce double ring stage2 run success");
     return HCCL_SUCCESS;
 }
+ 
+HcclResult ReduceOperator::SelectAlg(const std::string &tag, const OpParam &param, std::string &algName,
+    std::string &newTag)
+{
+    HcclResult ret = HCCL_SUCCESS;
+
+    if (userRankSize_ == 1 && GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+        algName = "ReduceSingleExecutor";
+        return HCCL_SUCCESS;
+    }
+ 
+    if (deviceType_ == DevType::DEV_TYPE_910) {
+        ret = SelectAlgfor910A(param, algName);
+    } else if (deviceType_ == DevType::DEV_TYPE_910B) {
+        ret = SelectAlgfor910B(param, algName);
+    } else if (deviceType_ == DevType::DEV_TYPE_910_73) {
+        ret = SelectAlgfor91073(param, algName);
+    } else {
+        HCCL_ERROR("[SelectAlg] device type[%d] is out of range for selector.", deviceType_);
+        return HCCL_E_NOT_SUPPORT;
+    }
+ 
+    AlgTypeLevel1 algType1 = GetLevel1AlgType(algType_);
+        auto level1Iter = HCCL_ALGO_LEVEL1_NAME_MAP.find(algType1);
+        newTag = tag + level1Iter->second + algName;
+    
+    HCCL_INFO("[SelectAlg] reduce newTag is [%s]", newTag.c_str());
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[ReduceSelector][SelectAlg]tag[%s], reduce failed, return[%d]", tag.c_str(), ret), ret);
+    return ret;
+}
+ 
+HcclResult ReduceOperator::SelectAlgfor910A(const OpParam& param, std::string& algName)
+{
+    bool isMeshTopo = topoType_ == TopoType::TOPO_TYPE_4P_MESH || topoType_ == TopoType::TOPO_TYPE_2P_MESH;
+    bool isRingTopo = topoType_ == TopoType::TOPO_TYPE_NP_SINGLE_RING || topoType_ == TopoType::TOPO_TYPE_8P_RING;
+ 
+    if (isMeshTopo) {
+        algName = "ReduceMeshExecutor";
+    } else if (isRingTopo) {
+        algName = "ReduceRingPlusHd";
+    } else {
+        algName = "ReduceComm";
+    }
+
+    HCCL_INFO("[SelectAlgfor910A] reduce SelectAlgfor910A is algName [%s]", algName.c_str());
+    return HCCL_SUCCESS;
+}
+ 
+HcclResult ReduceOperator::SelectAlgfor910B(const OpParam& param, std::string& algName)
+{
+    bool isMeshTopo = topoType_ == TopoType::TOPO_TYPE_NP_MESH || topoType_ == TopoType::TOPO_TYPE_4P_MESH ||
+        topoType_ == TopoType::TOPO_TYPE_2P_MESH || topoType_ == TopoType::TOPO_TYPE_1P_MESH;
+    bool isRingTopo = topoType_ == TopoType::TOPO_TYPE_NP_SINGLE_RING;
+ 
+    if (isMeshTopo) {
+        algName = "ReduceMeshExecutor";
+    } else if (isRingTopo) {
+        algName = "ReduceRingPlusHd";
+    } else {
+        algName = "ReduceComm";
+    }
+
+    HCCL_INFO("[SelectAlgfor910B] reduce SelectAlgfor910B is algName [%s]", algName.c_str());
+    return HCCL_SUCCESS;
+}
+ 
+HcclResult ReduceOperator::SelectAlgfor91073(const OpParam& param, std::string& algName)
+{
+    // 当前double ring算法不支持，与single ring保持一致
+    if (topoType_ == TopoType::TOPO_TYPE_NP_DOUBLE_RING) {
+        algName = "ReduceDoubleRingExecutor";
+    } else {
+        algName = "ReduceComm";
+    }
+    HCCL_INFO("[SelectAlgfor91073] areduce SelectAlgfor91073 is algName [%s]", algName.c_str());
+    return HCCL_SUCCESS;
+}
+
+REGISTER_OP(HcclCMDType::HCCL_CMD_REDUCE, Reduce, ReduceOperator);
+
 }

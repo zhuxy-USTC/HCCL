@@ -16,402 +16,338 @@
 #include <vector>
 #include "allltoall_pipeline_mesh_pairwise_ccl_enough_pub.h"
 #include "allltoall_pipeline_mesh_pairwise_ping_pong_pub.h"
+#include "coll_alg_exec_registry.h"
+#include "coll_alg_op_registry.h"
 
 namespace hccl {
 
-AlltoAllOperator::AlltoAllOperator(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAlgOperator(pImpl, HcclCMDType::HCCL_CMD_ALLTOALL)
+AlltoAllOperator::AlltoAllOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAlgOperator(pImpl, topoMatcher, HcclCMDType::HCCL_CMD_ALLTOALL)
 {
-    hcclImpl_->GetAlltoAllStatus(tinySendRecvMem_, isAlltoAllZCopyMode_, isAlltoAllZCopyModeMap_);
+    hcclImpl_->GetAlltoAllStatus(tinySendRecvMem_, isAlltoAllZCopyMode_);
 }
 
 AlltoAllOperator::~AlltoAllOperator()
 {
 }
 
-HcclResult AlltoAllOperator::AlltoAllVForOneRankSize(const void *sendBuf, const void *sendCounts, const void *sdispls,
-        HcclDataType sendType, const void *recvBuf, const void *recvCounts, const void *rdispls, HcclDataType recvType,
-        Stream stream, const std::string &tag)
+HcclResult AlltoAllOperator::CheckSendRecvParams(
+    const std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo)
 {
-    u32 sendTypeSize = 0, recvTypeSize = 0;
-    CHK_RET(SalGetDataTypeSize(sendType, sendTypeSize));
-    CHK_RET(SalGetDataTypeSize(recvType, recvTypeSize));
-    HCCL_PROFILER_ADD_STREAM(stream.ptr(), tag, 0, algType_);
-    u64 curSendCount = *(static_cast<const u64 *>(sendCounts) + 0) + *(static_cast<const u64 *>(sdispls) + 0);
-    u64 sendCount = 0;
-    sendCount = std::max(sendCount, curSendCount);
-    bool hugeData = (sendCount * sendTypeSize ) > SDMA_SEND_MAX_SIZE ; 
-    if (sendBuf == recvBuf) {
-        // 通过CopyPattern字段区分不同的子图
-        auto opMeta = HcclOpMetaInfo::GetOneForAllToAllV(CopyPattern::ZCOPY, sendCount * sendTypeSize, hugeData);
-        CHK_RET(InitTask(dispatcher_, stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
-    } else {
-        auto opMeta = HcclOpMetaInfo::GetOneForAllToAllV(CopyPattern::BCOPY, sendCount * sendTypeSize,hugeData);
-        CHK_RET(InitTask(dispatcher_, stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
-        DeviceMem srcMem = DeviceMem::create(const_cast<void *>(sendBuf), sendCount * sendTypeSize);
-        DeviceMem dstMem = DeviceMem::create(const_cast<void *>(recvBuf), sendCount * sendTypeSize);
-        HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, stream); // ranksize = 1; intput、output地址不同，input->output
+    u32 rankSize = allMeshAggregationSendRecvInfo.size();
+    for (u32 i = 0; i < rankSize; i++) {
+        u32 sendsSize = allMeshAggregationSendRecvInfo[i].sendLength.size();
+        u32 recvsSize = allMeshAggregationSendRecvInfo[i].recvLength.size();
+        if (rankSize != sendsSize || rankSize != recvsSize) {
+            HCCL_ERROR(
+                "[AlltoAllV][CheckSendRecvParam] rankSize[%u], sendsSize[%u], recvsSize[%u] are not match Index[%u]",
+                rankSize, sendsSize, recvsSize, i);
+            return HCCL_E_PARA;
+        }
+        for (u32 j = 0; j < sendsSize; j++) {
+            if (allMeshAggregationSendRecvInfo[i].sendLength[j] != allMeshAggregationSendRecvInfo[j].recvLength[i]) {
+                HCCL_ERROR("SendLength[%u][%u]: %llu and recvLength[%u][%u]: %llu are not match", i, j,
+                    allMeshAggregationSendRecvInfo[i].sendLength[j], j, i,
+                    allMeshAggregationSendRecvInfo[j].recvLength[i]);
+                return HCCL_E_PARA;
+            }
+        }
     }
-    CHK_RET(LaunchTask(dispatcher_, stream));
-    HCCL_PROFILER_DEL_STREAM(stream.ptr());
     return HCCL_SUCCESS;
 }
 
-HcclResult AlltoAllOperator::AlltoAllV(const void *sendBuf, const void *sendCounts, const void *sdispls,
-    HcclDataType sendType, const void *recvBuf, const void *recvCounts, const void *rdispls, HcclDataType recvType,
-    Stream stream, const std::string &tag)
+HcclResult AlltoAllOperator::GetAlltoAllvcSendRecvInfo(const void *sendCountMatrix, HcclDataType sendType,
+    HcclDataType recvType)
 {
-    /* ------------集合通信资源准备------------ */
-    HcclUs startut = TIME_NOW();
-
-    auto rtStream = stream.ptr();
-    u32 sendTypeSize = 0, recvTypeSize = 0;
-    CHK_RET(SalGetDataTypeSize(sendType, sendTypeSize));
-    CHK_RET(SalGetDataTypeSize(recvType, recvTypeSize));
-
-    if (userRankSize_ == 1 && (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE))
-    {
-        CHK_RET(AlltoAllVForOneRankSize(sendBuf,sendCounts,sdispls,sendType,recvBuf,recvCounts,rdispls,recvType,stream,tag));
-        return HCCL_SUCCESS ;
-    }
-
-    CHK_RET(notifyPool_->RegisterOp(tag));
-    u64 sendCount = 0;
-    u64 recvCount = 0;
+    allMeshAggregationSendRecvInfo_.clear();
     for (u32 i = 0; i < userRankSize_; i++) {
-        u64 curSendCount = *(static_cast<const u64 *>(sendCounts) + i) + *(static_cast<const u64 *>(sdispls) + i);
-        sendCount = std::max(sendCount, curSendCount);
-        u64 curRecvCount = *(static_cast<const u64 *>(recvCounts) + i) + *(static_cast<const u64 *>(rdispls) + i);
-        recvCount = std::max(recvCount, curRecvCount);
+        SendRecvInfo sendRecvInfo;
+        sendRecvInfo.sendCounts.resize(userRankSize_);
+        sendRecvInfo.sendDispls.resize(userRankSize_);
+        sendRecvInfo.sendLength.resize(userRankSize_);
+        sendRecvInfo.sendOffset.resize(userRankSize_);
+        u64 curSendDispls = 0;
+        u64 curSendOffset = 0;
+
+        sendRecvInfo.recvCounts.resize(userRankSize_);
+        sendRecvInfo.recvDispls.resize(userRankSize_);
+        sendRecvInfo.recvLength.resize(userRankSize_);
+        sendRecvInfo.recvOffset.resize(userRankSize_);
+        u64 curRecvDispls = 0;
+        u64 curRecvOffset = 0;
+        // sendCountMatrix[i * userRankSize_ + j] 代表rank i发送到rank j的count参数
+        for (u32 j = 0; j < userRankSize_; j++) {
+            u64 curSendCounts = *(static_cast<const u64 *>(sendCountMatrix) + i * userRankSize_ + j);
+            u64 curSendLength = curSendCounts * SIZE_TABLE[sendType];
+            sendRecvInfo.sendCounts[j] = curSendCounts;
+            sendRecvInfo.sendDispls[j] = curSendDispls;
+            sendRecvInfo.sendLength[j] = curSendLength;
+            sendRecvInfo.sendOffset[j] = curSendOffset;
+            curSendDispls += curSendCounts;
+            curSendOffset += curSendLength;
+
+            u64 curRecvCounts = *(static_cast<const u64 *>(sendCountMatrix) + i + userRankSize_ * j);
+            u64 curRecvLength = curRecvCounts * SIZE_TABLE[recvType];
+            sendRecvInfo.recvCounts[j] = curRecvCounts;
+            sendRecvInfo.recvDispls[j] = curRecvDispls;
+            sendRecvInfo.recvLength[j] = curRecvLength;
+            sendRecvInfo.recvOffset[j] = curRecvOffset;
+            curRecvDispls += curRecvCounts;
+            curRecvOffset += curRecvLength;
+
+            HCCL_DEBUG("GetAlltoAllvcSendRecvInfo rank[%u], sendCounts[%llu], sendDispls[%llu] "\
+                "recvCounts[%llu], recvDispls[%llu]", i, sendRecvInfo.sendCounts[j], sendRecvInfo.sendDispls[j],
+                sendRecvInfo.recvCounts[j], sendRecvInfo.recvDispls[j]);
+        }
+        allMeshAggregationSendRecvInfo_.push_back(sendRecvInfo);
+    }
+    CHK_RET(CheckSendRecvParams(allMeshAggregationSendRecvInfo_));
+    return HCCL_SUCCESS;
+}
+
+void AlltoAllOperator::UpdateAlltoAllCopyMode(std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo,
+    std::string& copyMode)
+{
+    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+        u64 maxSendSize = 0;
+        u64 maxRecvSize = 0;
+        for (auto &sendRecvInfo : allMeshAggregationSendRecvInfo) {
+            for (u32 i = 0; i < userRankSize_; i++) {
+                u64 curSendSize = sendRecvInfo.sendLength[i] + sendRecvInfo.sendOffset[i];
+                maxSendSize = std::max(maxSendSize, curSendSize);
+                u64 curRecvSize = sendRecvInfo.recvLength[i] + sendRecvInfo.recvOffset[i];
+                maxRecvSize = std::max(maxRecvSize, curRecvSize);
+            }
+        }
+        bool isAlltoAllZCopyMode = (maxSendSize <= GetExternalInputCCLBuffSize()) &&
+                                   (maxRecvSize <= GetExternalInputCCLBuffSize());
+        if (isAlltoAllZCopyMode) {
+           copyMode = "ZCopy";
+        }
+        HCCL_INFO("[AlltoAllOperator][UpdateAlltoAllCopyMode] maxSendSize[%llu], maxRecvSize[%llu], "\
+            "cclBufferSize[%llu], CopyMode[%s]", maxSendSize, maxRecvSize,
+            GetExternalInputCCLBuffSize(), copyMode.c_str());
+    } else {
+        // 图模式走ZCopy实现
+        copyMode = "ZCopy";
+    }
+}
+
+HcclResult AlltoAllOperator::GetAlltoAllvSendRecvInfo(const OpParam& param, const HostMem &alltoallAddrInfoGathered)
+{
+    allMeshAggregationSendRecvInfo_.clear();
+    u64 stepSize = sizeof(u64) * userRankSize_;
+    const u32 addrItemNum = 4;
+    const u32 recvLengthStep = 2;
+    const u32 recvOffsetStep = 3;
+    for (u32 i = 0; i < userRankSize_; i++) {
+        SendRecvInfo sendRecvInfo;
+        sendRecvInfo.sendLength.resize(userRankSize_);
+        sendRecvInfo.sendOffset.resize(userRankSize_);
+        sendRecvInfo.recvLength.resize(userRankSize_);
+        sendRecvInfo.recvOffset.resize(userRankSize_);
+        CHK_SAFETY_FUNC_RET(memcpy_s(sendRecvInfo.sendLength.data(),
+            stepSize,
+            static_cast<u8 *>(alltoallAddrInfoGathered.ptr()) + i * stepSize * addrItemNum + 0 * stepSize,
+            stepSize));
+        CHK_SAFETY_FUNC_RET(memcpy_s(sendRecvInfo.sendOffset.data(),
+            stepSize,
+            static_cast<u8 *>(alltoallAddrInfoGathered.ptr()) + i * stepSize * addrItemNum + stepSize,
+            stepSize));
+        CHK_SAFETY_FUNC_RET(memcpy_s(sendRecvInfo.recvLength.data(),
+            stepSize,
+            static_cast<u8 *>(alltoallAddrInfoGathered.ptr()) + i * stepSize * addrItemNum + recvLengthStep * stepSize,
+            stepSize));
+        CHK_SAFETY_FUNC_RET(memcpy_s(sendRecvInfo.recvOffset.data(),
+            stepSize,
+            static_cast<u8 *>(alltoallAddrInfoGathered.ptr()) + i * stepSize * addrItemNum + recvOffsetStep * stepSize,
+            stepSize));
+        allMeshAggregationSendRecvInfo_.push_back(std::move(sendRecvInfo));
     }
 
-    // sendCount或recvCount为0时, 使用默认分配的内存空间, 避免sendMem和recvMem为空
-    DeviceMem sendMem = sendCount == 0 ?
-        DeviceMem::create(tinySendRecvMem_.ptr(), tinySendRecvMem_.size()) :
-        DeviceMem::create(const_cast<void *>(sendBuf), sendCount * sendTypeSize);
-    DeviceMem recvMem = recvCount == 0 ?
-        DeviceMem::create(tinySendRecvMem_.ptr(), tinySendRecvMem_.size()) :
-        DeviceMem::create(const_cast<void *>(recvBuf), recvCount * recvTypeSize);
+    for (auto &sendRecvInfo : allMeshAggregationSendRecvInfo_) {
+        for (u32 i = 0; i < userRankSize_; i++) {
+            sendRecvInfo.sendCounts.push_back(sendRecvInfo.sendLength[i] / SIZE_TABLE[param.All2AllDataDes.sendType]);
+            sendRecvInfo.sendDispls.push_back(sendRecvInfo.sendOffset[i] / SIZE_TABLE[param.All2AllDataDes.sendType]);
+            sendRecvInfo.recvCounts.push_back(sendRecvInfo.recvLength[i] / SIZE_TABLE[param.All2AllDataDes.recvType]);
+            sendRecvInfo.recvDispls.push_back(sendRecvInfo.recvOffset[i] / SIZE_TABLE[param.All2AllDataDes.recvType]);
+            HCCL_INFO("[GetAllMeshAggregationSendRecvInfo] rank[%u], sendCounts[%llu], sendDispls[%llu], "\
+                "recvCounts[%llu], recvDispls[%llu]", i, sendRecvInfo.sendCounts[i], sendRecvInfo.sendDispls[i],
+                sendRecvInfo.recvCounts[i], sendRecvInfo.recvDispls[i]);
+            HCCL_INFO("[GetAllMeshAggregationSendRecvInfo] rank[%u], sendLength[%llu], sendOffset[%llu], "\
+                "recvLength[%llu], recvOffset[%llu]", i, sendRecvInfo.sendLength[i], sendRecvInfo.sendOffset[i],
+                sendRecvInfo.recvLength[i], sendRecvInfo.recvOffset[i]);
+        }
+    }
+
+    CHK_RET(CheckSendRecvParams(allMeshAggregationSendRecvInfo_));
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult AlltoAllOperator::SelectAlgforAlltoAll(const OpParam& param, std::string& algName, std::string& copyMode)
+{
 
     bool useOneLevelAlgorithm =
         (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[0] == HcclAlgoType::HCCL_ALGO_TYPE_NA &&
         (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[1] == HcclAlgoType::HCCL_ALGO_TYPE_PAIRWISE ||
-        NAFullmeshSatisfyHighPerfAlltoallMeshCondition(deviceType_, userRankSize_)));  // 用户配置打平 alltoall
+        CollAlgOperator::NAFullmeshSatisfyHighPerfAlltoallMeshCondition(deviceType_, userRankSize_)));
+        // 用户配置打平 alltoall
 
-    std::vector<SendRecvInfo> allMeshAggregationSendRecvInfo;
-    CHK_RET(GetAllMeshAggregationSendRecvInfo(sendCounts, sdispls, sendType, recvCounts, rdispls, recvType,
-        allMeshAggregationSendRecvInfo, stream));
-    UpdateAlltoAllZCopyMode(allMeshAggregationSendRecvInfo, tag);
     // NA+pairwise算法不支持A+X跨mesh两卡
     bool isSingleDeviceModuleP2p = (userRankSize_ <= HCCL_ALLTOALLV_P2P_SIZE);
 
-    HCCL_PROFILER_ADD_STREAM(rtStream, tag, 0, algType_);
-
-    // 暂时先支持单算子模式
     if (IsSatisfyAlltoallPipelineCondition()) {
-        HCCL_RUN_INFO("[AlltoAllOperator][AlltoAllV] running alltoallv intra mesh inter pairwise pipeline");
-        RunAlltoAllVTwoLevelPipeline(sendMem, recvMem, allMeshAggregationSendRecvInfo, stream,  tag);
+        algName = "RunAlltoAllVTwoLevelPipeline";
     } else if (useOneLevelAlgorithm || isAllRankSamePlane_ || isSingleDeviceModuleP2p ||
         multiModuleDiffDeviceNumMode_) {
-        HCCL_INFO("[hcclImpl][AlltoAllV] running alltoallv full-mesh implementation");
-        CHK_RET(hcclImpl_->CreateCommForAlltoAllFullMesh(tag, sendMem, recvMem));
-        CHK_RET(hcclImpl_->RegisterToHeartBeat());
-        HCCL_INFO("resource creation (AlltoAllV Full Mesh) success, take time [%lld]us, tag[%s]",
-            DURATION_US(TIME_NOW() - startut), tag.c_str());
-        CHK_RET(RunAlltoAllVFullMesh(
-            sendMem, sendType, recvMem, recvType, allMeshAggregationSendRecvInfo, stream, tag));
-    } else { // 当前如果是910B的16P场景，单server内跨组网也走分级，但是PCIE
-        HCCL_INFO("[hcclImpl][AlltoAllV] running alltoallv staged implementation");
-        CHK_RET(RunAlltoAllVStaged(sendMem, sendType, recvMem, recvType,
-            allMeshAggregationSendRecvInfo, stream, tag));
+        algName = "RunAlltoAllVFullMesh";
+    } else {
+        algName = "RunAlltoAllVStaged";
     }
 
-    CHK_RET(notifyPool_->UnregisterOp(tag));
+    if (param.opType == HcclCMDType::HCCL_CMD_ALLTOALLV) {
+        // alltoallv
+        CHK_RET(GetAlltoAllvSendRecvInfo(param, hostCollectBuffer_));
+    } else if (param.opType == HcclCMDType::HCCL_CMD_ALLTOALLVC || param.opType == HcclCMDType::HCCL_CMD_ALLTOALL){
+        // alltoallvc&&alltoall
+        CHK_RET(GetAlltoAllvcSendRecvInfo(param.All2AllDataDes.sendCountMatrix, param.All2AllDataDes.sendType,
+            param.All2AllDataDes.recvType));
+    } else {
+        HCCL_ERROR("[AlltoAllOperator][SelectAlgforAlltoAll] get wrong opType");
+        return HCCL_E_PARA;
+    }
+    UpdateAlltoAllCopyMode(allMeshAggregationSendRecvInfo_, copyMode);
 
-    HCCL_INFO("tag[%s],alltoallv run success,take time [%lld]us", tag.c_str(), DURATION_US(TIME_NOW() - startut));
+    HCCL_INFO("[SelectAlgforAlltoAll] all_to_all SelectAlgforAlltoAll is algName [%s]", algName.c_str());
+    return HCCL_SUCCESS;
+}
+
+HcclResult AlltoAllOperator::SelectAlg(const std::string& tag, const OpParam& param, std::string& algName,
+                                        std::string& newTag)
+{
+    HcclResult ret;
+    std::string copyMode = "BCopy";
+
+    ret = SelectAlgforAlltoAll(param, algName, copyMode);
+
+    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+        newTag = tag + algName + copyMode;
+    } else {
+        newTag = tag;
+    }
+    HCCL_INFO("[SelectAlg] all_to_all newTag is [%s]", newTag.c_str());
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[SelectAlgforAlltoAll][SelectAlg]tag[%s], all_reduce failed, return[%d]", tag.c_str(), ret), ret);
+    CHK_RET(SetExcutorExtraInfo(algName));
+    return ret;
+}
+
+HcclResult AlltoAllOperator::GetAlltoAllvAllAddrInfo(u64 *sendLength, u64 *sendOffset,
+    u64 *recvLength, u64 *recvOffset, Stream &stream, std::unique_ptr<PreProcessMetaInfo> &preMetaInfo)
+{
+    const u32 addrItemNum = 4;
+    u64 stepSize = sizeof(u64) * userRankSize_;
+
+    std::vector<u64> alltoallAddrInfo(userRankSize_ * addrItemNum, 0);
+    const u32 recvLengthStep = 2;
+    const u32 recvOffsetStep = 3;
+
+    CHK_SAFETY_FUNC_RET(memcpy_s(&alltoallAddrInfo[0], stepSize, sendLength, stepSize));
+    CHK_SAFETY_FUNC_RET(memcpy_s(&alltoallAddrInfo[userRankSize_], stepSize, sendOffset, stepSize));
+    CHK_SAFETY_FUNC_RET(memcpy_s(&alltoallAddrInfo[recvLengthStep * userRankSize_], stepSize, recvLength, stepSize));
+    CHK_SAFETY_FUNC_RET(memcpy_s(&alltoallAddrInfo[recvOffsetStep * userRankSize_], stepSize, recvOffset, stepSize));
+
+
+    preMetaInfo->inputData = alltoallAddrInfo;
+    preMetaInfo->inputSize = stepSize * addrItemNum;
+    preMetaInfo->outputSize = userRankSize_ * stepSize * addrItemNum;
 
     return HCCL_SUCCESS;
 }
 
-HcclResult AlltoAllOperator::AlltoAllVOutPlace(const void *sendBuf, const void *sendCounts, const void *sdispls,
-    HcclDataType sendType, const void *recvBuf, const void *recvCounts, const void *rdispls, HcclDataType recvType,
-    Stream stream, const std::string &tag)
+HcclResult AlltoAllOperator::PrepareAlltoAllAddrInfo(const void *sendCounts, const void *sdispls,
+    HcclDataType sendType, const void *recvCounts, const void *rdispls, HcclDataType recvType,
+    Stream &stream, std::unique_ptr<PreProcessMetaInfo> &preMetaInfo)
 {
-    /* ------------集合通信资源准备------------ */
-    HcclUs startut = TIME_NOW();
-    auto rtStream = stream.ptr();
-    u32 sendTypeSize = 0, recvTypeSize = 0;
-    CHK_RET(SalGetDataTypeSize(sendType, sendTypeSize));
-    CHK_RET(SalGetDataTypeSize(recvType, recvTypeSize));
+    std::vector<u64> vctSendLength(userRankSize_, 0);
+    std::vector<u64> vctSendOffset(userRankSize_, 0);
+    std::vector<u64> vctRecvLength(userRankSize_, 0);
+    std::vector<u64> vctRecvOffset(userRankSize_, 0);
 
-    if (userRankSize_ == 1 )
-    {
-        CHK_RET(AlltoAllVForOneRankSize(sendBuf,sendCounts,sdispls,sendType,recvBuf,recvCounts,rdispls,recvType,stream,tag) );
-        return HCCL_SUCCESS ;
-    }
-
-    CHK_RET(notifyPool_->RegisterOp(tag));
-    u64 sendCount = 0;
-    u64 recvCount = 0;
     for (u32 i = 0; i < userRankSize_; i++) {
-        u64 curSendCount = *(static_cast<const u64 *>(sendCounts) + i) + *(static_cast<const u64 *>(sdispls) + i);
-        sendCount = std::max(sendCount, curSendCount);
-        u64 curRecvCount = *(static_cast<const u64 *>(recvCounts) + i) + *(static_cast<const u64 *>(rdispls) + i);
-        recvCount = std::max(recvCount, curRecvCount);
+        vctSendLength[i] = *(static_cast<const u64 *>(sendCounts) + i) * SIZE_TABLE[sendType];
+        vctSendOffset[i] = *(static_cast<const u64 *>(sdispls) + i) * SIZE_TABLE[sendType];
+        vctRecvLength[i] = *(static_cast<const u64 *>(recvCounts) + i) * SIZE_TABLE[recvType];
+        vctRecvOffset[i] = *(static_cast<const u64 *>(rdispls) + i) * SIZE_TABLE[recvType];
+
+        HCCL_DEBUG("[GetAllMeshAggregationSendRecvInfo] rank[%u], SendLength[%llu], SendOffset[%llu], "\
+            "RecvLength[%llu], RecvOffset[%llu]", i, vctSendLength[i], vctSendOffset[i], vctRecvLength[i],
+            vctRecvOffset[i]);
     }
-
-    // sendCount或recvCount为0时, 使用默认分配的内存空间, 避免sendMem和recvMem为空
-    DeviceMem sendMem = sendCount == 0 ? DeviceMem::create(tinySendRecvMem_.ptr(), tinySendRecvMem_.size()) :
-                                         DeviceMem::create(const_cast<void *>(sendBuf), sendCount * sendTypeSize);
-    DeviceMem recvMem = recvCount == 0 ? DeviceMem::create(tinySendRecvMem_.ptr(), tinySendRecvMem_.size()) :
-                                         DeviceMem::create(const_cast<void *>(recvBuf), recvCount * recvTypeSize);
-
-    bool useOneLevelAlgorithm =
-        (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[0] == HcclAlgoType::HCCL_ALGO_TYPE_NA &&
-        (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[1] == HcclAlgoType::HCCL_ALGO_TYPE_PAIRWISE ||
-        NAFullmeshSatisfyHighPerfAlltoallMeshCondition(deviceType_, userRankSize_)));  // 用户配置打平 alltoall
-
-    std::vector<SendRecvInfo> allMeshAggregationSendRecvInfo;
-    CHK_RET(GetAllMeshAggregationSendRecvInfo(sendCounts, sdispls, sendType, recvCounts, rdispls, recvType,
-        allMeshAggregationSendRecvInfo, stream));
-    UpdateAlltoAllZCopyMode(allMeshAggregationSendRecvInfo, tag);
-    HCCL_PROFILER_ADD_STREAM(rtStream, tag, 0, algType_);
-    CopyPattern copyPattern = isAlltoAllZCopyMode_? CopyPattern::ZCOPY : CopyPattern::BCOPY;
-
-    bool massTasks = HasMassTasks(allMeshAggregationSendRecvInfo);
-    /* zcopy拆分4GB以上SDMA任务前，准备好子图不复用标志 */
-    bool hugeData = false;
-    if (copyPattern == CopyPattern::ZCOPY) {
-        hugeData = sendMem.size() > SDMA_SEND_MAX_SIZE;
-    }
-    auto opMeta = HcclOpMetaInfo::GetOneForAllToAllV(copyPattern, sendMem.size(), hugeData);
-    CHK_RET(InitTask(dispatcher_, stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
-    if (massTasks) {
-        CHK_RET(SetNormalMode(dispatcher_));
-    }
-    // NA+pairwise算法不支持A+X跨mesh两卡
-    bool isSingleDeviceModuleP2p = (userRankSize_ <= HCCL_ALLTOALLV_P2P_SIZE);
-    bool alltoallPingPong = (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        !multiModuleDiffDeviceNumMode_ && GetAlltoall2LevelPipelineMaxScratchSize910B(allMeshAggregationSendRecvInfo) >
-        cclBufferManager_.GetInCCLbuffer().size());
-    // 暂时先支持单算子模式
-    if (IsSatisfyAlltoallPipelineCondition()) {
-        HCCL_RUN_INFO("[AlltoAllOperator][AlltoAllVOutPlace] running alltoallv intra mesh inter pairwise pipeline");
-        auto opMeta = HcclOpMetaInfo::GetOneForAllToAllV(copyPattern, sendMem.size(),
-            hugeData || alltoallPingPong);
-        CHK_RET(InitTask(dispatcher_, stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
-        RunAlltoAllVTwoLevelPipeline(sendMem, recvMem, allMeshAggregationSendRecvInfo, stream,  tag);
-    } else if (useOneLevelAlgorithm || isAllRankSamePlane_ || isSingleDeviceModuleP2p ||
-        multiModuleDiffDeviceNumMode_) {
-        HCCL_INFO("[hcclImpl][AlltoAllV] running alltoallv full-mesh implementation");
-        CHK_RET(hcclImpl_->CreateCommForAlltoAllFullMesh(tag, sendMem, recvMem));
-        CHK_RET(hcclImpl_->RegisterToHeartBeat());
-        HCCL_INFO("resource creation (AlltoAllV Full Mesh) success, take time [%lld]us, tag[%s]",
-            DURATION_US(TIME_NOW() - startut), tag.c_str());
-        CHK_RET(RunAlltoAllVFullMesh(
-            sendMem, sendType, recvMem, recvType, allMeshAggregationSendRecvInfo, stream, tag));
-    } else { // 当前如果是910B的16P场景，单server内跨组网也走分级，但是PCIE
-        HCCL_INFO("[hcclImpl][AlltoAllV] running alltoallv staged implementation");
-        CHK_RET(RunAlltoAllVStaged(sendMem, sendType, recvMem, recvType,
-            allMeshAggregationSendRecvInfo, stream, tag));
-    }
-
-    CHK_RET(LaunchTask(dispatcher_, stream));
-    CHK_RET(notifyPool_->UnregisterOp(tag));
-    HCCL_INFO("tag[%s],alltoallv run success,take time [%lld]us", tag.c_str(), DURATION_US(TIME_NOW() - startut));
-    return HCCL_SUCCESS;
-}
-                          
-HcclResult AlltoAllOperator::AlltoAllVCForOneRankSize(const void *sendBuf, const void *sendCountMatrix, HcclDataType sendType,
-        const void *recvBuf, HcclDataType recvType, Stream stream, const std::string &tag)
-{
-    u32 sendTypeSize = 0, recvTypeSize = 0;
-    CHK_RET(SalGetDataTypeSize(sendType, sendTypeSize));
-    CHK_RET(SalGetDataTypeSize(recvType, recvTypeSize));
-
-    HCCL_PROFILER_ADD_STREAM(stream.ptr(), tag, 0, algType_);
-    u64 sendCounts = *(static_cast<const u64 *>(sendCountMatrix) + userRank_ * userRankSize_ + 0);
-    bool hugeData = (sendCounts * sendTypeSize ) > SDMA_SEND_MAX_SIZE ; 
-    if (sendBuf == recvBuf) {
-        auto opMeta = HcclOpMetaInfo::GetOneForAllToAllVC(CopyPattern::ZCOPY, sendCounts * sendTypeSize, hugeData);
-        CHK_RET(InitTask(dispatcher_, stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
-        if (!GetExternalInputHcclEnableFfts()) {
-            CHK_RET(SetNormalMode(dispatcher_));
-        }
+    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+        CHK_RET(GetAlltoAllvAllAddrInfo(vctSendLength.data(), vctSendOffset.data(),
+            vctRecvLength.data(), vctRecvOffset.data(), stream, preMetaInfo));
     } else {
-        auto opMeta = HcclOpMetaInfo::GetOneForAllToAllVC(CopyPattern::BCOPY, sendCounts * sendTypeSize, hugeData);
-        CHK_RET(InitTask(dispatcher_, stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
-        if (!GetExternalInputHcclEnableFfts()) {
-            CHK_RET(SetNormalMode(dispatcher_));
-        }
-        DeviceMem srcMem = DeviceMem::create(const_cast<void *>(sendBuf), sendCounts * sendTypeSize);
-        DeviceMem dstMem = DeviceMem::create(const_cast<void *>(recvBuf), sendCounts * sendTypeSize);
-        HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, stream); // ranksize = 1; intput、output地址不同，input->output
+        HCCL_INFO("Run with Graph, alloc new stream");
+        Stream graphStream(StreamType::STREAM_TYPE_ONLINE);
+        CHK_RET(GetAlltoAllvAllAddrInfo(vctSendLength.data(), vctSendOffset.data(),
+            vctRecvLength.data(), vctRecvOffset.data(), graphStream, preMetaInfo));
     }
-    CHK_RET(LaunchTask(dispatcher_, stream));
-    HCCL_PROFILER_DEL_STREAM(stream.ptr());
     return HCCL_SUCCESS;
 }
 
-HcclResult AlltoAllOperator::AlltoAllVC(const void *sendBuf, const void *sendCountMatrix, HcclDataType sendType,
-    const void *recvBuf, HcclDataType recvType, Stream stream, const std::string &tag)
+HcclResult AlltoAllOperator::PreparePreOpParam(OpParam& preProcessOpParam,
+    const std::unique_ptr<PreProcessMetaInfo> &preMetaInfo, Stream &preProcessStream)
 {
-    /* ------------集合通信资源准备------------ */
-    HcclUs startut = TIME_NOW();
-    
-    u32 sendTypeSize = 0, recvTypeSize = 0;
-    CHK_RET(SalGetDataTypeSize(sendType, sendTypeSize));
-    CHK_RET(SalGetDataTypeSize(recvType, recvTypeSize));
+    u64 stepSize = sizeof(u64) * userRankSize_;
+    u32 perDataSize = SIZE_TABLE[HCCL_DATA_TYPE_UINT64];
 
-    if (userRankSize_ == 1 && (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE))
-    {
-        CHK_RET(AlltoAllVCForOneRankSize(sendBuf,sendCountMatrix,sendType,recvBuf,recvType,stream,tag));
-        return HCCL_SUCCESS ;
-    }
-
-    CHK_RET(notifyPool_->RegisterOp(tag));
-    u64 sendCount = 0;
-    u64 recvCount = 0;
-    for (u32 i = 0; i < userRankSize_; i++) {
-        sendCount += *(static_cast<const u64 *>(sendCountMatrix) + userRank_ * userRankSize_ + i);
-        recvCount += *(static_cast<const u64 *>(sendCountMatrix) + userRank_ + userRankSize_ * i);
-    }
-
-    // sendCount或recvCount为0时, 使用默认分配的内存空间, 避免sendMem和recvMem为空
-    DeviceMem sendMem = sendCount == 0 ?
-        DeviceMem::create(tinySendRecvMem_.ptr(), tinySendRecvMem_.size()) :
-        DeviceMem::create(const_cast<void *>(sendBuf), sendCount * sendTypeSize);
-    DeviceMem recvMem = recvCount == 0 ?
-        DeviceMem::create(tinySendRecvMem_.ptr(), tinySendRecvMem_.size()) :
-        DeviceMem::create(const_cast<void *>(recvBuf), recvCount * recvTypeSize);
-
-    bool useOneLevelAlgorithm =
-        (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[0] == HcclAlgoType::HCCL_ALGO_TYPE_NA &&
-        (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[1] == HcclAlgoType::HCCL_ALGO_TYPE_PAIRWISE ||
-        NAFullmeshSatisfyHighPerfAlltoallMeshCondition(deviceType_, userRankSize_)));  // 用户配置打平 alltoall
-
-    std::vector<SendRecvInfo> allMeshAggregationSendRecvInfo;
-    CHK_RET(GetAlltoAllvcAllSendRecvInfo(sendCountMatrix, sendType, recvType, allMeshAggregationSendRecvInfo));
-    UpdateAlltoAllZCopyMode(allMeshAggregationSendRecvInfo, tag);
-    // NA+pairwise算法不支持A+X跨mesh两卡
-    bool isSingleDeviceModuleP2p = (userRankSize_ <= HCCL_ALLTOALLV_P2P_SIZE);
-
-    HCCL_PROFILER_ADD_STREAM(stream.ptr(), tag, 0, algType_);
-
-    // 暂时先支持单算子模式
-    if (IsSatisfyAlltoallPipelineCondition()) {
-        HCCL_INFO("[AlltoAllOperator][AlltoAllVC] running alltoallvc intra mesh inter pairwise pipeline");
-        RunAlltoAllVTwoLevelPipeline(sendMem, recvMem, allMeshAggregationSendRecvInfo, stream,  tag);
-    } else if (useOneLevelAlgorithm || isAllRankSamePlane_ || isSingleDeviceModuleP2p ||
-        multiModuleDiffDeviceNumMode_) {
-        HCCL_INFO("[hcclImpl][AlltoAllVC] running alltoallvc full-mesh implementation");
-        CHK_RET(hcclImpl_->CreateCommForAlltoAllFullMesh(tag, sendMem, recvMem));
-        CHK_RET(hcclImpl_->RegisterToHeartBeat());
-        HCCL_INFO("resource creation (AlltoAllVC Full Mesh) success, take time [%lld]us, tag[%s]",
-            DURATION_US(TIME_NOW() - startut), tag.c_str());
-        CHK_RET(RunAlltoAllVFullMesh(
-            sendMem, sendType, recvMem, recvType, allMeshAggregationSendRecvInfo, stream, tag));
-    } else {
-        HCCL_INFO("[hcclImpl][AlltoAllVC] running alltoallvc staged implementation");
-        CHK_RET(RunAlltoAllVStaged(sendMem, sendType, recvMem, recvType,
-            allMeshAggregationSendRecvInfo, stream, tag));
-    }
-
-    CHK_RET(notifyPool_->UnregisterOp(tag));
-    HCCL_PROFILER_DEL_STREAM(stream.ptr());
-    HCCL_INFO("tag[%s], alltoallvc run success,take time [%lld]us", tag.c_str(), DURATION_US(TIME_NOW() - startut));
+    preProcessOpParam.tag = HCCL_ALLTOALL_PARA_ALLGATHER;
+    preProcessOpParam.inputPtr = cclBufferManager_.GetInAlltoAllvParaBuffer().ptr();
+    preProcessOpParam.inputSize = (preMetaInfo->outputSize / stepSize) * perDataSize;
+    preProcessOpParam.outputPtr = cclBufferManager_.GetOutAlltoAllvParaBuffer().ptr();
+    preProcessOpParam.outputSize = (preMetaInfo->outputSize / stepSize) * perDataSize * userRankSize_;
+    preProcessOpParam.DataDes.count = (preMetaInfo->outputSize / stepSize);
+    preProcessOpParam.DataDes.dataType = HCCL_DATA_TYPE_UINT64;
+    preProcessOpParam.stream = preProcessStream;
     return HCCL_SUCCESS;
 }
 
-HcclResult AlltoAllOperator::AlltoAllVCOutPlace(const void *sendBuf, const void *sendCountMatrix, HcclDataType sendType,
-    const void *recvBuf, HcclDataType recvType, Stream stream, const std::string &tag)
+bool AlltoAllOperator::JudgeIfNeedPreProcessAndGetParam(const OpParam& param,
+    std::unique_ptr<PreProcessMetaInfo> &preMetaInfo)
 {
-    std::vector<SendRecvInfo> allMeshAggregationSendRecvInfo;
-    CHK_RET(GetAlltoAllvcAllSendRecvInfo(sendCountMatrix, sendType, recvType, allMeshAggregationSendRecvInfo));
-    UpdateAlltoAllZCopyMode(allMeshAggregationSendRecvInfo, tag);
+    if (param.opType == HcclCMDType::HCCL_CMD_ALLTOALLV) {
+        CHK_RET(PrepareAlltoAllAddrInfo(param.All2AllDataDes.sendCounts, param.All2AllDataDes.sdispls,
+            param.All2AllDataDes.sendType, param.All2AllDataDes.recvCounts, param.All2AllDataDes.rdispls,
+            param.All2AllDataDes.recvType, const_cast<Stream&>(param.stream), preMetaInfo));
+        preMetaInfo->opType = HcclCMDType::HCCL_CMD_ALLGATHER;
+        return true;
+    }
+    return false;
+}
 
-    /* ------------集合通信资源准备------------ */
-    HcclUs startut = TIME_NOW();
+void AlltoAllOperator::SetPreProcessResult(HostMem hostCollectBuffer)
+{
+    hostCollectBuffer_ = std::move(hostCollectBuffer);
+}
 
-    u32 sendTypeSize = 0, recvTypeSize = 0;
-    CHK_RET(SalGetDataTypeSize(sendType, sendTypeSize));
-    CHK_RET(SalGetDataTypeSize(recvType, recvTypeSize));
-
-	if (userRankSize_ == 1 ) {
-        CHK_RET(AlltoAllVCForOneRankSize(sendBuf,sendCountMatrix,sendType,recvBuf,recvType,stream,tag)) ;
-        return HCCL_SUCCESS;
+HcclResult AlltoAllOperator::SetExcutorExtraInfo(const std::string& algName)
+{
+    HCCL_DEBUG("[AlltoAllOperator][SetExcutorExtraInfo]algName[%s]", algName.c_str());
+    if (executor_.get() == nullptr) {
+        executor_ = CollAlgExecRegistry::Instance()->GetAlgExec(algName, dispatcher_, topoMatcher_);
+        CHK_PRT_RET(executor_.get() == nullptr,
+            HCCL_ERROR("[CollAlgOperator][CalcResRequest]Fail to find executor for algName[%s]", algName.c_str()),
+            HCCL_E_PARA);
+        executor_->SetVirtualDispatcher(vDispatcher_);
+        ParallelTaskLoader* parallelTaskLoader = nullptr;
+        hcclImpl_->GetParallelTaskLoader(parallelTaskLoader);
+        executor_->SetParallelTaskLoader(parallelTaskLoader);
+        executor_->SetAlgType(algType_);
     }
 
-    u64 sendCount = 0;
-    u64 recvCount = 0;
-    for (u32 i = 0; i < userRankSize_; i++) {
-        sendCount += *(static_cast<const u64 *>(sendCountMatrix) + userRank_ * userRankSize_ + i);
-        recvCount += *(static_cast<const u64 *>(sendCountMatrix) + userRank_ + userRankSize_ * i);
-    }
-
-    CHK_RET(notifyPool_->RegisterOp(tag));
-
-    // sendCount或recvCount为0时, 使用默认分配的内存空间, 避免sendMem和recvMem为空
-    DeviceMem sendMem = sendCount == 0 ? DeviceMem::create(tinySendRecvMem_.ptr(), tinySendRecvMem_.size()) :
-                                         DeviceMem::create(const_cast<void *>(sendBuf), sendCount * sendTypeSize);
-    DeviceMem recvMem = recvCount == 0 ? DeviceMem::create(tinySendRecvMem_.ptr(), tinySendRecvMem_.size()) :
-                                         DeviceMem::create(const_cast<void *>(recvBuf), recvCount * recvTypeSize);
-
-    bool useOneLevelAlgorithm =
-        (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[0] == HcclAlgoType::HCCL_ALGO_TYPE_NA &&
-        (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[1] == HcclAlgoType::HCCL_ALGO_TYPE_PAIRWISE ||
-        NAFullmeshSatisfyHighPerfAlltoallMeshCondition(deviceType_, userRankSize_)));  // 用户配置打平 alltoall
-
-    bool massTasks = HasMassTasks(allMeshAggregationSendRecvInfo);
-    // 子图适配，bcopy每次重新生成子图
-    HcclOpMetaInfo meta;
-    bool hugeData = sendMem.size() > SDMA_SEND_MAX_SIZE;
-    if (isAlltoAllZCopyMode_) {
-        /* zcopy拆分4GB以上SDMA任务前，准备好子图不复用标志 */
-        meta = HcclOpMetaInfo::GetOneForAllToAllVC(CopyPattern::ZCOPY, sendMem.size(), hugeData);
-        CHK_RET(InitTask(dispatcher_, stream, meta.isEnableCache, meta.GetCacheKey()));
-    } else {
-        meta = HcclOpMetaInfo::GetOneForAllToAllVC(CopyPattern::BCOPY, sendMem.size(), false);
-        CHK_RET(InitTask(dispatcher_, stream, meta.isEnableCache, meta.GetCacheKey()));
-        if (massTasks) {
-            CHK_RET(SetNormalMode(dispatcher_));
-        }
-    }
-    // NA+pairwise算法不支持RDMA不使能下时A+X跨mesh两卡
-    bool isSingleDeviceModuleP2p = (userRankSize_ <= HCCL_ALLTOALLV_P2P_SIZE);
-    bool alltoallPingPong = (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        !multiModuleDiffDeviceNumMode_ && GetAlltoall2LevelPipelineMaxScratchSize910B(allMeshAggregationSendRecvInfo) >
-        cclBufferManager_.GetInCCLbuffer().size());
-    HCCL_PROFILER_ADD_STREAM(stream.ptr(), tag, 0, algType_);
-
-    // 暂时先支持单算子模式
-    if (IsSatisfyAlltoallPipelineCondition()) {
-        HCCL_RUN_INFO("[AlltoAllOperator][AlltoAllVCOutPlace] running alltoallvc intra mesh inter pairwise pipeline");
-        meta = HcclOpMetaInfo::GetOneForAllToAllV(CopyPattern::BCOPY, sendMem.size(),
-            hugeData || alltoallPingPong);
-        CHK_RET(InitTask(dispatcher_, stream, meta.isEnableCache, meta.GetCacheKey()));
-        RunAlltoAllVTwoLevelPipeline(sendMem, recvMem, allMeshAggregationSendRecvInfo, stream,  tag);
-    } else if (useOneLevelAlgorithm || isAllRankSamePlane_ ||
-        isSingleDeviceModuleP2p || multiModuleDiffDeviceNumMode_) {   // 只走pairWise
-        HCCL_INFO("[hcclImpl][AlltoAllVC] running alltoallvc full-mesh implementation");
-        CHK_RET(hcclImpl_->CreateCommForAlltoAllFullMesh(tag, sendMem, recvMem));
-        CHK_RET(hcclImpl_->RegisterToHeartBeat());
-        HCCL_INFO("resource creation (AlltoAllVC Full Mesh) success, take time [%lld]us, tag[%s]",
-            DURATION_US(TIME_NOW() - startut), tag.c_str());
-        CHK_RET(RunAlltoAllVFullMesh(sendMem, sendType, recvMem, recvType,
-            allMeshAggregationSendRecvInfo, stream, tag));
-    } else {
-        HCCL_INFO("[hcclImpl][AlltoAllVC] running alltoallvc staged implementation");
-        CHK_RET(RunAlltoAllVStaged(sendMem, sendType, recvMem, recvType,
-            allMeshAggregationSendRecvInfo, stream, tag));
-    }
-
-    CHK_RET(LaunchTask(dispatcher_, stream));
-
-    CHK_RET(notifyPool_->UnregisterOp(tag));
-    HCCL_PROFILER_DEL_STREAM(stream.ptr());
-    HCCL_INFO("tag[%s], alltoallvc run success,take time [%lld]us", tag.c_str(), DURATION_US(TIME_NOW() - startut));
-    return HCCL_SUCCESS;
+    return executor_->SetExcutorExtraInfo(allMeshAggregationSendRecvInfo_);
 }
 
 bool AlltoAllOperator::HasMassTasks(std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo)
@@ -461,20 +397,6 @@ std::vector<u64> AlltoAllOperator::GenerateSendCountMatrix(u64 count, u32 rankSi
 {
     std::vector<u64> sendCountMatrix(rankSize * rankSize, count);
     return sendCountMatrix;
-}
-
-HcclResult AlltoAllOperator::AlltoAll(const void *sendBuf, u64 sendCount, HcclDataType sendType,
-    const void *recvBuf, u64 recvCount, HcclDataType recvType, Stream stream, const std::string &tag)
-{
-    // 生成sendCountMatrix矩阵，alltoall的底层实现走alltoallvc
-    std::vector<u64> sendCountMatrix = GenerateSendCountMatrix(sendCount, userRankSize_);
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        GetExternalInputHcclEnableFfts()) {
-        CHK_RET(AlltoAllVCOutPlace(sendBuf, sendCountMatrix.data(), sendType, recvBuf, recvType, stream, tag));
-    } else {
-        CHK_RET(AlltoAllVC(sendBuf, sendCountMatrix.data(), sendType, recvBuf, recvType, stream, tag));
-    }
-    return HCCL_SUCCESS;
 }
 
 HcclResult AlltoAllOperator::GetAllMeshAggregationSendRecvInfo(const void *sendCounts, const void *sdispls,
@@ -681,7 +603,7 @@ HcclResult AlltoAllOperator::GetAlltoAllvAllSendRecvInfo(u64 *sendLength, u64 *s
 HcclResult AlltoAllOperator::ExchangeSendRecvInfoFromAllGather(const std::string &tag, void *inputPtr, void *outputPtr,
     u64 inputCount, HcclDataType dataType, Stream stream)
 {
-    AllGatherOperator operation(hcclImpl_);
+    AllGatherOperator operation(hcclImpl_, topoMatcher_);
     CHK_RET(operation.AllGatherOutPlace(tag, inputPtr, outputPtr, inputCount, dataType, stream));
     CHK_RET(hcclStreamSynchronize(stream.ptr()));
     return HCCL_SUCCESS;
@@ -874,18 +796,18 @@ u64 AlltoAllOperator::GetAlltoall2LevelPipelineScratchSize910B(
     u32 rank,
     std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo)
 {
-    u64 userRankSize = allMeshAggregationSendRecvInfo.size();
-    u64 maxBlockSize = 0;
-    u64 maxScratchSize = 0;
-    const SendRecvInfo& info = allMeshAggregationSendRecvInfo[rank];
-    for (u64 i = 0; i < userRankSize; i++) {
-        maxBlockSize = std::max(maxBlockSize, info.sendLength[i]);
-        maxBlockSize = std::max(maxBlockSize, info.recvLength[i]);
-        maxScratchSize = std::max(maxScratchSize, info.sendOffset[i] + info.sendLength[i]);
-        maxScratchSize = std::max(maxScratchSize, info.recvOffset[i] + info.recvLength[i]);
+    u64 scratchSize = 0;
+    u32 meshRankStart = (rank / meshAggregationRankSize_) * meshAggregationRankSize_;
+    u32 meshRankEnd = meshRankStart + meshAggregationRankSize_ - 1;
+    u32 rankIntraMesh = rank - meshRankStart;
+    for (u32 sendRank = rankIntraMesh, userRankSize = allMeshAggregationSendRecvInfo.size();
+        sendRank < userRankSize; sendRank += meshAggregationRankSize_) {
+        const std::vector<u64>& remoteSendLength = allMeshAggregationSendRecvInfo[sendRank].sendLength;
+        const std::vector<u64>& remoteSendOffset = allMeshAggregationSendRecvInfo[sendRank].sendOffset;
+        scratchSize += (remoteSendOffset[meshRankEnd] + remoteSendLength[meshRankEnd] -
+            remoteSendOffset[meshRankStart]);
     }
-    maxScratchSize = std::max(maxBlockSize * userRankSize, maxScratchSize);
-    return maxScratchSize;
+    return scratchSize;
 }
 
 // 计算 alltoall pipeline 910B 的两级流水算法所有卡需要的 scratch 大小的最大值(单算子模式需要)
@@ -900,311 +822,8 @@ u64 AlltoAllOperator::GetAlltoall2LevelPipelineMaxScratchSize910B(
     return maxScratchSize;
 }
 
-HcclResult AlltoAllOperator::RunAlltoAllVTwoLevelPipeline(DeviceMem &sendBuf, DeviceMem &recvBuf,
-    std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo, Stream &stream, const std::string &tag)
-{
-    HCCL_INFO("[AlltoAllOperator][RunAlltoAllVTwoLevelPipeline] alltoall two level pipeline start");
-    bool cclEnough = true;
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        GetAlltoall2LevelPipelineMaxScratchSize910B(allMeshAggregationSendRecvInfo) >
-        cclBufferManager_.GetInCCLbuffer().size()) {
-        cclEnough = false;
-    }
-    HCCL_DEBUG("[AlltoAllOperator][RunAlltoAllVTwoLevelPipeline] alltoall pipeline run %s algo",
-        cclEnough ? "cclEnough" : "ping pong");
-    A2aPipelineMemory a2aPipelineMemory;
-    a2aPipelineMemory.userInput = sendBuf;
-    a2aPipelineMemory.userOutput = recvBuf;
-    // 具体传入 A2aPipelineMemory 对象的 alltoall pipeline executor 会根据图模式还是单算子模式
-    // 选择使用 ccl 还是 scratch，不会访问空指针
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
-        CHK_RET(hcclImpl_->CreateCommForNoScratchAlltoall(tag, sendBuf, recvBuf));
-        a2aPipelineMemory.cclInBuffer = cclBufferManager_.GetInCCLbuffer();
-        a2aPipelineMemory.cclOutBuffer = cclBufferManager_.GetOutCCLbuffer();
-    } else {
-        // 图模式才需要申请 scratch
-        u64 scratchSize = GetAlltoall2LevelPipelineScratchSize910B(userRank_, allMeshAggregationSendRecvInfo);
-        CHK_RET(hcclImpl_->BuildAlltoAllVScratchMem(tag, scratchSize));
-        DeviceMem scratchMem;
-        CHK_RET(hcclImpl_->GetScratchMem(scratchMem, tag));
-        CHK_RET(hcclImpl_->CreateCommForNoScratchAlltoall(tag, sendBuf, recvBuf, scratchMem));
-        a2aPipelineMemory.scratchMem = scratchMem;
-    }
-    std::unique_ptr<AlltoallPipelineBase> alltoallPipe = nullptr;
-    if (cclEnough) {
-        alltoallPipe.reset(new (std::nothrow)AlltoallPipelineMeshPairwiseCCLEnough(dispatcher_,
-            allMeshAggregationSendRecvInfo, GetWorkflowMode()));
-    } else {
-        alltoallPipe.reset(new (std::nothrow)AlltoallPipelineMeshPairwisePingPong(dispatcher_,
-            allMeshAggregationSendRecvInfo, GetWorkflowMode()));
-    }
-    CommInfo *currComm;
-    hcclImpl_->GetCommInfo(currComm, tag);
-    CHK_RET(hcclImpl_->RegisterToHeartBeat());
-    hcclImpl_->CreateMutiStreamRes(tag, stream, algType_);
-    innerStreamInfo_t *streamInfo = hcclImpl_->GetStreamInfo(tag);
-    alltoallPipe->Prepare(userRank_, a2aPipelineMemory, currComm->commOuter[0], currComm->commInner[0],
-        stream, streamInfo->ringStreams, streamInfo->ringSignal, streamInfo->ringSignalAux);
-    alltoallPipe->RunAsync();
-    HCCL_INFO("[AlltoAllOperator][RunAlltoAllVTwoLevelPipeline] alltoall two level pipeline end");
-    return HCCL_SUCCESS;
-}
-
-HcclResult AlltoAllOperator::RunAlltoAllVStaged(DeviceMem &sendBuf, HcclDataType sendType, DeviceMem &recvBuf,
-    HcclDataType recvType, std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo,
-    Stream &stream, const std::string &tag)
-{
-    CHK_PRT_RET(userRankSize_ % meshAggregationRankSize_ != 0,
-        HCCL_ERROR("userRankSize[%u] is not an Integer multiple of MeshAggregation Dev Num[%u]",
-        userRankSize_, meshAggregationRankSize_), HCCL_E_PARA);
-    HcclUs startut = TIME_NOW();
-
-    // 1 申请中转内存，2. 创建第一级通信域，3. 下发第一级alltoallv  4. 创建第二级通信域  5. 下发第二级 alltoallv
-    AlltoAllUserRankInfo userRankInfo;
-    userRankInfo.userRank = userRank_;
-    userRankInfo.userRankSize = userRankSize_;
-    u64 workSpaceMemSize = 0;
-
-    AlltoAllVStagedCalculator::CalcWorkSpaceMemSize(userRankInfo, allMeshAggregationSendRecvInfo,
-        workSpaceMemSize, meshAggregationRankSize_);
-    CHK_RET(hcclImpl_->BuildAlltoAllVScratchMem(tag, workSpaceMemSize));
-    hcclImpl_->CheckStagedAlltoAllNeedRecreateComm(allMeshAggregationSendRecvInfo, tag);
-
-    DeviceMem scratchMem;
-    hcclImpl_->GetScratchMem(scratchMem, tag);
-    bool alltoallMeshReadOnly = FullmeshPairwiseSatisfyHighPerfAlltoallMeshCondition(
-        deviceType_, meshAggregationRankSize_);
-    CHK_RET(hcclImpl_->CreateCommForAlltoallVStaged(tag, sendBuf, recvBuf, scratchMem, alltoallMeshReadOnly));
-    CHK_RET(hcclImpl_->RegisterToHeartBeat());
-
-    // 此处统计只统计与通信域创建相关的耗时
-    HCCL_INFO("resource creation (AlltoAllVC Staged) success, take time [%lld]us, tag[%s]",
-        DURATION_US(TIME_NOW() - startut), tag.c_str());
-
-    std::map<u32, std::list<OneSendRecvAddrInfo>> sendAddrInfosIntra;
-    std::map<u32, std::list<OneSendRecvAddrInfo>> recvAddrInfosIntra;
-    bool isSingleMesh = GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        isAlltoAllZCopyMode_ && isSingleMeshAggregation_;
-    AlltoAllVStagedCalculator::CalcIntraMeshAggregationAlltoAllMemInfo(userRankInfo, allMeshAggregationSendRecvInfo,
-        sendAddrInfosIntra, recvAddrInfosIntra, meshAggregationRankSize_, isSingleMesh);
-
-    CommInfo *currComm;
-    hcclImpl_->GetCommInfo(currComm, tag);
-
-    if (alltoallMeshReadOnly) {
-        HCCL_RUN_INFO("[AlltoAllOperator][RunAlltoAllVStaged] staged 1 read only algo");
-        HcclResult ret = hcclImpl_->CreateMutiStreamRes(tag, stream, algType_, false, meshAggregationRankSize_);
-        CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[AlltoAllOperator][AlltoAllv]errNo[0x%016llx] tag[%s],\
-            alltoallv create stream resource", HCCL_ERROR_CODE(ret), tag.c_str()), ret);
-
-        u32 rankSize = meshAggregationRankSize_;
-        innerStreamInfo_t *streamInfo = hcclImpl_->GetStreamInfo(tag);
-        CHK_PRT_RET(streamInfo == nullptr,
-            HCCL_ERROR("[GetStreamInfo]errNo[0x%016llx] tag[%s] can't find in stream info",
-                HCCL_ERROR_CODE(HCCL_E_NOT_FOUND), tag.c_str()), HCCL_E_PARA);
-
-        if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
-            for (u32 streamIndex = 0; streamIndex < rankSize - 1; streamIndex++) { // 从stream 个数 = ranksize -2
-                ret = StreamActiveManager::GetInstance(deviceLogicId_).StreamActive(
-                    streamInfo->ringStreams[streamIndex].ptr(), stream.ptr());
-                CHK_PRT_RET(ret != HCCL_SUCCESS,
-                    HCCL_ERROR("[AlltoAllOperator][ActiveRingStreams]stream[%u] active failed,return[%d]",
-                        streamIndex, ret), ret);
-            }
-        }
-        // 添加从流profiling, 用于维护planID
-        CHK_RET(hcclImpl_->AddSubStreamToProfiling(tag, HcclCMDType::HCCL_CMD_ALLTOALL));
-        std::unique_ptr<AlltoAllVMeshReadOnly> alltoallReadOnly = nullptr;
-        if (GetExternalInputHcclEnableFfts()) {
-            alltoallReadOnly.reset(new (std::nothrow) AlltoAllVMeshReadOnly(dispatcher_, stream,
-                streamInfo->ringStreams, streamInfo->ringSignal, streamInfo->ringSignalAux, userRank_,
-                meshAggregationRankSize_, currComm->commOuter[0]->TransportInfo(), allMeshAggregationSendRecvInfo));
-        } else {
-            alltoallReadOnly.reset(new (std::nothrow) AlltoAllVMeshReadOnly(dispatcher_, stream,
-                streamInfo->ringStreams, streamInfo->ringSignal, streamInfo->ringSignalAux, userRank_,
-                meshAggregationRankSize_, currComm->commOuter[0]->TransportInfo(), allMeshAggregationSendRecvInfo));
-        }
-
-        if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
-            CHK_RET(alltoallReadOnly->Prepare(sendBuf, (isSingleMeshAggregation_ ? recvBuf : scratchMem),
-                cclBufferManager_.GetInCCLbuffer(), cclBufferManager_.GetOutCCLbuffer(), sendAddrInfosIntra,
-                recvAddrInfosIntra, GetWorkflowMode()));
-        } else {
-            CHK_RET(alltoallReadOnly->Prepare(sendBuf, (isSingleMeshAggregation_ ? recvBuf : scratchMem), sendBuf,
-                recvBuf, sendAddrInfosIntra, recvAddrInfosIntra, GetWorkflowMode()));
-        }
-        alltoallReadOnly->RunAsync();
-    } else {
-        std::unique_ptr<AlltoAllVStagedBase> alltoallOuter = nullptr;
-
-        CHK_RET(PrepareAlltoAllVStaged1(sendBuf, recvBuf, scratchMem, sendAddrInfosIntra,
-            recvAddrInfosIntra, stream, tag, alltoallOuter));
-
-        innerStreamInfo_t* streamInfo = hcclImpl_->GetStreamInfoWithoutCheck(tag);
-        if ((streamInfo->ringStreams.size() != 0) &&
-            (!GetExternalInputHcclEnableFfts()) && isAlltoAllZCopyMode_) {
-            CHK_RET(currComm->commOuter[0]->RunAlltoAllVStagedMesh(alltoallOuter));
-            // 多流场景下，并行多线程下发task处理
-            CHK_RET(hcclImpl_->ParallelTaskLoaderProcess(tag, stream));
-        } else {
-            CHK_RET(currComm->commOuter[0]->RunAlltoAllVStaged(alltoallOuter));
-        }
-
-        HCCL_INFO("[hcclImpl][RunAlltoAllVStaged] stage0 run success!");
-    }
-    std::map<u32, std::list<OneSendRecvAddrInfo>> sendAddrInfosInter;
-    std::map<u32, std::list<OneSendRecvAddrInfo>> recvAddrInfosInter;
-    AlltoAllVStagedCalculator::CalcInterMeshAggregationAlltoAllMemInfo(userRankInfo,
-        allMeshAggregationSendRecvInfo, sendAddrInfosInter, recvAddrInfosInter, meshAggregationRankSize_);
-
-    if (((GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-            isAlltoAllZCopyMode_) || alltoallMeshReadOnly)  && isSingleMeshAggregation_) {
-        // we don't need to do stage 2 when there is only one mesh aggregation
-    } else {
-        std::unique_ptr<AlltoAllVStagedBase> alltoallInner = nullptr;
-        PrepareAlltoAllVStaged2(recvBuf, scratchMem, sendAddrInfosInter, recvAddrInfosInter,
-            stream, tag, alltoallInner);
-        CHK_RET(currComm->commInner[0]->RunAlltoAllVStaged(alltoallInner)); // 第二级alltoallv
-    }
-
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        isAlltoAllZCopyMode_ && !isSingleMeshAggregation_) {
-        auto outCCLbuffer = cclBufferManager_.GetOutCCLbuffer();
-        DeviceMem srcMem = outCCLbuffer.range(0, recvBuf.size());
-        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, recvBuf, srcMem, stream));
-    }
-    return HCCL_SUCCESS;
-}
-
-bool AlltoAllOperator::NAFullmeshSatisfyHighPerfAlltoallMeshCondition(DevType deviceType, u32 rankSize)
-{
-    return false;
-}
-
-bool AlltoAllOperator::FullmeshPairwiseSatisfyHighPerfAlltoallMeshCondition(DevType deviceType, u32 rankSize)
-{
-    return false;
-}
-
-HcclResult AlltoAllOperator::RunAlltoAllVFullMesh(DeviceMem &sendBuf, HcclDataType sendType,
-    DeviceMem &recvBuf, HcclDataType recvType, std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo,
-    Stream &stream, const std::string &tag)
-{
-    bool ZCopyMode = GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        isAlltoAllZCopyMode_;
-    auto inCCLbuffer = cclBufferManager_.GetInCCLbuffer();
-    auto outCCLbuffer = cclBufferManager_.GetOutCCLbuffer();
-
-    // 构造入参
-    AlltoAllVBufferInfo sendInfo;
-    sendInfo.mem = ZCopyMode ? inCCLbuffer : sendBuf;
-    sendInfo.counts = &allMeshAggregationSendRecvInfo[userRank_].sendCounts[0];
-    sendInfo.displs = &allMeshAggregationSendRecvInfo[userRank_].sendDispls[0];
-    sendInfo.dataType = sendType;
-
-    AlltoAllVBufferInfo recvInfo;
-    recvInfo.mem = ZCopyMode ? outCCLbuffer : recvBuf;
-    recvInfo.counts = &allMeshAggregationSendRecvInfo[userRank_].recvCounts[0];
-    recvInfo.displs = &allMeshAggregationSendRecvInfo[userRank_].recvDispls[0];
-    recvInfo.dataType = recvType;
-
-    if (NAFullmeshSatisfyHighPerfAlltoallMeshCondition(deviceType_, userRankSize_)) {
-        HCCL_INFO("[AlltoAllOperator][RunAlltoAllVFullMesh] one level read only algo");
-        HcclResult ret = hcclImpl_->CreateMutiStreamRes(tag, stream, algType_, false, userRankSize_);
-        CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[AlltoAllOperator][AlltoAllv]errNo[0x%016llx] tag[%s], "
-            "alltoallv create stream resource", HCCL_ERROR_CODE(ret), tag.c_str()), ret);
-        innerStreamInfo_t *streamInfo = hcclImpl_->GetStreamInfo(tag);
-        if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
-            for (u32 streamIndex = 0; streamIndex < userRankSize_ - 1; streamIndex++) { // 从stream 个数 = ranksize -2
-                ret = StreamActiveManager::GetInstance(deviceLogicId_).StreamActive(
-                    streamInfo->ringStreams[streamIndex].ptr(), stream.ptr());
-                CHK_PRT_RET(ret != HCCL_SUCCESS,
-                    HCCL_ERROR("[AlltoAllOperator][ActiveRingStreams]stream[%u] active failed,return[%d]",
-                    streamIndex, ret), ret);
-            }
-        }
-        CHK_RET(hcclImpl_->AddSubStreamToProfiling(tag, HcclCMDType::HCCL_CMD_ALLTOALL));
-        CHK_PRT_RET(streamInfo == nullptr,
-            HCCL_ERROR("[GetStreamInfo]errNo[0x%016llx] tag[%s] can't find in stream info",
-                HCCL_ERROR_CODE(HCCL_E_NOT_FOUND), tag.c_str()), HCCL_E_PARA);
-        std::unique_ptr<AlltoAllVMeshReadOnly> alltoallReadOnly = nullptr;
-        std::unique_ptr<CommBase> &commMeshPtr = (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE ?
-            hcclImpl_->GetCommMesh() : hcclImpl_->GetCommMeshByTag(tag));
-        alltoallReadOnly.reset(new (std::nothrow) AlltoAllVMeshReadOnly(dispatcher_, stream,
-            streamInfo->ringStreams, streamInfo->ringSignal, streamInfo->ringSignalAux, userRank_, userRankSize_,
-            commMeshPtr->TransportInfo(), allMeshAggregationSendRecvInfo));
-
-        CHK_SMART_PTR_NULL(alltoallReadOnly);
-        AlltoAllUserRankInfo userRankInfo;
-        userRankInfo.userRank = userRank_;
-        userRankInfo.userRankSize = userRankSize_;
-        std::map<u32, std::list<OneSendRecvAddrInfo>> sendAddrInfosIntra;
-        std::map<u32, std::list<OneSendRecvAddrInfo>> recvAddrInfosIntra;
-        AlltoAllVStagedCalculator::CalcIntraMeshAggregationAlltoAllMemInfo(userRankInfo,
-            allMeshAggregationSendRecvInfo, sendAddrInfosIntra, recvAddrInfosIntra, userRankSize_, true);
-        if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
-            CHK_RET(alltoallReadOnly->Prepare(sendBuf, recvBuf, inCCLbuffer, outCCLbuffer, sendAddrInfosIntra,
-                recvAddrInfosIntra, GetWorkflowMode()));
-        } else {
-            CHK_RET(alltoallReadOnly->Prepare(sendBuf, recvBuf, sendBuf, recvBuf, sendAddrInfosIntra,
-                recvAddrInfosIntra, GetWorkflowMode()));
-        }
-        alltoallReadOnly->RunAsync();
-
-        return HCCL_SUCCESS;
-    }
-
-    // 执行算法
-    std::unique_ptr<AlltoAllVPairWise> pairWisePtr = nullptr;
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        !isAlltoAllZCopyMode_) { // 单算子 && Buffer Copy模式
-        std::unique_ptr<CommBase> &commMeshPtr = hcclImpl_->GetCommMesh();
-        pairWisePtr.reset(new (std::nothrow)AlltoAllVPairWise(dispatcher_));
-        CHK_SMART_PTR_NULL(pairWisePtr);
-        CHK_RET(pairWisePtr->Prepare(sendInfo, recvInfo, inCCLbuffer, outCCLbuffer, isAlltoAllZCopyMode_, stream));
-        CHK_RET(commMeshPtr->RunAlltoAll(pairWisePtr));
-    } else if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        isAlltoAllZCopyMode_) {
-        std::map<u32, std::vector<u64>> rankSendDisplsMap;
-        std::map<u32, std::vector<u64>> rankRecvDisplsMap;
-        for (u32 i = 0; i < userRankSize_; i++) {
-            rankSendDisplsMap.insert(std::pair<u32, std::vector<u64>>(i, allMeshAggregationSendRecvInfo[i].sendOffset));
-            rankRecvDisplsMap.insert(std::pair<u32, std::vector<u64>>(i, allMeshAggregationSendRecvInfo[i].recvOffset));
-        }
-
-        pairWisePtr.reset(new (std::nothrow)AlltoAllVPairWise(dispatcher_, rankSendDisplsMap, rankRecvDisplsMap,
-            HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE));
-        CHK_SMART_PTR_NULL(pairWisePtr);
-        CHK_SMART_PTR_NULL(inCCLbuffer.ptr());
-        CHK_SMART_PTR_NULL(outCCLbuffer.ptr());
-        DeviceMem dstMem = inCCLbuffer.range(0, sendBuf.size());
-        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, sendBuf, stream));
-
-        CHK_RET(pairWisePtr->Prepare(sendInfo, recvInfo, inCCLbuffer, outCCLbuffer, isAlltoAllZCopyMode_, stream));
-        std::unique_ptr<CommBase> &commMeshPtr = hcclImpl_->GetCommMesh();
-        CHK_RET(commMeshPtr->RunAlltoAll(pairWisePtr)); // inCCLbuffer -> outCCLbuffer
-        DeviceMem srcMem = outCCLbuffer.range(0, recvBuf.size());
-        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, recvBuf, srcMem, stream));
-    } else if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
-        std::map<u32, std::vector<u64>> rankSendDisplsMap;
-        std::map<u32, std::vector<u64>> rankRecvDisplsMap;
-        for (u32 i = 0; i < userRankSize_; i++) {
-            rankSendDisplsMap.insert(std::pair<u32, std::vector<u64>>(i, allMeshAggregationSendRecvInfo[i].sendOffset));
-            rankRecvDisplsMap.insert(std::pair<u32, std::vector<u64>>(i, allMeshAggregationSendRecvInfo[i].recvOffset));
-        }
-
-        pairWisePtr.reset(new (std::nothrow)AlltoAllVPairWise(dispatcher_, rankSendDisplsMap, rankRecvDisplsMap,
-            HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB));
-        CHK_SMART_PTR_NULL(pairWisePtr);
-        CHK_RET(pairWisePtr->Prepare(sendInfo, recvInfo, isAlltoAllZCopyMode_, stream));
-        // 保证最新的commMesh是为该次alltoallv创建（不支持多线程）
-        std::unique_ptr<CommBase> &commMeshPtr = hcclImpl_->GetCommMeshByTag(tag);
-        CHK_RET(commMeshPtr->RunAlltoAll(pairWisePtr));
-    } else {
-        HCCL_ERROR("[hcclImpl][RunAlltoAllVFullMesh]work flow mode is invalid");
-        return HCCL_E_PARA;
-    }
-    return HCCL_SUCCESS;
-}
+REGISTER_OP(HcclCMDType::HCCL_CMD_ALLTOALLV, AlltoAllV, AlltoAllOperator);
+REGISTER_OP(HcclCMDType::HCCL_CMD_ALLTOALL, AlltoAll, AlltoAllOperator);
+REGISTER_OP(HcclCMDType::HCCL_CMD_ALLTOALLVC, AlltoAllVC, AlltoAllOperator);
 
 }

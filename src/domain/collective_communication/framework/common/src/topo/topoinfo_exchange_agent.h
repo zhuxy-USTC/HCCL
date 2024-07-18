@@ -41,9 +41,10 @@ public:
     ~TopoInfoExchangeAgent() override;
     HcclResult Setup();
     HcclResult SetupByMasterInfo();
-    HcclResult Teardown() const;
+    HcclResult Teardown();
     HcclResult GetClusterTopoInfo(RankTable_t &clusterInfo);
     HcclResult GetIdentifier(u32 &indentify);
+    HcclResult GetConnection(std::shared_ptr<HcclSocket> &socket);
 
 private:
     HcclResult DetectClusterTopoInfo(std::shared_ptr<HcclSocket> socket, RankTable_t &clusterTopoInfo);
@@ -62,6 +63,7 @@ private:
     HcclResult VerifyClusterDeviceIP(const RankTable_t &clusterInfo);
     HcclResult VerifyClusterRankID(const RankTable_t &clusterInfo) const;
     HcclResult VerifyServerDevicePhysicID(const std::vector<RankInfo_t> &serverInfo) const;
+    HcclResult VerifyClusterSuperPodInfo(const std::vector<RankInfo_t> &rankInfo) const;
 
     bool HasRepeatedIP(const std::vector<HcclIpAddress> &deviceAIP, const std::vector<HcclIpAddress> &deviceBIP) const;
     HcclResult DetectTransportType(const RankInfo_t &localRankInfo, const RankInfo_t &remoteRankInfo,
@@ -74,6 +76,7 @@ private:
     HcclBasicRankInfo localRankInfo_;
     RankTable_t clusterTopoInfo_;
     HcclNetDevCtx netDevCtx_{nullptr};
+    std::shared_ptr<HcclSocket> socket_;
 };
 }  // namespace hccl
 
