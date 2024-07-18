@@ -264,7 +264,7 @@ HcclResult HcomCheckReductionOp(const HcclReduceOp op)
 
 HcclResult HcomCheckReduceDataType(const HcclDataType dataType, const HcclReduceOp op, DevType deviceType)
 {
-    if (deviceType == DevType::DEV_TYPE_910B) {
+    if ((deviceType == DevType::DEV_TYPE_910B) || (deviceType == DevType::DEV_TYPE_910_73)) {
         if ((op == HCCL_REDUCE_PROD) &&
         ((dataType == HCCL_DATA_TYPE_INT16) || (dataType == HCCL_DATA_TYPE_BFP16))) {
             RPT_INPUT_ERR(true, "EI0003", std::vector<std::string>({"ccl_op", "parameter", "value", "tips"}),\

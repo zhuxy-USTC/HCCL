@@ -11,10 +11,17 @@
 #include "coll_all_reduce_ring_executor.h"
 
 namespace hccl {
-CollAllReduceRingExecutor::CollAllReduceRingExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAllReduceExecutor(pImpl)
+
+CollAllReduceRingExecutor::CollAllReduceRingExecutor(const HcclDispatcher dispatcher,
+                                                     std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
-    DMAReduceFlag_ = false;
+    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
+        topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
+        DMAReduceFlag_ = true;
+    } else {
+        DMAReduceFlag_ = false;
+    }
 }
 
 HcclResult CollAllReduceRingExecutor::CalcStreamNum(u32& streamNum)
@@ -28,6 +35,16 @@ HcclResult CollAllReduceRingExecutor::CalcStreamNum(u32& streamNum)
         case AlgType::ALG_8P_RING_PLUS_NB:
         case AlgType::ALG_8P_RING_PLUS_PIPELINE:
             totalStreamNum = OUTER_PLANE_NUM_IN_8PRING;
+            break;
+        case AlgType::ALG_NP_SINGLE_RING_PLUS_RING:
+        case AlgType::ALG_NP_SINGLE_RING_PLUS_HD:
+            if (topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
+                if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+                    totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
+                } else {
+                    totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE;
+                }
+            }
             break;
         default:
             break;
@@ -132,8 +149,7 @@ HcclResult CollAllReduceRingExecutor::KernelRun(const OpParam &param, ExecMem &e
     u64 hdSize;
     u32 segmentIdx;
     u32 commIndex;
-    CHK_RET(hcclImpl_->PrepareInnerCommInfo(segmentIdx, commIndex, hdSize,
-        outerCommInfo, multRingsSliceZero, param.tag));
+    CHK_RET(PrepareInnerCommInfo(segmentIdx, commIndex, hdSize, outerCommInfo, multRingsSliceZero, param.tag));
 
     u64 hdCount = hdSize / perDataSize;
     auto nicList = topoAttr_.nicList;

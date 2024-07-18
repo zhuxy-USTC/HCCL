@@ -54,6 +54,7 @@ HcclResult CommP2P::CalcLink()
     bool isSupportP2P = false;
     if ((paraVector_[rank_].deviceType == DevType::DEV_TYPE_910) ||
         (paraVector_[rank_].deviceType == DevType::DEV_TYPE_910B) ||
+        (paraVector_[rank_].deviceType == DevType::DEV_TYPE_910_73) ||
         (paraVector_[rank_].deviceType == DevType::DEV_TYPE_NOSOC)) {
         isSupportP2P = true;
     } else if (paraVector_[rank_].deviceType == DevType::DEV_TYPE_310P3) {

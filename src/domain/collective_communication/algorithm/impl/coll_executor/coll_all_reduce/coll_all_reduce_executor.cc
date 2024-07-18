@@ -11,8 +11,10 @@
 #include "coll_all_reduce_executor.h"
 
 namespace hccl {
-CollAllReduceExecutor::CollAllReduceExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollCommExecutor(pImpl)
+
+CollAllReduceExecutor::CollAllReduceExecutor(const HcclDispatcher dispatcher,
+                                             std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollCommExecutor(dispatcher, topoMatcher)
 {
 }
 

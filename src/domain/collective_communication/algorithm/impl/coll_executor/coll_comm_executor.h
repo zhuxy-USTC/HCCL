@@ -17,14 +17,20 @@
 namespace hccl {
 class CollCommExecutor : public CollNativeExecutorBase {
 public:
-    CollCommExecutor(std::unique_ptr<hcclImpl> &pImpl);
+    CollCommExecutor(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollCommExecutor() = default;
 
-    // CCL Op Share 目前只包含AllReduce涉及的接口
+    // CCL Op Share
+    HcclResult MultiRingAllReduce(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
+                                    const u64 count, const HcclDataType dataType,
+                                    const HcclReduceOp reductionOp,
+                                    const std::vector<std::vector<Slice>> &multRingsSliceZero, Stream stream,
+                                    s32 profStage, const u64 baseOffset = 0);
     HcclResult MultiRingReduceScatter(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem, const u64 count,
-                                      const HcclDataType dataType, const HcclReduceOp reductionOp,
-                                      const std::vector<std::vector<Slice>> multRingsSliceZero, Stream stream,
-                                      s32 profStage, const u64 baseOffset = 0, const HcomCollOpInfo *opInfo = nullptr);
+        const HcclDataType dataType, const HcclReduceOp reductionOp,
+        const std::vector<std::vector<Slice>> multRingsSliceZero, Stream stream,
+        s32 profStage, const u64 baseOffset = 0, const HcomCollOpInfo *opInfo = nullptr,
+        const std::vector<std::vector<Slice>> multRingsUserMemSlice = std::vector<std::vector<Slice>> (0));
 
     HcclResult MultiRingReduceScatterConcurrent(const std::string &tag, DeviceMem inputMem,
         DeviceMem outputMem, const u64 count, const HcclDataType dataType,
@@ -33,14 +39,19 @@ public:
         s32 profStage, const u64 baseOffset, const HcomCollOpInfo *opInfo = nullptr);
 
     HcclResult MultiRingAllGather(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem, const u64 count,
-                                       const HcclDataType dataType,
-                                       const std::vector<std::vector<Slice> > multRingsSliceZero, Stream stream,
-                                       s32 profStage, const u64 baseOffset = 0, const HcomCollOpInfo *opInfo = nullptr);
+        const HcclDataType dataType,
+        const std::vector<std::vector<Slice> > multRingsSliceZero, Stream stream,
+        s32 profStage, const u64 baseOffset = 0, const HcomCollOpInfo *opInfo = nullptr,
+        const std::vector<std::vector<Slice>> multRingsUserMemSlice = std::vector<std::vector<Slice>> (0));
 
     HcclResult MultiRingAllGatherConcurrent(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem,
         const u64 count, const HcclDataType dataType,
         const std::vector<std::pair<bool, std::vector<Slice>>> multRingsSliceZero, Stream stream,
         s32 profStage, const u64 baseOffset = 0, const HcomCollOpInfo *opInfo = nullptr);
+
+    HcclResult MultiRingMultiRootScatter(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
+        const u64 count, const HcclDataType dataType, const std::vector<std::vector<Slice>> &multRingsSliceZero,
+        u32 root, Stream stream, const u64 baseOffset);
 
     HcclResult MultiStreamReduceScatterMesh(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem,
                                                   const u64 count, const HcclDataType dataType,
@@ -49,6 +60,11 @@ public:
                                                   Stream stream,
                                                   const CommPlane commLevelIndex,
                                                   const u64 baseOffset = 0);
+
+    HcclResult MultiRingGather(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem, const u64 count,
+                                const HcclDataType dataType, const std::vector<std::vector<Slice>> multRingsSliceZero, 
+                                HcclReduceOp op, u32 root, Stream stream, s32 profStage);
+
     HcclResult MultiStreamReduceScatterMeshAtomic(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
                                                   const u64 count, const HcclDataType dataType,
                                                   const HcclReduceOp reductionOp,
@@ -56,7 +72,11 @@ public:
                                                   Stream &stream,
                                                   const CommPlane commLevelIndex,
                                                   const u64 baseOffset = 0, HcomCollOpInfo *opInfo = nullptr);
+    HcclResult PrepareReduceScatterSliceData(u64 dataCount, u32 unitSize, u32 sliceNum, std::vector<Slice> &dataSlice);
 
+    HcclResult MultiRingScatter(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem, const u64 count,
+                                const HcclDataType dataType, const std::vector<std::vector<Slice> > multRingsSliceZero,
+                                u32 root, Stream stream, const HcomCollOpInfo *opInfo);
     std::vector<std::vector<u32>> GetRingsOrderByTopoType(u32 ranksSize, TopoType topoType, std::vector<u32> &nicList);
     HcclResult MutliSegSlicePrepare(const std::vector<Slice> &dataSegsSlice,
         std::vector<std::vector<Slice> >& mutliSegsSlices, u32 ringCount);
@@ -75,7 +95,11 @@ public:
     bool IsMultiMeshInlineReduce(void *inputPtr, void *outputPtr, HcclDataType dataType, HcclReduceOp op);
 
     u64 GetReduceAttr(DeviceMem &inputMem, DeviceMem &outputMem, HcclDataType dataType, HcclReduceOp op);
-private:
+    HcclResult PrepareInnerCommInfo(u32 &segmentIdx, u32 &commIndex, u64 &hdSize,
+                                          const SubCommInfo &commInfo,
+                                          const std::vector<std::vector<Slice> > &multRingsSliceZero,
+                                          const std::string &tag);
+protected:
     HcclResult GetSubStreamInfoOnOneRing(const innerStreamInfo_t &streamInfo, const u32 ringIndex,
                                          std::vector<Stream>                       &subStreamsInOneRing,
                                          std::vector<std::shared_ptr<LocalNotify>> &mainSignalsInOneRing,
@@ -86,6 +110,17 @@ private:
                                 std::vector<Slice>                  &userMemSlices);
     HcclResult GetRankOrder(const std::vector<std::vector<u32>> &multiRingsOrder, u32 ringIndex,
                             std::vector<u32> &rankOrder);
+    HcclResult SetRingNics(const std::string &tag, const std::vector<std::vector<u32>> &ringNics);
+    HcclResult GetRingNics(const std::string &tag, std::vector<std::vector<u32>> &ringNics);
+    HcclResult SetNicSendSize(const std::string &tag, std::vector<u64> &sizeList);
+    HcclResult GetStreamThreadManage(const std::string &tag, u32 streamNum,
+                                     std::vector<std::shared_ptr<ThreadManage>> &threadManager);
+    std::mutex ringNicListLock_;
+    std::map<std::string, std::vector<std::vector<u32>>> ringNicList_;
+    std::mutex nicSendSizeListLock_;
+    std::map<std::string, std::vector<u64>> nicSendSizeList_;
+    std::mutex threadManageMapLock_;
+    std::map<std::string, std::vector<std::shared_ptr<ThreadManage>>> threadManageMap_;
 };
 } // namespace hccl
 

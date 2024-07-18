@@ -12,8 +12,8 @@
 
 namespace hccl {
 // 准入条件: pipeLine && 910B && 单算子 && sdmaReduce && rdmaReduce && 多Mesh && MeshTopo && 非确定性
-CollAllReduceMeshOpbasePipelineExecutor::CollAllReduceMeshOpbasePipelineExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAllReduceExecutor(pImpl)
+CollAllReduceMeshOpbasePipelineExecutor::CollAllReduceMeshOpbasePipelineExecutor(const HcclDispatcher dispatcher,
+    std::unique_ptr<TopoMatcher> &topoMatcher): CollAllReduceExecutor(dispatcher, topoMatcher)
 {
     DMAReduceFlag_ = true;
 }

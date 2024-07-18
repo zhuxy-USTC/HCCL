@@ -16,12 +16,13 @@
 namespace hccl {
 class BroadCastOperator : public CommonOperator {
 public:
-    BroadCastOperator(std::unique_ptr<hcclImpl> &pImpl);
+    BroadCastOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~BroadCastOperator();
     HcclResult Broadcast(const std::string &tag, void *ptr, u64 count, HcclDataType dataType, u32 root,
         Stream stream, HcomCollOpInfo *opInfo = nullptr);
     HcclResult BroadcastOutPlace(const std::string &tag, void *ptr, u64 count, HcclDataType dataType, u32 root,
         Stream stream, const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo = nullptr);
+    HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName, std::string& newTag);
 
 private:
     // broadcast
@@ -58,6 +59,16 @@ private:
         std::vector<Slice> &sliceList);
 
     bool IsBroadcastSmallData(u64 size);
+
+    HcclResult SelectAlgfor310P3(const OpParam& param, std::string& algName);
+
+    HcclResult SelectAlgfor310P(const OpParam& param, std::string& algName);
+
+    HcclResult SelectAlgfor910A(const OpParam& param, std::string& algName);
+
+    HcclResult SelectAlgfor910B(const OpParam& param, std::string& algName);
+
+    HcclResult SelectAlgfor91073(const OpParam& param, std::string& algName);
 };
 }
 

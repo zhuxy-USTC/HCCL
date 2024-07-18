@@ -14,26 +14,16 @@
 #include "calc_transport_req_base_pub.h"
 
 namespace hccl {
-struct RdmaEnableCheckInfo {
-    RankInfo rankData;
-    bool isDiffModuleInServer;
-    bool isUsedRdma;
-};
 class CalcPartialMeshTransportReq : public CalcTransportReqBase {
 public:
-    explicit CalcPartialMeshTransportReq(std::vector<std::vector<RankInfo>> &subCommPlaneVector,
-        std::vector<bool> &isBridgeVector, u32 userRank, RdmaEnableCheckInfo& rdmacheckInfo);
+    explicit CalcPartialMeshTransportReq(std::vector<std::vector<u32>> &subCommPlaneVector,
+        std::vector<bool> &isBridgeVector, u32 userRank);
 
     ~CalcPartialMeshTransportReq();
 
     HcclResult CalcTransportRequest(const std::string &tag, TransportMemType inputMemType,
     TransportMemType outputMemType, const CommParaInfo &commParaInfo,
-    std::vector<SingleSubCommTransport> &commTransport) override;
-    bool IsNotSupportSDMA(const RankInfo &remoteRankData);
-private:
-    RankInfo rankData_;   
-    bool isDiffModuleInServer_;
-    bool isUsedRdma_;
+    std::vector<SingleSubCommTransport> &commTransport, u32 subUserRankRoot = INVALID_VALUE_RANKID) override;
 };
 }  // namespace hccl
 #endif /* CALC_PARTIAL_MESH_TRANSPORT_REQ_PUB_H */

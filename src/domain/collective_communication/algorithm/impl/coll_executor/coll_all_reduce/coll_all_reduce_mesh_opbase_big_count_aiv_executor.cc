@@ -11,8 +11,9 @@
 #include "coll_all_reduce_mesh_opbase_big_count_aiv_executor.h"
 
 namespace hccl {
-CollAllReduceMeshOpbaseBigCountAivExecutor::CollAllReduceMeshOpbaseBigCountAivExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAllReduceExecutor(pImpl)
+
+CollAllReduceMeshOpbaseBigCountAivExecutor::CollAllReduceMeshOpbaseBigCountAivExecutor(const HcclDispatcher dispatcher,
+    std::unique_ptr<TopoMatcher> &topoMatcher): CollAllReduceExecutor(dispatcher, topoMatcher)
 {
     DMAReduceFlag_ = false;
 }

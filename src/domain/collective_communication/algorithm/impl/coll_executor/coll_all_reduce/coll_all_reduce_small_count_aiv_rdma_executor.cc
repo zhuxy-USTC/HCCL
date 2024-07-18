@@ -18,9 +18,10 @@ constexpr u32 A_X_AGGR_SIZE = 2;
 constexpr u64 HALF_OFFSET = 16 * 1024 * 1024;
 
 u64 CollAllReduceSmallCountAivRdmaExecutor::allreduceSmallDataAivRdmaCount_ = 0;
-
-CollAllReduceSmallCountAivRdmaExecutor::CollAllReduceSmallCountAivRdmaExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAllReduceExecutor(pImpl)
+ 
+CollAllReduceSmallCountAivRdmaExecutor::CollAllReduceSmallCountAivRdmaExecutor(const HcclDispatcher dispatcher,
+    std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
     DMAReduceFlag_ = false;
 }
@@ -51,7 +52,7 @@ HcclResult CollAllReduceSmallCountAivRdmaExecutor::CalcCommInfo(std::vector<Leve
     CHK_RET(CalcLevel1CommInfo(inputType, outputType, opTransport));
 
     // aiv+rdma小数据量在server间使用HD通信域，并在多机A+X场景下当未设置使用RDMA时，默认使用PCIE
-    if (GetExternalInputIntraRoceSwitch() == 0) {
+    if (topoMatcher_->GetExternalInputIntraRoceSwitch() == 0) {
         std::vector<SingleSubCommTransport> &commTransportLevel1 = opTransport[COMM_LEVEL1];
         for (u32 ringIndex = 0; ringIndex < commTransportLevel1.size(); ringIndex++) {
             commTransportLevel1[ringIndex].isUsedRdma = false;

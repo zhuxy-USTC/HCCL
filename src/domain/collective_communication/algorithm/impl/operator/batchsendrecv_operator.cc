@@ -11,8 +11,9 @@
 #include "batchsendrecv_operator.h"
 namespace hccl {
 
-BatchSendRecvOperator::BatchSendRecvOperator(std::unique_ptr<hcclImpl> &pImpl)
-    : CommonOperator(pImpl, HcclCMDType::HCCL_CMD_BATCH_SEND_RECV)
+BatchSendRecvOperator::BatchSendRecvOperator(std::unique_ptr<hcclImpl> &pImpl,
+    std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CommonOperator(pImpl, topoMatcher, HcclCMDType::HCCL_CMD_BATCH_SEND_RECV)
 {
 }
 BatchSendRecvOperator::~BatchSendRecvOperator() {

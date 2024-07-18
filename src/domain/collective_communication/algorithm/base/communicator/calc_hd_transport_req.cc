@@ -11,7 +11,7 @@
 #include "calc_hd_transport_req.h"
 
 namespace hccl {
-CalcHDTransportReq::CalcHDTransportReq(std::vector<std::vector<RankInfo>> &subCommPlaneVector,
+CalcHDTransportReq::CalcHDTransportReq(std::vector<std::vector<u32>> &subCommPlaneVector,
     std::vector<bool> &isBridgeVector, u32 userRank)
     : CalcTransportReqBase(subCommPlaneVector, isBridgeVector, userRank)
 {
@@ -23,7 +23,7 @@ CalcHDTransportReq::~CalcHDTransportReq()
 
 HcclResult CalcHDTransportReq::CalcTransportRequest(const std::string &tag, TransportMemType inputMemType,
     TransportMemType outputMemType, const CommParaInfo &commParaInfo,
-    std::vector<SingleSubCommTransport> &commTransport)
+    std::vector<SingleSubCommTransport> &commTransport, u32 subUserRankRoot)
 {
     u32 ringSize = subCommPlaneVector_.size();
     commTransport.resize(ringSize);
@@ -46,8 +46,13 @@ HcclResult CalcHDTransportReq::CalcTransportRequest(const std::string &tag, Tran
             HCCL_INFO("comm base needn't to create links, rankSize_[%u].", rankSize);
             return HCCL_SUCCESS;
         }
+    
+        u32 subRoot = INVALID_VALUE_RANKID;
+        if (subUserRankRoot != INVALID_VALUE_RANKID) {
+            CHK_RET(GetRankByUserRank(subCommPlaneVector_[ringIndex], subUserRankRoot, subRoot));
+        }
 
-        std::vector<bool> linkRelation =  ExecutorBase::CalcLinksRelation(rank, rankSize, INVALID_VALUE_RANKID,
+        std::vector<bool> linkRelation =  ExecutorBase::CalcLinksRelation(rank, rankSize, subRoot,
             HalvingDoublingType::RECURSIVE_HALVING_DOUBLING);
 
         for (u32 rankIndex = 0; rankIndex < rankSize; rankIndex++) {
@@ -55,7 +60,7 @@ HcclResult CalcHDTransportReq::CalcTransportRequest(const std::string &tag, Tran
             if (linkRelation[rankIndex] == true) {
                 tmpTransport.isValid = true;
                 tmpTransport.localUserRank  = userRank_;
-                tmpTransport.remoteUserRank = subCommPlaneVector_[ringIndex][rankIndex].userRank;
+                tmpTransport.remoteUserRank = subCommPlaneVector_[ringIndex][rankIndex];
                 tmpTransport.inputMemType = inputMemType;
                 tmpTransport.outputMemType = outputMemType;
                 HCCL_INFO("[CommFactory][CalcHDCommInfo] param_.tag[%s] ringIndex[%u], localRank[%u], "\

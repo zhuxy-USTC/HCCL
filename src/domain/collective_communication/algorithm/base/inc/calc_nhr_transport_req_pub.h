@@ -16,14 +16,14 @@
 namespace hccl {
 class CalcNHRTransportReq : public CalcTransportReqBase {
 public:
-    explicit CalcNHRTransportReq(std::vector<std::vector<RankInfo>> &subCommPlaneVector,
+    explicit CalcNHRTransportReq(std::vector<std::vector<u32>> &subCommPlaneVector,
         std::vector<bool> &isBridgeVector, u32 userRank);
 
     ~CalcNHRTransportReq();
 
     HcclResult CalcTransportRequest(const std::string &tag, TransportMemType inputMemType,
         TransportMemType outputMemType, const CommParaInfo &commParaInfo,
-        std::vector<SingleSubCommTransport> &commTransport) override;
+        std::vector<SingleSubCommTransport> &commTransport, u32 subUserRankRoot = INVALID_VALUE_RANKID) override;
 };
 }  // namespace hccl
 #endif /* CALC_NHR_TRANSPORT_REQ_PUB_H */

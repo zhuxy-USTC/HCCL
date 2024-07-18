@@ -206,7 +206,8 @@ void HcomTopoInfoFuncInstall(HcclResult (*p1)(const char *, uint32_t), void (*p2
 HcclResult HcomRegRemoteAccessMem(const MemRegisterAddr* addrList, u32 count)
 {
     HcomInfo &hcomInfo = HcomGetCtxHomInfo();
-    if (hcomInfo.params.deviceType == DevType::DEV_TYPE_910B) {
+    if (hcomInfo.params.deviceType == DevType::DEV_TYPE_910B ||
+        hcomInfo.params.deviceType == DevType::DEV_TYPE_910_73) { // 910_73场景临时使用SDMA模拟RDMA
         return HCCL_SUCCESS;
     }
 
@@ -302,7 +303,8 @@ HcclResult GetRankList(u32 rankNum, const u32 *rankIds, HcclGroupParams &params)
     bool isStandardCard = false;
     CHK_RET(hcomInfo.pComm->IsStandardCard(isStandardCard));
 
-    if (!isStandardCard && hcomInfo.params.deviceType != DevType::DEV_TYPE_910B) {
+    if (!isStandardCard && hcomInfo.params.deviceType != DevType::DEV_TYPE_910B &&
+        hcomInfo.params.deviceType != DevType::DEV_TYPE_910_73) {
         CHK_RET(CheckRankTableConfigInfo(rankList, rankNum, serverNum));
     }
     return HCCL_SUCCESS;

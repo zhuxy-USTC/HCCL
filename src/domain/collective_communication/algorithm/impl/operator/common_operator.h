@@ -16,7 +16,7 @@
 namespace hccl {
 class CommonOperator : public CollAlgOperator {
 public:
-    CommonOperator(std::unique_ptr<hcclImpl> &pImpl, HcclCMDType opType);
+    CommonOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher, HcclCMDType opType);
     ~CommonOperator();
 
     // CCL Op Share
@@ -25,22 +25,11 @@ public:
                                     const std::vector<std::vector<Slice> > multRingsSliceZero, HcclReduceOp op,
                                     u32 root, Stream stream, s32 profStage);
 
-    HcclResult MultiRingAllReduce(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-                                    const u64 count, const HcclDataType dataType,
-                                    const HcclReduceOp reductionOp,
-                                    const std::vector<std::vector<Slice>> &multRingsSliceZero, Stream stream,
-                                    s32 profStage, const u64 baseOffset = 0);
-
     HcclResult MultiRingReduceScatter(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem, const u64 count,
         const HcclDataType dataType, const HcclReduceOp reductionOp,
         const std::vector<std::vector<Slice>> multRingsSliceZero, Stream stream,
         s32 profStage, const u64 baseOffset = 0, const HcomCollOpInfo *opInfo = nullptr,
         const std::vector<std::vector<Slice>> multRingsUserMemSlice = std::vector<std::vector<Slice>> (0));
-
-    HcclResult MultiRingReduceScatterConcurrent(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem,
-        const u64 count, const HcclDataType dataType, const HcclReduceOp reductionOp,
-        const std::vector<std::pair<bool, std::vector<Slice>>> &multRingsSliceZero, Stream stream,
-        s32 profStage, const u64 baseOffset = 0, const HcomCollOpInfo *opInfo = nullptr);
 
     HcclResult MultiRingAllGather(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem, const u64 count,
         const HcclDataType dataType,
@@ -56,10 +45,6 @@ public:
                                     const HcclDataType dataType,
                                     const std::vector<std::vector<Slice> > multRingsSliceZero,
                                     u32 root, Stream stream, const HcomCollOpInfo *opInfo);
-
-    HcclResult MultiRingMultiRootScatter(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-        const u64 count, const HcclDataType dataType, const std::vector<std::vector<Slice>> &multRingsSliceZero,
-        u32 root, Stream stream, const u64 baseOffset);
 
     HcclResult MultiStreamReduceScatterMesh(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem,
                                                   const u64 count, const HcclDataType dataType,

@@ -11,8 +11,10 @@
 #include "coll_all_reduce_reduce_plus_bcast_executor.h"
 
 namespace hccl {
-CollAllReduceReducePlusBcastExecutor::CollAllReduceReducePlusBcastExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAllReduceExecutor(pImpl)
+
+CollAllReduceReducePlusBcastExecutor::CollAllReduceReducePlusBcastExecutor(const HcclDispatcher dispatcher,
+                                                                           std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
 }
 

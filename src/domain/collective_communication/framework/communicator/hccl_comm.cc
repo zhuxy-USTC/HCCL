@@ -112,10 +112,9 @@ HcclResult hcclComm::init(HcclCommParams &params, const RankTable_t &rankTable)
         communicator_->AtomicInitClear();
         return ret;
     }
-   
-    if (params.totalRanks != 1) {
-        CHK_RET(communicator_->InitCCLbuffer(inCCLbufferSize_, outCCLbufferSize_));
-    } 
+
+    CHK_RET(communicator_->InitCCLbuffer(inCCLbufferSize_, outCCLbufferSize_));
+
     HCCL_RUN_INFO("hcclCommInitInfo:commId[%s], rank[%u], totalRanks[%u], serverId[%s], deviceType[%d]," \
         "logicDevId[%d], identifier[%s]", params.id.internal, params.rank, params.totalRanks, params.serverId.c_str(),
         params.deviceType, params.logicDevId, params.identifier.c_str());
@@ -219,7 +218,7 @@ HcclResult hcclComm::DestroyGroup(const std::string &group) const
 HcclResult hcclComm::GetAlgType(AlgType &algType, HcclCMDType opType)
 {
     /* 增加输出日志关键字 */
-    HCCL_DEBUG("algType[%d]", algType);
+    HCCL_DEBUG("algType[%s]", HcclAlg::AlgTypeToStr(algType).c_str());
     return communicator_->GetAlgType(algType, opType);
 }
 

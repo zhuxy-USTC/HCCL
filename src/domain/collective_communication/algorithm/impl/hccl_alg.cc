@@ -20,6 +20,7 @@
 #include "send_receive_operator.h"
 #include "alltoall_operator.h"
 #include "coll_alg_op_registry.h"
+#include "topo_matcher.h"
 namespace hccl {
 
 HcclAlg::HcclAlg()
@@ -38,10 +39,26 @@ HcclResult HcclAlg::Init(const void* transportResourceInfoAddr, size_t transport
     const std::unique_ptr<QueueNotifyManager> &queueNotifyManager,
     HcclAlgoAttr &algoAttr, HcclTopoAttr &topoAttr, bool isHeterogComm)
 {
+    CHK_RET(InitAlgoInfo(algoAttr));
+    CHK_RET(InitTopoInfoPartOne(topoAttr));
     pimpl_.reset((new (std::nothrow) hcclImpl(dispatcher, vDispatcher, notifyPool, netDevCtxMap, queueNotifyManager,
         workSpaceRes, cclBufferManager, transportResourceInfoAddr, transportResourceInfoSize, algoAttr, topoAttr)));
     CHK_SMART_PTR_NULL(pimpl_);
-    return pimpl_->Init(isHeterogComm);
+    CHK_RET(pimpl_->Init(isHeterogComm));
+    std::vector<std::vector<std::vector<u32>>> CommPlaneRanks;
+    CHK_RET(pimpl_->GetCommPlaneRanks(CommPlaneRanks));
+    std::vector<bool> isBridgeVector;
+    CHK_RET(pimpl_->GetIsBridgeVector(isBridgeVector));
+    CHK_RET(InitTopoInfoPartTwo());
+    CHK_RET(InitExternalEnable());
+    std::vector<std::vector<std::vector<u32>>> serverAndsuperPodToRank;
+    serverAndsuperPodToRank.clear();
+    CHK_RET(pimpl_->GetRankVecInfo(serverAndsuperPodToRank));
+
+    topoMatcher_.reset((new (std::nothrow) TopoMatcher(CommPlaneRanks, isBridgeVector,
+                                                       topoInfo_, algoInfo_, externalEnable_,
+                                                       serverAndsuperPodToRank)));
+    return HCCL_SUCCESS;
 }
 // 上层保证，以下方法在初始化成功后才会调用，所以未对pimpl_进行保护判断
 HcclResult HcclAlg::ReleaseCommInfos()
@@ -55,66 +72,31 @@ std::unique_ptr<CollAlgOperator> HcclAlg::GetAlgOperator(const HcclCMDType &opTy
         HCCL_ERROR("[HcclAlg][GetAlgOperator] impl ptr is null, get algorithm operator failed.");
         return nullptr;
     }
-    return CollAlgOpRegistry::Instance()->GetAlgOp(opType, pimpl_);
+    if (!topoMatcher_) {
+        HCCL_ERROR("[HcclAlg][GetAlgOperator] topoMatcher ptr is null, get algorithm operator failed.");
+        return nullptr;
+    }
+    return CollAlgOpRegistry::Instance()->GetAlgOp(opType, pimpl_, topoMatcher_);
 }
 
 HcclResult HcclAlg::AllGather(const std::string &tag, void *inputPtr, void *outputPtr, u64 inputCount,
     HcclDataType dataType, Stream stream, HcomCollOpInfo *opInfo)
 {
-    AllGatherOperator operation(pimpl_);
+    AllGatherOperator operation(pimpl_, topoMatcher_);
     return operation.AllGather(tag, inputPtr, outputPtr, inputCount, dataType, stream, opInfo);
 }
 
 HcclResult HcclAlg::AllGatherOutPlace(const std::string &tag, void *inputPtr, void *outputPtr, u64 inputCount,
     HcclDataType dataType, Stream stream, const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo)
 {
-    AllGatherOperator operation(pimpl_);
+    AllGatherOperator operation(pimpl_, topoMatcher_);
     return operation.AllGatherOutPlace(tag, inputPtr, outputPtr, inputCount, dataType, stream, opBaseAtraceInfo);
-}
-
-HcclResult HcclAlg::AlltoAllV(const void *sendBuf, const void *sendCounts, const void *sdispls, HcclDataType sendType,
-    const void *recvBuf, const void *recvCounts, const void *rdispls, HcclDataType recvType, Stream stream,
-    const std::string &tag)
-{
-    AlltoAllOperator operation(pimpl_);
-    return operation.AlltoAllV(
-        sendBuf, sendCounts, sdispls, sendType, recvBuf, recvCounts, rdispls, recvType, stream, tag);
-}
-
-HcclResult HcclAlg::AlltoAllVOutPlace(const void *sendBuf, const void *sendCounts, const void *sdispls,
-    HcclDataType sendType, const void *recvBuf, const void *recvCounts, const void *rdispls, HcclDataType recvType,
-    Stream stream, const std::string &tag)
-{
-    AlltoAllOperator operation(pimpl_);
-    return operation.AlltoAllVOutPlace(
-        sendBuf, sendCounts, sdispls, sendType, recvBuf, recvCounts, rdispls, recvType, stream, tag);
-}
-
-HcclResult HcclAlg::AlltoAllVC(const void *sendBuf, const void *sendCountMatrix, HcclDataType sendType,
-    const void *recvBuf, HcclDataType recvType, Stream stream, const std::string &tag)
-{
-    AlltoAllOperator operation(pimpl_);
-    return operation.AlltoAllVC(sendBuf, sendCountMatrix, sendType, recvBuf, recvType, stream, tag);
-}
-
-HcclResult HcclAlg::AlltoAllVCOutPlace(const void *sendBuf, const void *sendCountMatrix, HcclDataType sendType,
-    const void *recvBuf, HcclDataType recvType, Stream stream, const std::string &tag)
-{
-    AlltoAllOperator operation(pimpl_);
-    return operation.AlltoAllVCOutPlace(sendBuf, sendCountMatrix, sendType, recvBuf, recvType, stream, tag);
-}
-
-HcclResult HcclAlg::AlltoAll(const void *sendBuf, u64 sendCount, HcclDataType sendType, const void *recvBuf,
-    u64 recvCount, HcclDataType recvType, Stream stream, const std::string &tag)
-{
-    AlltoAllOperator operation(pimpl_);
-    return operation.AlltoAll(sendBuf, sendCount, sendType, recvBuf, recvCount, recvType, stream, tag);
 }
 
 HcclResult HcclAlg::Broadcast(
     const std::string &tag, void *ptr, u64 count, HcclDataType dataType, u32 root, Stream stream)
 {
-    BroadCastOperator operation(pimpl_);
+    BroadCastOperator operation(pimpl_, topoMatcher_);
     return operation.Broadcast(tag, ptr, count, dataType, root, stream);
 }
 
@@ -122,14 +104,14 @@ HcclResult HcclAlg::BroadcastOutPlace(
     const std::string &tag, void *ptr, u64 count, HcclDataType dataType, u32 root, Stream stream,
     const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo)
 {
-    BroadCastOperator operation(pimpl_);
+    BroadCastOperator operation(pimpl_, topoMatcher_);
     return operation.BroadcastOutPlace(tag, ptr, count, dataType, root, stream);
 }
 
 HcclResult HcclAlg::Scatter(const std::string &tag, void *inputPtr, void *outputPtr, u64 recvCount,
     HcclDataType dataType, u32 root, Stream stream)
 {
-    ScatterOperator operation(pimpl_);
+    ScatterOperator operation(pimpl_, topoMatcher_);
     return operation.Scatter(tag, inputPtr, outputPtr, recvCount, dataType, root, stream);
 }
 
@@ -137,14 +119,14 @@ HcclResult HcclAlg::ScatterOutPlace(const std::string &tag, void *inputPtr, void
     HcclDataType dataType, u32 root, Stream stream,
     const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo)
 {
-    ScatterOperator operation(pimpl_);
+    ScatterOperator operation(pimpl_, topoMatcher_);
     return operation.ScatterOutPlace(tag, inputPtr, outputPtr, recvCount, dataType, root, stream);
 }
 
 HcclResult HcclAlg::Reduce(const std::string &tag, void *inputPtr, void *outputPtr, u64 count, HcclDataType dataType,
     HcclReduceOp op, u32 root, Stream stream)
 {
-    ReduceOperator operation(pimpl_);
+    ReduceOperator operation(pimpl_, topoMatcher_);
     return operation.Reduce(tag, inputPtr, outputPtr, count, dataType, op, root, stream);
 }
 
@@ -152,64 +134,49 @@ HcclResult HcclAlg::ReduceOutPlace(const std::string &tag, void *inputPtr, void 
     HcclDataType dataType, HcclReduceOp op, u32 root, Stream stream,
     const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo)
 {
-    ReduceOperator operation(pimpl_);
+    ReduceOperator operation(pimpl_, topoMatcher_);
     return operation.ReduceOutPlace(tag, inputPtr, outputPtr, count, dataType, op, root, stream);
-}
-
-HcclResult HcclAlg::ReduceScatter(const std::string &tag, void *inputPtr, void *outputPtr, u64 count,
-    HcclDataType dataType, HcclReduceOp op, Stream stream, HcomCollOpInfo *opInfo)
-{
-    ReduceScatterOperator operation(pimpl_);
-    return operation.ReduceScatter(tag, inputPtr, outputPtr, count, dataType, op, stream, opInfo);
-}
-
-HcclResult HcclAlg::ReduceScatterOutPlace(const std::string &tag, void *inputPtr, void *outputPtr, u64 count,
-    HcclDataType dataType, HcclReduceOp op, Stream stream,
-    const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo)
-{
-    ReduceScatterOperator operation(pimpl_);
-    return operation.ReduceScatterOutPlace(tag, inputPtr, outputPtr, count, dataType, op, stream, opBaseAtraceInfo);
 }
 
 HcclResult HcclAlg::Send(const std::string &tag, void *inputPtr, u64 count, HcclDataType dataType, u32 destRank,
     Stream stream)
 {
-    SendReceiveOperator operation(pimpl_);
+    SendReceiveOperator operation(pimpl_, topoMatcher_);
     return operation.Send(tag, inputPtr, count, dataType, destRank, stream);
 }
 
 HcclResult HcclAlg::SendOutPlace(const std::string &tag, void *inputPtr, u64 count, HcclDataType dataType,
     u32 destRank, Stream stream)
 {
-    SendReceiveOperator operation(pimpl_);
+    SendReceiveOperator operation(pimpl_, topoMatcher_);
     return operation.SendOutPlace(tag, inputPtr, count, dataType, destRank, stream);
 }
 
 HcclResult HcclAlg::Receive(const std::string &tag, void *outputPtr, u64 count, HcclDataType dataType,
     u32 srcRank, Stream stream)
 {
-    SendReceiveOperator operation(pimpl_);
+    SendReceiveOperator operation(pimpl_, topoMatcher_);
     return operation.Receive(tag, outputPtr, count, dataType, srcRank, stream);
 }
 
 HcclResult HcclAlg::ReceiveOutPlace(const std::string &tag, void *outputPtr, u64 count, HcclDataType dataType,
     u32 srcRank, Stream stream)
 {
-    SendReceiveOperator operation(pimpl_);
+    SendReceiveOperator operation(pimpl_, topoMatcher_);
     return operation.ReceiveOutPlace(tag, outputPtr, count, dataType, srcRank, stream);
 }
 
 HcclResult HcclAlg::Gather(const std::string &tag, void *inputPtr, void *outputPtr, u32 rootRank, u64 inputCount,
     HcclDataType dataType, Stream stream)
 {
-    GatherOperator operation(pimpl_);
+    GatherOperator operation(pimpl_, topoMatcher_);
     return operation.Gather(tag, inputPtr, outputPtr, rootRank, inputCount, dataType, stream);
 }
 
 HcclResult HcclAlg::GetAlltoAllStagedWorkSpaceMemSize(u64 *sendCounts, u64 *sdispls, HcclDataType sendType,
     u64 *recvCounts, u64 *rdispls, HcclDataType recvType, u64 &memSize)
 {
-    AlltoAllOperator operation(pimpl_);
+    AlltoAllOperator operation(pimpl_, topoMatcher_);
     return operation.GetAlltoAllStagedWorkSpaceMemSize(
         sendCounts, sdispls, sendType, recvCounts, rdispls, recvType, memSize);
 }
@@ -217,13 +184,13 @@ HcclResult HcclAlg::GetAlltoAllStagedWorkSpaceMemSize(u64 *sendCounts, u64 *sdis
 HcclResult HcclAlg::GetAlltoAllStagedWorkSpaceMemSize(
     std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo, u64 &memSize)
 {
-    AlltoAllOperator operation(pimpl_);
+    AlltoAllOperator operation(pimpl_, topoMatcher_);
     return operation.GetAlltoAllStagedWorkSpaceMemSize(allMeshAggregationSendRecvInfo, memSize);
 }
 
 HcclResult HcclAlg::GetAllReduceScratchSize(const u32 count, const HcclDataType dataType, u64 &scratchSize)
 {
-    AllReduceOperator operation(pimpl_);
+    AllReduceOperator operation(pimpl_, topoMatcher_);
     return operation.GetAllReduceScratchSize(count, dataType, scratchSize);
 }
 
@@ -285,6 +252,29 @@ HcclResult HcclAlg::GetAlgType(AlgType &algType, HcclCMDType opType)
     return pimpl_->GetAlgType(algType, opType);
 }
 
+std::string HcclAlg::AlgTypeToStr(const AlgType algType)
+{
+    AlgTypeLevel1 algTypeLevel1 = AlgTypeLevel1(floor(static_cast<u32>(algType) >> HCCL_LEVEL_ALGO_WIDTH));
+    AlgTypeLevel0 algTypeLevel0 = AlgTypeLevel0(static_cast<u32>(algType) -
+        (static_cast<u32>(algTypeLevel1) << HCCL_LEVEL_ALGO_WIDTH));
+    auto level0Iter = HCCL_ALGO_LEVEL0_NAME_MAP.find(algTypeLevel0);
+    auto level1Iter = HCCL_ALGO_LEVEL1_NAME_MAP.find(algTypeLevel1);
+    std::string algStrLevel0;
+    std::string algStrLevel1;
+    if (level0Iter == HCCL_ALGO_LEVEL0_NAME_MAP.end()) {
+        algStrLevel0 = "invalid algo type";
+    } else {
+        algStrLevel0 = level0Iter->second;
+    }
+    if (level1Iter == HCCL_ALGO_LEVEL1_NAME_MAP.end()) {
+        algStrLevel1 = "invalid algo type";
+    } else {
+        algStrLevel1 = level1Iter->second;
+    }
+    std::string algStr = "level0:" + algStrLevel0 + ",level1:" + algStrLevel1;
+    return algStr;
+}
+
 HcclResult HcclAlg::SupportDeterministicOptim(bool &isDeterministicOptim)
 {
     isDeterministicOptim = pimpl_->SupportDeterministicOptim();
@@ -303,12 +293,75 @@ HcclResult HcclAlg::SetHDCModeInfo(
 
 u8 HcclAlg::GetDeterministicConfig() const
 {
-    return pimpl_->GetDeterministicConfig();
+    return topoMatcher_->GetDeterministicConfig();
 }
 
 HcclResult HcclAlg::SetDeterministicConfig(const u8 deterministic)
 {
-    CHK_RET(pimpl_->SetDeterministicConfig(deterministic));
+    CHK_RET(topoMatcher_->SetDeterministicConfig(deterministic));
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult HcclAlg::GetAlltoAllStatus(DeviceMem &tinySendRecvMem, bool &isAlltoAllZCopyMode)
+{
+    CHK_RET(pimpl_->GetAlltoAllStatus(tinySendRecvMem, isAlltoAllZCopyMode));
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult HcclAlg::InitExternalEnable()
+{
+    externalEnable_.enableRdmaSdmaConcurrent = GetExternalInputEnableRdmaSdmaConcurrent();
+    externalEnable_.enableFfts = GetExternalInputHcclEnableFfts();
+    externalEnable_.deterministic = GetExternalInputHcclDeterministic();
+    externalEnable_.highPerfEnable = GetExternalInputHcclHighPerfEnable();
+    externalEnable_.intraRoceSwitch = GetExternalInputIntraRoceSwitch();
+    externalEnable_.dumpDebug = GetExternalInputHcclDumpDebug();
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult HcclAlg::InitTopoInfoPartOne(HcclTopoAttr &topoAttr)
+{
+    topoInfo_.userRank = topoAttr.userRank;
+    topoInfo_.userRankSize = topoAttr.userRankSize;
+    topoInfo_.devicePhyId = topoAttr.devicePhyId;
+    topoInfo_.deviceLogicId = topoAttr.deviceLogicId;
+    topoInfo_.nicList = topoAttr.nicList;
+    topoInfo_.isSingleMeshAggregation = topoAttr.isSingleMeshAggregation;
+    topoInfo_.deviceNumPerAggregation = topoAttr.deviceNumPerAggregation;
+    topoInfo_.devNumInLevel2 = topoAttr.devNumInLevel2;
+    topoInfo_.deviceType = topoAttr.deviceType;
+    topoInfo_.serverNum = topoAttr.serverNum;
+    topoInfo_.meshAggregationRankSize = topoAttr.meshAggregationRankSize;
+    topoInfo_.multiModuleDiffDeviceNumMode = topoAttr.multiModuleDiffDeviceNumMode;
+    topoInfo_.pairLinkCounter = topoAttr.pairLinkCounter;
+    topoInfo_.isDiffDeviceModule = topoAttr.isDiffDeviceModule;
+    topoInfo_.realUserRank = topoAttr.realUserRank;
+    topoInfo_.moduleNum = topoAttr.moduleNum;
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult HcclAlg::InitTopoInfoPartTwo()
+{
+    TopoType topoType;
+    CHK_RET(pimpl_->GetTopoType(topoType));
+    topoInfo_.topoType = topoType;
+    topoInfo_.is310P3Common = pimpl_->Is310P3Common();
+    std::unordered_map<u32, bool> isUsedRdmaMap;
+    CHK_RET(pimpl_->GetIsUsedRdmaMap(isUsedRdmaMap));
+    topoInfo_.isUsedRdmaMap = isUsedRdmaMap;
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult HcclAlg::InitAlgoInfo(HcclAlgoAttr &algoAttr)
+{
+    algoInfo_.identifier = algoAttr.identifier;
+    algoInfo_.inlineReduceSwitchOn = algoAttr.inlineReduceSwitchOn;
+    algoInfo_.isUsedRdmaOuter = algoAttr.isUsedRdmaOuter;
 
     return HCCL_SUCCESS;
 }

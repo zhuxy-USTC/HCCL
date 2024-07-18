@@ -11,8 +11,10 @@
 #include "coll_all_reduce_mesh_oneshot_executor.h"
 
 namespace hccl {
-CollAllReduceMeshOneshotExecutor::CollAllReduceMeshOneshotExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAllReduceExecutor(pImpl)
+
+CollAllReduceMeshOneshotExecutor::CollAllReduceMeshOneshotExecutor(const HcclDispatcher dispatcher,
+                                                                   std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
     CCLMemSlice_ = false;
     DMAReduceFlag_ = true;

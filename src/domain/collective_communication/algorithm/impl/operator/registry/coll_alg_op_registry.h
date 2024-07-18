@@ -19,19 +19,21 @@
 
 namespace hccl {
 
-using CollAlgOpCreator = std::function<CollAlgOperator *(std::unique_ptr<hcclImpl> &)>;
+using CollAlgOpCreator = std::function<CollAlgOperator *(std::unique_ptr<hcclImpl> &, std::unique_ptr<TopoMatcher> &)>;
 
-template <typename P> static CollAlgOperator *DefaultOpCreator(std::unique_ptr<hcclImpl> &pImpl)
+template <typename P> static CollAlgOperator *DefaultOpCreator(std::unique_ptr<hcclImpl> &pImpl,
+                                                               std::unique_ptr<TopoMatcher> &topoMatcher)
 {
     static_assert(std::is_base_of<CollAlgOperator, P>::value, "CollAlgOp type must derived from Hccl::CollAlgOperator");
-    return new (std::nothrow) P(pImpl);
+    return new (std::nothrow) P(pImpl, topoMatcher);
 }
 
 class CollAlgOpRegistry {
 public:
     static CollAlgOpRegistry *Instance();
     HcclResult Register(const HcclCMDType &opType, const CollAlgOpCreator &collAlgOpCreator);
-    std::unique_ptr<CollAlgOperator> GetAlgOp(const HcclCMDType &opType, std::unique_ptr<hcclImpl> &pImpl);
+    std::unique_ptr<CollAlgOperator> GetAlgOp(const HcclCMDType &opType, std::unique_ptr<hcclImpl> &pImpl,
+                                              std::unique_ptr<TopoMatcher> &topoMatcher);
 
 private:
     std::map<HcclCMDType, const CollAlgOpCreator> opCreators_;

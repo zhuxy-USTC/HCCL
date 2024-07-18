@@ -16,7 +16,7 @@
 #include "device_capacity.h"
 #include "nonuniform_hierarchical_ring_v1_base_pub.h"
 #include "search_path.h"
-
+#include "calc_p2p_transport_req.h"
 namespace hccl {
 // 模组设备数量
 constexpr u32 SERVER_RANK_SIZE = 8;
@@ -156,14 +156,14 @@ HcclResult CommFactory::CheckCommPara(const std::string &tag, const DeviceMem &i
             break;
         }
         case CommType::COMM_TAG_NONUNIFORM_HIERARCHICAL_RING_V1: {
-            isSupport = (commParaInfo.commPlane == COMM_LEVEL1);
+            isSupport = (commParaInfo.commPlane == COMM_LEVEL1 && deviceType_ != DevType::DEV_TYPE_910_73);
             break;
         }
         case CommType::COMM_TAG_STAR:
         case CommType::COMM_TAG_WHOLE_NHR:
         case CommType::COMM_TAG_WHOLE_NHR_V1:
         case CommType::COMM_TAG_WHOLE_NB: {
-            isSupport = true;
+            isSupport = (deviceType_ != DevType::DEV_TYPE_910_73);
             break;
         }
         default: {
@@ -224,6 +224,69 @@ HcclResult CommFactory::GetIsUsedRdma(const CommParaInfo &commParaInfo, bool &is
     return HCCL_SUCCESS;
 }
 
+HcclResult CommFactory::GetIsUsedRdmaMap(std::unordered_map<u32, bool> &isUsedRdmaMap)
+{
+    for (const RankInfo &dstRank : rankVector_) {
+        bool isInterSuperPod = false;
+        bool isInterServer = false;
+        bool isConnectedWithPcie = false;
+        if (rankData_.superPodId != dstRank.superPodId) { // 跨超节点场景
+            isInterSuperPod = true;
+        } else if (rankData_.serverIdx != dstRank.serverIdx) { // 不跨超节点, 跨server场景
+            isInterServer = true;
+        } else { // 同server, PCIE互连场景
+            auto it = deviceLinkTypeMap_.find(dstRank.devicePhyId);
+            CHK_PRT_RET(it == deviceLinkTypeMap_.end(),
+                HCCL_ERROR("can't find devicePhyId[%d] in deviceLinkTypeMap_", dstRank.devicePhyId),
+                HCCL_E_NOT_FOUND);
+            isConnectedWithPcie |= (it->second == LinkTypeInServer::PXI_TYPE);
+        }
+        // 使能RDMA的场景: 1.跨超节点  2.跨server且不使能HCCS  3.PCIE连接且使能RDMA开关
+        bool isUsedRdma = (isInterSuperPod) ||
+                (isInterServer && !isUsedInterHccsMode_) || (isConnectedWithPcie && isUsedRdmaOuter_);
+        isUsedRdmaMap[dstRank.userRank] = isUsedRdma;
+        HCCL_DEBUG("[GetIsUsedRdma]isUsedRdma[%d], isInterSuperPod[%d], isInterServer[%d], isUsedInterHccsMode_[%d], "\
+            "isConnectedWithPcie[%d], isUsedRdmaOuter_[%d], dstRank[%d]", isUsedRdma, isInterSuperPod, isInterServer,
+            isUsedInterHccsMode_, isConnectedWithPcie, isUsedRdmaOuter_, dstRank.userRank);
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult CommFactory::GetRankVecInfo(std::vector<std::vector<std::vector<u32>>> &serverAndsuperPodToRank)
+{
+    std::vector<std::vector<u32>> serverToRank;
+    std::vector<std::vector<u32>> superPodToRank;
+    serverToRank.clear();
+    superPodToRank.clear();
+    u32 firstIdx = 0;
+
+    serverToRank.resize(serverToRank_.size());
+    for (auto iterMap = serverToRank_.begin(); iterMap != serverToRank_.end(); iterMap++) {
+        serverToRank[firstIdx].resize((iterMap->second).size());
+        if (!(iterMap->second).empty()) {
+            for (u32 i = 0; i < (iterMap->second).size(); i++) {
+                serverToRank[firstIdx][i] = (iterMap->second)[i].userRank;
+            }
+        }
+        firstIdx++;
+    }
+
+    u32 podFirstIdx = 0;
+    superPodToRank.resize(superPodToRank_.size());
+    for (auto iterMap = superPodToRank_.begin(); iterMap != superPodToRank_.end(); iterMap++) {
+        if (!(iterMap->second).empty()) {
+            superPodToRank[podFirstIdx].resize((iterMap->second).size());
+            for (u32 i = 0; i < (iterMap->second).size(); i++) {
+                superPodToRank[podFirstIdx][i] = (iterMap->second)[i].userRank;
+            }
+        }
+        podFirstIdx++;
+    }
+    serverAndsuperPodToRank.push_back(serverToRank);
+    serverAndsuperPodToRank.push_back(superPodToRank);
+    return HCCL_SUCCESS;
+}
+
 HcclResult CommFactory::CreateCommPlane(const std::string &tag, const DeviceMem &inputMem, const DeviceMem &outputMem,
     const CommParaInfo &commParaInfo, std::vector<std::unique_ptr<CommBase> > &commVec)
 {
@@ -235,6 +298,9 @@ HcclResult CommFactory::CreateCommPlane(const std::string &tag, const DeviceMem 
     CHK_RET(CheckCommPara(tag, inputMem, outputMem, commParaInfo));
     bool isUsedRdma = false;
     CHK_RET(GetIsUsedRdma(commParaInfo, isUsedRdma));
+    if (GetExternalInputEnableRdmaSdmaConcurrent() && deviceType_ == DevType::DEV_TYPE_910_73) {
+        isUsedRdma = commParaInfo.forceRdma;
+    }
 
     switch (commParaInfo.commType) {
         case CommType::COMM_TAG_RING_INNER:
@@ -1096,27 +1162,6 @@ HcclResult CommFactory::SetSingleOuter()
     return HCCL_SUCCESS;
 }
 
-bool CheckRankNeighbors(const std::vector<u32> &nicList)
-{
-    // 组成ROH环路必须偶数个,且2节点不能组成双环？
-    if (nicList.size() % 2 != 0 || nicList.size() < HCCL_DEVICE_NUM_FOUR) {
-        return false;
-    }
-
-    std::vector<u32> tmpNicList(nicList);
-    std::sort(tmpNicList.begin(), tmpNicList.end());
-    u32 halfNum = 2;
-    for (u32 i = 0; i < tmpNicList.size() / halfNum; i++) {
-        auto nicIndex = i * halfNum;
-        // 检查相邻下标的节点，devID是否相邻
-        if (tmpNicList[nicIndex] + 1 != tmpNicList[nicIndex + 1]) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
 // 适配ROH平面网段隔离，奇数rank互通，偶数rank互通，奇偶不通
 bool CheckSdmaWithRohTopo(const std::vector<u32> &nicList, std::vector<u32> &topoList)
 {
@@ -1252,7 +1297,7 @@ HcclResult CommFactory::SetTopoInfoForLevel0()
         CHK_RET(SetSingleOuter());
     } else {    // 8p-ring/np ring 环场景
         u32 ringNum = multiOuterOrder_.size();
-        CHK_RET(SetMultiOuter(ringNum)); // 8P_RING场景下，外层拓扑中有四个环;
+        CHK_RET(SetMultiOuter(ringNum)); // 8P_RING场景下，外层拓扑中有四个环; 910_73场景中适配双环
     }
     return HCCL_SUCCESS;
 }
@@ -1471,8 +1516,8 @@ HcclResult CommFactory::CheckInitInfo()
     }
 
     // 入参组合有效性检查:不支持4P_RING
-    if ((deviceType_ == DevType::DEV_TYPE_910 || deviceType_ == DevType::DEV_TYPE_910B) &&
-        (topoFlag_ == TopoType::TOPO_TYPE_4P_RING)) {
+    if ((deviceType_ == DevType::DEV_TYPE_910 || deviceType_ == DevType::DEV_TYPE_910B ||
+         deviceType_ == DevType::DEV_TYPE_910_73) && (topoFlag_ == TopoType::TOPO_TYPE_4P_RING)) {
         HCCL_ERROR("[Check][InitInfo]Not support the scenes: TopoType[%d] with deviceType[%d] is invalid.", topoFlag_,
             deviceType_);
         return HCCL_E_PARA;
@@ -1774,93 +1819,6 @@ bool CommFactory::IsDiffDeviceModuleInServer() const
     return deviceType_ == DevType::DEV_TYPE_910B && isDiffAggregation_;
 }
 
-/*
- * *********************************************************************************
- * comm_factory后续不承担建链功能，只进行通信关系推导
- * *********************************************************************************
-*/
-
-HcclResult CommFactory::CalcCommPlaneInfo(const std::string &tag, const CommParaInfo &commParaInfo,
-    std::vector<SingleSubCommTransport> &commTransport, TransportMemType inputMemType,
-    TransportMemType outputMemType)
-{
-    HcclUs startut = TIME_NOW();
-    HcclResult ret = HCCL_SUCCESS;
-    HCCL_INFO("[Calc][CommPlane]tag[%s], identifier[%s], commPlane[%d], commType[%d]",
-        tag.c_str(), identifier_.c_str(), commParaInfo.commPlane, commParaInfo.commType);
-
-    bool isUsedRdma = false;
-    CHK_RET(GetIsUsedRdma(commParaInfo, isUsedRdma));
-    std::unique_ptr<CalcTransportReqBase> calcTransportReq;
-    switch (commParaInfo.commType) {
-        case CommType::COMM_TAG_RING_INNER:
-        case CommType::COMM_TAG_RING_COMBINED: {
-            calcTransportReq.reset(new (std::nothrow) CalcRingTransportReq(CommPlaneVector_[commParaInfo.commPlane],
-                isBridgeVector_, userRank_));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport);
-            break;
-        }
-        case CommType::COMM_TAG_HALVING_DOUBLING: {
-            calcTransportReq.reset(new (std::nothrow) CalcHDTransportReq(CommPlaneVector_[commParaInfo.commPlane],
-                isBridgeVector_, userRank_));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport);
-            break;
-        }
-        case CommType::COMM_TAG_NONUNIFORM_HIERARCHICAL_RING:
-        case CommType::COMM_TAG_WHOLE_NHR:{
-            calcTransportReq.reset(new (std::nothrow) CalcNHRTransportReq(CommPlaneVector_[commParaInfo.commPlane],
-                isBridgeVector_, userRank_));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport);
-            break;
-        }
-        case CommType::COMM_TAG_NONUNIFORM_HIERARCHICAL_RING_V1:
-        case CommType::COMM_TAG_WHOLE_NHR_V1: {
-            calcTransportReq.reset(new (std::nothrow) CalcNHRV1TransportReq(CommPlaneVector_[commParaInfo.commPlane],
-                isBridgeVector_, userRank_));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport);
-            break;
-        }
-        case CommType::COMM_TAG_NONUNIFORM_BRUCK:
-        case CommType::COMM_TAG_WHOLE_NB: {
-            calcTransportReq.reset(new (std::nothrow) CalcNBTransportReq(CommPlaneVector_[commParaInfo.commPlane],
-                isBridgeVector_, userRank_));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport);
-            break;
-        }
-        case CommType::COMM_TAG_MESH: {
-            calcTransportReq.reset(new (std::nothrow) CalcMeshTransportReq(CommPlaneVector_[commParaInfo.commPlane],
-                isBridgeVector_, userRank_));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport);
-            break;
-        }
-        case CommType::COMM_TAG_PARTIAL_MESH_COMBINED: {
-            RdmaEnableCheckInfo rdmaEnableCheckInfo;
-            rdmaEnableCheckInfo.isUsedRdma = isUsedRdma;
-            rdmaEnableCheckInfo.isDiffModuleInServer = IsDiffDeviceModuleInServer();
-            rdmaEnableCheckInfo.rankData = rankData_;
-            calcTransportReq.reset(new (std::nothrow) CalcPartialMeshTransportReq
-                (CommPlaneVector_[commParaInfo.commPlane], isBridgeVector_, userRank_, rdmaEnableCheckInfo));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport);
-            break;
-        }
-        default: {
-            HCCL_ERROR("[Calc][CommPlane]commType[%d] is invalid", commParaInfo.commType);
-            return HCCL_E_PARA;
-        }
-    }
-    CHK_RET(SetIsUsedRdma(commParaInfo, commTransport, isUsedRdma));
-
-    CHK_RET(GetRankMap(commParaInfo, commTransport));
-
-    CHK_PRT_RET(ret != HCCL_SUCCESS,
-        HCCL_ERROR("[Calc][CommPlane]failed, tag[%s], commPlane[%d], commType[%d]",
-        tag.c_str(), commParaInfo.commPlane, commParaInfo.commType), ret);
-
-    HCCL_INFO("complete commPlane[%d] commType[%d] Calculation, Time:%lld us",
-        commParaInfo.commPlane, commParaInfo.commType, DURATION_US(TIME_NOW() - startut));
-    return HCCL_SUCCESS;
-}
-
 HcclResult CommFactory::SetIsUsedRdma(const CommParaInfo &commParaInfo,
     std::vector<SingleSubCommTransport> &commTransport, bool isUsedRdma)
 {
@@ -1930,4 +1888,26 @@ HcclResult CommFactory::GetUserRank2SubMap(CommPlane commPlane, u32 ringIndex,
     return HCCL_SUCCESS;
 }
 
+HcclResult CommFactory::GetCommPlaneRanks(std::vector<std::vector<std::vector<u32>>> &CommPlaneRanks)
+{
+    CommPlaneRanks.resize(CommPlaneVector_.size());
+    for (u32 level = 0; level < CommPlaneVector_.size(); level ++) {
+        u32 ringSize = CommPlaneVector_[level].size();
+        CommPlaneRanks[level].resize(ringSize);
+        for (u32 ringIndex = 0 ; ringIndex < ringSize; ringIndex ++) {
+            u32 rankSize = CommPlaneVector_[level][ringIndex].size();
+            CommPlaneRanks[level][ringIndex].resize(rankSize);
+            for (u32 rankIndex = 0 ; rankIndex < rankSize; rankIndex ++) {
+                u32 userRank = CommPlaneVector_[level][ringIndex][rankIndex].userRank;
+                CommPlaneRanks[level][ringIndex][rankIndex] = userRank;
+            }
+        }
+    }
+    return HCCL_SUCCESS;
+}
+HcclResult CommFactory::GetIsBridgeVector(std::vector<bool> &isBridgeVector)
+{
+    isBridgeVector = isBridgeVector_;
+    return HCCL_SUCCESS;
+}
 }  // namespace hccl

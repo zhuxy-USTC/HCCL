@@ -16,12 +16,11 @@
 namespace hccl {
 class CollBatchSendRecvExecutor : public CollCommExecutor {
 public:
-    CollBatchSendRecvExecutor(std::unique_ptr<hcclImpl> &pImpl);
+    CollBatchSendRecvExecutor(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollBatchSendRecvExecutor() = default;
     HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes) override;
     // 增量建链资源计算接口
     HcclResult CalcIncreLinkRequest(const OpParam& param, AlgResourceRequest& resourceRequest) override;
-    bool NeedIncrCreateLink(const OpParam& param) override;
 private:
     /* *************** 资源计算 *************** */
     void ParseParam(const OpParam& param) override;

@@ -16,7 +16,7 @@
 namespace hccl {
 class CollAllReduceReducePlusBcastExecutor : public CollAllReduceExecutor {
 public:
-    CollAllReduceReducePlusBcastExecutor(std::unique_ptr<hcclImpl> &pImpl);
+    CollAllReduceReducePlusBcastExecutor(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollAllReduceReducePlusBcastExecutor() = default;
 
 private:

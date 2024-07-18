@@ -180,7 +180,7 @@ HcclResult CommBase::CreateLinks()
         }
         if (linkThreads_[index]->joinable()) {
             HCCL_DEBUG("Joining Link Thread[%u]", index);
-            linkThreads_[index]->join(); // 等待线程执行完毕
+            linkThreads_[index]->join();  // 等待线程执行完毕
         }
         if (!IsGeneralServer()) {
             CHK_RET(hrtResetDevice(deviceLogicId_)); // 防止线程里面异常退出，在进程中reset
@@ -206,7 +206,8 @@ HcclResult CommBase::CalcLink()
 
 u32 CommBase::GetSocketsPerLink()
 {
-    bool multiQpDevType = paraVector_[rank_].deviceType == DevType::DEV_TYPE_910B;
+    bool multiQpDevType = paraVector_[rank_].deviceType == DevType::DEV_TYPE_910B ||
+                paraVector_[rank_].deviceType  == DevType::DEV_TYPE_910_73;
     if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT &&
         GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && multiQpDevType) {
         return 2; // 2：多QP方式下额外创建一个socket用于同步QP状态迁移完成状态
@@ -222,7 +223,18 @@ bool CommBase::NeedDataReceivedAck()
 // 获取rank间的link type
 HcclResult CommBase::SetTransportType(const u32 dstRank)
 {
-    if (paraVector_[rank_].serverId == paraVector_[dstRank].serverId) {
+    LinkTypeInServer linkType = LinkTypeInServer::RESERVED_LINK_TYPE;
+    if (GetExternalInputEnableRdmaSdmaConcurrent() && isUsedRdmaOuter_
+        && paraVector_[rank_].deviceType == DevType::DEV_TYPE_910_73) {
+        auto localDeviceId = paraVector_[rank_].devicePhyId;
+        auto remoteDeviceId = paraVector_[dstRank].devicePhyId;
+        CHK_RET(hrtGetPairDeviceLinkType(static_cast<u32>(localDeviceId),
+            static_cast<u32>(remoteDeviceId), linkType));
+    }
+    // 适配910_73的RDMA+SIO ring,创建RDMA类型下的SIO连接
+    if (linkType == LinkTypeInServer::SIO_TYPE && paraVector_[rank_].deviceType == DevType::DEV_TYPE_910_73) {
+        transportType_[dstRank] = TransportType::TRANS_TYPE_P2P;
+    } else if (paraVector_[rank_].serverId == paraVector_[dstRank].serverId) {
     // 判断是否在同一个server
         if (isNeedHeterogP2P_) {
             transportType_[dstRank] = TransportType::TRANS_TYPE_HETEROG_P2P;
@@ -555,6 +567,30 @@ HcclResult CommBase::CalcLinksNum(const MachineType machineType, const u32 dstRa
                        isUsedRdmaOuter_ || isAlltoAllCommMesh_;
 
     bool isInterHccs = IsSupportInterHccs(dstRank);
+    if (GetExternalInputEnableRdmaSdmaConcurrent() && isUsedRdmaOuter_ &&
+        paraVector_[rank_].deviceType == DevType::DEV_TYPE_910_73) {
+        auto localDeviceId = paraVector_[rank_].devicePhyId;
+        auto remoteDeviceId = paraVector_[dstRank].devicePhyId;
+        // 计算linkType
+        LinkTypeInServer linkType = LinkTypeInServer::HCCS_TYPE;
+        CHK_RET(hrtGetPairDeviceLinkType(static_cast<u32>(localDeviceId),
+            static_cast<u32>(remoteDeviceId), linkType));
+        HCCL_DEBUG("[Calc][LinksNum]rank[%u], dstRank[%u], isInterRdma[%d], isInterHccs[%d], link type[%u]",
+            rank_, dstRank, isInterRdma, isInterHccs, linkType);
+        if (linkType == LinkTypeInServer::SIO_TYPE) {
+            isInterRdma = false;
+            isInterHccs = true;
+            HCCL_DEBUG("[Calc][LinksNum]EnableRdmaSdma rank[%u], rankDevId[%u], ip[%s], dstRank[%u], dstDevId[%u], "\
+                "dstIp[%s] adjust to SIO.", rank_, localDeviceId, paraVector_[rank_].nicIp[0].GetReadableAddress(),
+                dstRank, remoteDeviceId, paraVector_[dstRank].nicIp[0].GetReadableAddress());
+        } else {
+            isInterRdma = true;
+            isInterHccs = false;
+            HCCL_DEBUG("[Calc][LinksNum]EnableRdmaSdma rank[%u], rankDevId[%u], ip[%s], dstRank[%u], dstDevId[%u], "\
+                "dstIp[%s] link type[%u].", rank_, localDeviceId, paraVector_[rank_].nicIp[0].GetReadableAddress(),
+                dstRank, remoteDeviceId, paraVector_[dstRank].nicIp[0].GetReadableAddress(), linkType);
+        }
+    }
 
     HCCL_DEBUG("[Calc][LinksNum]rank[%u], dstRank[%u], isInterRdma[%d], isInterHccs[%d], machineType[%d]",
         rank_, dstRank, isInterRdma, isInterHccs, machineType);
@@ -1164,7 +1200,15 @@ HcclResult CommBase::GetSuperNodeIntraRankIPInfo(std::map<u32, HcclSocketRole> &
 
 bool CommBase::IsSupportInterHccs(const u32 dstRank)
 {
-    return false;
+    // 仅判断超节点内, 兼容打平通信域同时有server内和server间, 因此不判断server_id
+    bool isInterHccs = GetExternalInputInterHccsDisable() == false &&
+        paraVector_[rank_].deviceType == DevType::DEV_TYPE_910_73 &&
+        paraVector_[rank_].superPodId.empty() == false &&
+        paraVector_[rank_].superPodId == paraVector_[dstRank].superPodId;
+
+    HCCL_INFO("[IsSupportInterHccs]rank[%u], superPodId[%s], dstRank[%u], dstSuperPodId[%s], isInterHccs[%d]",
+        rank_, paraVector_[rank_].superPodId.c_str(), dstRank, paraVector_[dstRank].superPodId.c_str(), isInterHccs);
+    return isInterHccs;
 }
 
 void CommBase::SetMachineLinkMode(MachinePara &machinePara)

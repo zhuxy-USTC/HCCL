@@ -10,7 +10,6 @@
 
 #include "coll_alg_op_registry.h"
 
-
 namespace hccl {
 
 CollAlgOpRegistry *CollAlgOpRegistry::Instance()
@@ -31,13 +30,13 @@ HcclResult CollAlgOpRegistry::Register(const HcclCMDType &opType, const CollAlgO
 }
 
 std::unique_ptr<CollAlgOperator> CollAlgOpRegistry::GetAlgOp(
-    const HcclCMDType &opType, std::unique_ptr<hcclImpl> &pImpl)
+    const HcclCMDType &opType, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher)
 {
     if (opCreators_.find(opType) == opCreators_.end()) {
         HCCL_ERROR("[CollAlgOpRegistry]Creator for op type[%d] has not registered.", opType);
         return nullptr;
     }
-    return std::unique_ptr<CollAlgOperator>(opCreators_[opType](pImpl));
+    return std::unique_ptr<CollAlgOperator>(opCreators_[opType](pImpl, topoMatcher));
 }
 
 } // namespace Hccl

@@ -16,7 +16,7 @@
 namespace hccl {
 class CollAllReduceExecutor : public CollCommExecutor {
 public:
-    CollAllReduceExecutor(std::unique_ptr<hcclImpl> &pImpl);
+    CollAllReduceExecutor(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollAllReduceExecutor() = default;
 
     HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes) override;

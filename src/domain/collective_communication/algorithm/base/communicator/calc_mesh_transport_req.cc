@@ -12,7 +12,7 @@
 
 
 namespace hccl {
-CalcMeshTransportReq::CalcMeshTransportReq(std::vector<std::vector<RankInfo>> &subCommPlaneVector,
+CalcMeshTransportReq::CalcMeshTransportReq(std::vector<std::vector<u32>> &subCommPlaneVector,
     std::vector<bool> &isBridgeVector, u32 userRank)
     : CalcTransportReqBase(subCommPlaneVector, isBridgeVector, userRank)
 {
@@ -24,7 +24,7 @@ CalcMeshTransportReq::~CalcMeshTransportReq()
 
 HcclResult CalcMeshTransportReq::CalcTransportRequest(const std::string &tag, TransportMemType inputMemType,
     TransportMemType outputMemType, const CommParaInfo &commParaInfo,
-    std::vector<SingleSubCommTransport> &commTransport)
+    std::vector<SingleSubCommTransport> &commTransport, u32 subUserRankRoot)
 {
     u32 ringSize = subCommPlaneVector_.size();
     // 910B非确定性计算场景，server内MESH组网只需要创建一个commbase平面
@@ -57,7 +57,7 @@ HcclResult CalcMeshTransportReq::CalcTransportRequest(const std::string &tag, Tr
             if (rankIndex != rank) {
                 tmpTransport.isValid = true;
                 tmpTransport.localUserRank  = userRank_;
-                tmpTransport.remoteUserRank = subCommPlaneVector_[ringIndex][rankIndex].userRank;
+                tmpTransport.remoteUserRank = subCommPlaneVector_[ringIndex][rankIndex];
                 tmpTransport.inputMemType = inputMemType;
                 tmpTransport.outputMemType = outputMemType;
                 HCCL_INFO("[CommFactory][CalcMeshCommInfo] param_.tag[%s] ringIndex[%u], localRank[%u], "\

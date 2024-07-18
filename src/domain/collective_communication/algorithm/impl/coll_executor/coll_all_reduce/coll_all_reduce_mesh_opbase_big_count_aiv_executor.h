@@ -17,7 +17,8 @@
 namespace hccl {
 class CollAllReduceMeshOpbaseBigCountAivExecutor : public CollAllReduceExecutor {
 public:
-    CollAllReduceMeshOpbaseBigCountAivExecutor(std::unique_ptr<hcclImpl> &pImpl);
+    CollAllReduceMeshOpbaseBigCountAivExecutor(const HcclDispatcher dispatcher,
+                                               std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollAllReduceMeshOpbaseBigCountAivExecutor() = default;
 
     HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes) override;
