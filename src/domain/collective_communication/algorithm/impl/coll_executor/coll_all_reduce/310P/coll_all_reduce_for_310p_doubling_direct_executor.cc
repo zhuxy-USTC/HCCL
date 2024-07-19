@@ -11,8 +11,8 @@
 #include "coll_all_reduce_for_310p_doubling_direct_executor.h"
 
 namespace hccl {
-CollAllReduceFor310PDoublingDirectExecutor::CollAllReduceFor310PDoublingDirectExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAllReduceExecutor(pImpl)
+CollAllReduceFor310PDoublingDirectExecutor::CollAllReduceFor310PDoublingDirectExecutor(const HcclDispatcher dispatcher,
+    std::unique_ptr<TopoMatcher> &topoMatcher): CollAllReduceExecutor(dispatcher, topoMatcher)
 {
     DMAReduceFlag_ = true;
 }

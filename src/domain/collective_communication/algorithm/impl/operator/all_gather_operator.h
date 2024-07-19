@@ -16,12 +16,13 @@
 namespace hccl {
 class AllGatherOperator : public CommonOperator {
 public:
-    AllGatherOperator(std::unique_ptr<hcclImpl> &pImpl);
+    AllGatherOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~AllGatherOperator();
     HcclResult AllGather(const std::string &tag, void *inputPtr, void *outputPtr, u64 inputCount,
         HcclDataType dataType, Stream stream, HcomCollOpInfo *opInfo = nullptr);
     HcclResult AllGatherOutPlace(const std::string &tag, void *inputPtr, void *outputPtr, u64 inputCount,
         HcclDataType dataType, Stream stream, const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo = nullptr);
+    HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName, std::string& newTag) override;
 private:
     // all gather private
     HcclResult GetAllGatherOutPlaceSplitLoop(void* commOutputPtr, bool isMeshTopo, const u32 unitSize,
@@ -67,6 +68,13 @@ private:
 
     HcclResult CalculateLevel2AllgatherSlice(u64 inputMemSize, u32 level0RankSize, u32 level1RankSize,
         u32 level2RankSize, std::vector<Slice> dataSegsSlice, std::vector<Slice> &level0DataSlice) const;
+    HcclResult SelectAlgfor310P3(const OpParam& param, std::string& algName);
+
+    HcclResult SelectAlgfor910A(const OpParam& param, std::string& algName);
+
+    HcclResult SelectAlgfor910B(const OpParam& param, std::string& algName);
+
+    HcclResult SelectAlgfor91073(const OpParam& param, std::string& algName);
 };
 
 }

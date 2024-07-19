@@ -107,7 +107,8 @@ HcclResult CommRing::CalcLink()
 // 获取每个 link 需要的 socket 数量
 u32 CommRing::GetSocketsPerLink()
 {
-    bool multiQpDevType = paraVector_[rank_].deviceType == DevType::DEV_TYPE_910B;
+    bool multiQpDevType = paraVector_[rank_].deviceType == DevType::DEV_TYPE_910B ||
+                paraVector_[rank_].deviceType  == DevType::DEV_TYPE_910_73;
     if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT &&
         GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && multiQpDevType) {
         return 2; // 2：多QP方式下额外创建一个socket用于同步QP状态迁移完成状态

@@ -3,6 +3,8 @@ set(src_list
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_all_reduce_single_rank_executor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_all_reduce_ring_executor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_all_reduce_comm_executor.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/coll_all_reduce_double_ring_executor.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/coll_all_reduce_double_ring_concurrent_executor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_all_reduce_mesh_executor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_all_reduce_mesh_mid_count_executor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_all_reduce_mesh_oneshot_executor.cc

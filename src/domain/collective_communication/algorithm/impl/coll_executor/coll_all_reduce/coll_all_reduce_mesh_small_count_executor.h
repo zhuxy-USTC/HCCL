@@ -16,7 +16,7 @@
 namespace hccl {
 class CollAllReduceMeshSmallCountExecutor : public CollAllReduceExecutor {
 public:
-    CollAllReduceMeshSmallCountExecutor(std::unique_ptr<hcclImpl> &pImpl);
+    CollAllReduceMeshSmallCountExecutor(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollAllReduceMeshSmallCountExecutor() = default;
 
     HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes);

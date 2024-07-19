@@ -11,8 +11,10 @@
 #include "coll_all_reduce_mesh_small_count_executor.h"
 
 namespace hccl {
-CollAllReduceMeshSmallCountExecutor::CollAllReduceMeshSmallCountExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAllReduceExecutor(pImpl)
+
+CollAllReduceMeshSmallCountExecutor::CollAllReduceMeshSmallCountExecutor(const HcclDispatcher dispatcher,
+                                                                         std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
     DMAReduceFlag_ = true;
 }
@@ -27,7 +29,7 @@ bool CollAllReduceMeshSmallCountExecutor::CalcScratchMemFlag(const u64 totalSize
 {
     return GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB &&
         topoAttr_.deviceType == DevType::DEV_TYPE_910B &&
-        hcclImpl_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_ENABLE &&
+        topoMatcher_->GetExternalInputHcclDeterministic() &&
         topoAttr_.deviceNumPerAggregation > DEVICE_TWO &&
         topoAttr_.deviceNumPerAggregation < DEVICE_EIGHT &&
         totalSize <= HCCL_SMALL_COUNT_GRAPH_64_KB;
@@ -175,7 +177,7 @@ HcclResult CollAllReduceMeshSmallCountExecutor::KernelRun(const OpParam &param, 
     };
 
     std::unique_ptr<ExecutorBase> outer2Executor;
-    if (hcclImpl_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_DISABLE) {
+    if (!topoMatcher_->GetExternalInputHcclDeterministic()) {
         outer2Executor.reset(new (std::nothrow) AllReduceReduceBcast(dispatcher_,
             reduceAttr, streamInfo_.ringStreams, streamInfo_.ringSignal, streamInfo_.ringSignalAux,
             outerCommInfo.localRank, outerCommInfo.localRankSize, topoAttr_.userRank, &opInfo));

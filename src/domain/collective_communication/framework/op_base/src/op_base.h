@@ -18,6 +18,7 @@
 #include "op_base_pub.h"
 #include "hccl_comm_pub.h"
 #include "config.h"
+#include "../common/src/topo/topoinfo_detect.h"
 
 using HcclOpInfoCtx = struct HcclInfoTag {
     HcclCommPtr pComm;
@@ -27,6 +28,8 @@ using HcclOpInfoCtx = struct HcclInfoTag {
     bool isUsed;
     std::mutex opGroupMapMutex;
     std::map<std::string, std::shared_ptr<hccl::hcclComm>> opGroup2CommMap;
+    std::map<std::string, std::shared_ptr<hccl::TopoInfoDetect>> hcclCommTopoInfoDetectServer;
+    std::map<std::string, std::shared_ptr<hccl::TopoInfoDetect>> hcclCommTopoInfoDetectAgent;
     HcclInfoTag() :isUsed(false) {}
 };
 
@@ -39,12 +42,6 @@ HcclResult CallMsprofReportHostApi(hccl::hcclComm* hcclComm, HcclCMDType cmdType
 
 HcclResult ReduceScatterLoop(const std::string &tag, void *inputPtr, void *outputPtr, const u64 &count,
     HcclDataType dataType, HcclReduceOp op, hccl::hcclComm *hcclComm, rtStream_t stream);
-
-HcclResult ReceiveLoop(const std::string &tag, void *outputPtr, const u64 &count,
-    HcclDataType dataType, int srcRank, hccl::hcclComm *hcclComm, rtStream_t stream);
-
-HcclResult SendLoop(const std::string &tag, void *inputPtr, const u64 &count,
-    HcclDataType dataType, int destRank, hccl::hcclComm *hcclComm, rtStream_t stream);
 
 HcclResult HcclGetOpBasedMemSize(const HcclCMDType &opType, u64 &size,
     const HcomCollOpInfo &opInfo);

@@ -31,6 +31,14 @@ target_include_directories(hccl_alg PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/impl/coll_executor/coll_send_receive
     ${CMAKE_CURRENT_SOURCE_DIR}/impl/coll_executor/coll_all_reduce
     ${CMAKE_CURRENT_SOURCE_DIR}/impl/coll_executor/coll_all_reduce/310P
+    ${CMAKE_CURRENT_SOURCE_DIR}/impl/coll_executor/coll_all_to_all
+    ${CMAKE_CURRENT_SOURCE_DIR}/impl/coll_executor/coll_all_gather
+    ${CMAKE_CURRENT_SOURCE_DIR}/impl/coll_executor/coll_all_gather/310P
+    ${CMAKE_CURRENT_SOURCE_DIR}/impl/coll_executor/coll_reduce_scatter
+    ${CMAKE_CURRENT_SOURCE_DIR}/impl/coll_executor/coll_reduce_scatter/310P
+    ${CMAKE_CURRENT_SOURCE_DIR}/impl/coll_executor/coll_scatter
+    ${CMAKE_CURRENT_SOURCE_DIR}/impl/coll_executor/coll_broadcast
+    ${CMAKE_CURRENT_SOURCE_DIR}/impl/coll_executor/coll_broadcast/310P
     ${HCCL_BASE_DIR}/../../../../inc/external
     ${HCCL_BASE_DIR}/../../../../inc/external/hccl
     ${HCCL_BASE_DIR}/../../../../inc/hccl

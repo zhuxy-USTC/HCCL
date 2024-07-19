@@ -11,8 +11,10 @@
 #include "coll_batch_send_recv_executor.h"
 
 namespace hccl {
-CollBatchSendRecvExecutor::CollBatchSendRecvExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollCommExecutor(pImpl)
+
+CollBatchSendRecvExecutor::CollBatchSendRecvExecutor(const HcclDispatcher dispatcher,
+    std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollCommExecutor(dispatcher, topoMatcher)
 {
 }
 
@@ -30,43 +32,16 @@ void CollBatchSendRecvExecutor::ParseParam(const OpParam& param)
     HcclSendRecvItem** itemPtr = param.BatchSendRecvDataDes.orderedList;
     u32 itemNum = param.BatchSendRecvDataDes.itemNum;
     commTargetUserRankSet_.clear();
-    std::set<u32> totalTargetUserRankSet = {};
-    (void)hcclImpl_->GetTotalTargetRankSet(totalTargetUserRankSet);
     for (u32 i = 0; i < itemNum; i++) {
         commTargetUserRankSet_.insert((*(itemPtr + i))->remoteRank);
-        totalTargetUserRankSet.insert((*(itemPtr + i))->remoteRank);
-        HCCL_INFO("[CollBatchSendRecvExecutor][ParseParam] insert remoteUserRank to Set %u",
+        HCCL_INFO("[CollBatchSendRecvExecutor][ParseParam] insert remoteUserRank[%u] to Set",
             (*(itemPtr + i))->remoteRank);
     }
-    (void)hcclImpl_->UpdateTotalTargetRankSet(totalTargetUserRankSet);
 }
 
-bool CollBatchSendRecvExecutor::NeedIncrCreateLink(const OpParam& param)
-{
-    tag_ = param.tag;
-    bool isNeed = false;
-    HcclSendRecvItem** itemPtr = param.BatchSendRecvDataDes.orderedList;
-    u32 itemNum = param.BatchSendRecvDataDes.itemNum;
- 
-    commTargetUserRankSet_.clear();
-    std::set<u32> totalTargetUserRankSet = {};
-    CHK_RET(hcclImpl_->GetTotalTargetRankSet(totalTargetUserRankSet));
-    for (u32 i = 0; i < itemNum; i++) {
-        auto it = totalTargetUserRankSet.find((*(itemPtr + i))->remoteRank);
-        if (it == totalTargetUserRankSet.end()) {
-            commTargetUserRankSet_.insert((*(itemPtr + i))->remoteRank);
-            totalTargetUserRankSet.insert((*(itemPtr + i))->remoteRank);
-            HCCL_INFO("[CollBatchSendRecvExecutor][NeedIncrCreateLink] Add targetUserRank[%u].",
-                (*(itemPtr + i))->remoteRank);
-            isNeed = true;
-        }
-    }
-    CHK_RET(hcclImpl_->UpdateTotalTargetRankSet(totalTargetUserRankSet));
-    return isNeed;
-}
- 
 HcclResult CollBatchSendRecvExecutor::CalcIncreLinkRequest(const OpParam& param, AlgResourceRequest& resourceRequest)
 {
+    (void)ParseParam(param);
     u64 scratchMemSize = 0U;
     u32 streamNum = 0U;
     u32 notifyNum = 0U;
@@ -75,13 +50,8 @@ HcclResult CollBatchSendRecvExecutor::CalcIncreLinkRequest(const OpParam& param,
     std::vector<LevelNSubCommTransport> opTransport {
         std::vector<LevelNSubCommTransport>(static_cast<u32>(COMM_LEVEL_RESERVED))
     };
- 
     CalcCommInfo(opTransport);
- 
     BuildResourceRequest(scratchMemSize, streamNum, notifyNum, needAivBuffer, opTransport, resourceRequest);
-    HCCL_INFO("[CollBatchSendRecvExecutor][CalcIncreLinkRequest] StreamNum[%u], notifyNum[%u], sctrachMemSize[%llu]," \
-        "needAivBuffer[%u]", resourceRequest.streamNum, resourceRequest.notifyNum, resourceRequest.scratchMemSize,
-        resourceRequest.needAivBuffer);
     return HCCL_SUCCESS;
 }
 
@@ -96,9 +66,9 @@ HcclResult CollBatchSendRecvExecutor::Orchestrate(const OpParam& param, const Al
 
     HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, GetWorkflowMode());
     HCCL_PROFILER_ADD_STREAM(rtStream, param.tag, 0, algType_);
-    CHK_RET(hcclImpl_->AddSubStreamToProfiling(param.tag, HcclCMDType::HCCL_CMD_BATCH_SEND_RECV));
+    CHK_RET(AddSubStreamToProfiling());
 
-    if (GetExternalInputHcclEnableFfts()) {
+    if (topoMatcher_->GetExternalInputHcclEnableFfts()) {
         auto meta = HcclOpMetaInfo::GetOneForBatchSendRecv();
         CHK_RET(InitTask(dispatcher_, const_cast<Stream&>(param.stream), meta.isEnableCache, meta.GetCacheKey()));
         // 多流子图前后需加空拷贝
@@ -133,7 +103,7 @@ HcclResult CollBatchSendRecvExecutor::Orchestrate(const OpParam& param, const Al
         PROF_STAGE_0);
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[BatchSendRecv] stream wait failed"), ret);
 
-    if (GetExternalInputHcclEnableFfts()) {
+    if (topoMatcher_->GetExternalInputHcclEnableFfts()) {
         // 多流子图前后需加空拷贝
         CHK_RET(ExecutorBase::ExecEmptyTask(const_cast<DeviceMem &>(algResource.cclInputMem),
             const_cast<DeviceMem &>(algResource.cclOutputMem), const_cast<Stream&>(param.stream), dispatcher_));
@@ -281,7 +251,7 @@ u64 CollBatchSendRecvExecutor::CalcRecvLoopMaxCount(DeviceMem& outCCLBuffer, con
 HcclResult CollBatchSendRecvExecutor::CalcStreamNum(u32& streamNum)
 {
     streamNum = 1U;
-    HCCL_INFO("[CollBatchSendRecvExecutor][CalcScratchMemSize] tag_[%s].", tag_.c_str());
+    HCCL_INFO("[CollBatchSendRecvExecutor][CalcScratchMemSize] tag_[%s], streamNum[%u].", tag_.c_str(), streamNum);
     return HCCL_SUCCESS;
 }
 HcclResult CollBatchSendRecvExecutor::CalcCommInfo(std::vector<LevelNSubCommTransport>& opTransport)

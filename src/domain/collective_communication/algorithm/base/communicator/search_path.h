@@ -65,7 +65,7 @@ private:
 
     std::vector<u32> result_;
     std::set<u32> nicSet_;
-
+    // 适配910_73设备双轨组网，可通过SIO串联
     std::map<int, std::vector<u32>> reachableRank_ = {
     {0, {1, 2, 4, 6, 8, 10, 12, 14}},
     {1, {0, 3, 5, 7, 9, 11, 13, 15}},

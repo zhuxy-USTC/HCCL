@@ -16,6 +16,7 @@
 #include <hccl/base.h>
 #include "stream_pub.h"
 #include "dispatcher.h"
+#include "coll_alg_param.h"
 
 namespace hccl {
 class TaskLoader {
@@ -23,7 +24,7 @@ public:
     explicit TaskLoader(const s32 deviceLogicId, const HcclDispatcher dispatcher);
     ~TaskLoader();
 
-    void Prepare(Stream *stream, void *commPtr);
+    void Prepare(Stream *stream, SubCommInfo outerCommInfo);
 
     HcclResult Init();
     HcclResult Finalize();
@@ -33,6 +34,7 @@ public:
     void NotifyDone();
     void WaitDone();
     uint32_t GetTid();
+    HcclResult ClearTagCommInfo();
 
 protected:
 private:
@@ -48,7 +50,7 @@ private:
     u32 userRank_;
     const HcclDispatcher dispatcher_;  // dispatcher引用
     Stream *stream_;                           // 执行线程对应的stream
-    void *commPtr_ = nullptr;
+    SubCommInfo commInfo_;
     std::mutex startMtx_;
     std::mutex doneMtx_;
     std::condition_variable startCv_;

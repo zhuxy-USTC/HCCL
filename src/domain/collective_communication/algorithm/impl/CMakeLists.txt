@@ -2,6 +2,7 @@ set(src_list
     ${CMAKE_CURRENT_SOURCE_DIR}/hccl_impl.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/hccl_alg.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/hccl_pipeline.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/topo_matcher.cc
 )
 
 target_sources(hccl_alg PRIVATE

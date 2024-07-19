@@ -16,7 +16,7 @@
 namespace hccl {
 class CollAllReduceMeshOneshotExecutor : public CollAllReduceExecutor {
 public:
-    CollAllReduceMeshOneshotExecutor(std::unique_ptr<hcclImpl> &pImpl);
+    CollAllReduceMeshOneshotExecutor(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollAllReduceMeshOneshotExecutor() = default;
 
 private:

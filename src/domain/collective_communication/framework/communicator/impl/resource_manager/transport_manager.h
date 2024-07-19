@@ -140,6 +140,7 @@ public:
 
     ~TransportManager();
 
+    HcclResult CreateVirturalTransport(SingleSubCommTransport& singleSubCommTransport);
     HcclResult Alloc(const std::string &tag, const TransportIOMem &transMem, OpCommTransport &opTransportResponse);
     HcclResult IncreAlloc(const std::string &tag, const TransportIOMem &transMem, OpCommTransport &opTransportReq,
         OpCommTransport &opTransportResponse);
@@ -149,7 +150,7 @@ public:
     TransportManager& operator=(TransportManager &&) = delete;          // Move assign
 
 private:
-    void GetIOMem(const TransportIOMem &transMem,
+    HcclResult GetIOMem(const TransportIOMem &transMem,
         const TransportMemType inputMemType, const TransportMemType outputMemType,
         DeviceMem &inputMem,  DeviceMem &outputMem);
     u32 GetRemoteNicPort(u32 remoteRank);

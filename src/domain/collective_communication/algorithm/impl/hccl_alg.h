@@ -21,7 +21,7 @@
 #include "hccl_impl_pub.h"
 #include "hccl_opbase_atrace_info_pub.h"
 #include "resource_manager/queue_notify_manager.h"
-
+#include "topo_matcher.h"
 #include "coll_alg_operator.h"
 
 namespace hccl {
@@ -42,18 +42,7 @@ public:
         HcclDataType dataType, Stream stream, HcomCollOpInfo *opInfo = nullptr);
     HcclResult AllGatherOutPlace(const std::string &tag, void *inputPtr, void *outputPtr, u64 inputCount,
         HcclDataType dataType, Stream stream, const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo = nullptr);
-    HcclResult AlltoAllV(const void *sendBuf, const void *sendCounts, const void *sdispls,
-        HcclDataType sendType, const void *recvBuf, const void *recvCounts, const void *rdispls, HcclDataType recvType,
-         Stream stream, const std::string &tag);
-    HcclResult AlltoAllVOutPlace(const void *sendBuf, const void *sendCounts, const void *sdispls,
-        HcclDataType sendType, const void *recvBuf, const void *recvCounts, const void *rdispls, HcclDataType recvType,
-        Stream stream, const std::string &tag);
-    HcclResult AlltoAllVC(const void *sendBuf, const void *sendCountMatrix, HcclDataType sendType,
-        const void *recvBuf, HcclDataType recvType, Stream stream, const std::string &tag);
-    HcclResult AlltoAllVCOutPlace(const void *sendBuf, const void *sendCountMatrix, HcclDataType sendType,
-        const void *recvBuf, HcclDataType recvType, Stream stream, const std::string &tag);
-    HcclResult AlltoAll(const void *sendBuf, u64 sendCount, HcclDataType sendType,
-        const void *recvBuf, u64 recvCount, HcclDataType recvType, Stream stream, const std::string &tag);
+
     HcclResult Broadcast(const std::string &tag, void *ptr, u64 count, HcclDataType dataType, u32 root,
         Stream stream);
     HcclResult BroadcastOutPlace(const std::string &tag, void *ptr, u64 count, HcclDataType dataType, u32 root,
@@ -67,11 +56,6 @@ public:
         HcclDataType dataType, HcclReduceOp op, u32 root, Stream stream);
     HcclResult ReduceOutPlace(const std::string &tag, void *inputPtr, void *outputPtr, u64 count,
         HcclDataType dataType, HcclReduceOp op, u32 root, Stream stream,
-        const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo = nullptr);
-    HcclResult ReduceScatter(const std::string &tag, void *inputPtr, void *outputPtr, u64 count,
-    HcclDataType dataType, HcclReduceOp op, Stream stream, HcomCollOpInfo *opInfo = nullptr);
-    HcclResult ReduceScatterOutPlace(const std::string &tag, void *inputPtr, void *outputPtr, u64 count,
-        HcclDataType dataType, HcclReduceOp op, Stream stream,
         const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo = nullptr);
     HcclResult Send(const std::string &tag, void *inputPtr, u64 count, HcclDataType dataType,
         u32 destRank, Stream stream);
@@ -103,6 +87,7 @@ public:
     void Break();
     HcclResult SetAlgType(AlgType algType, HcclCMDType opType);
     HcclResult GetAlgType(AlgType &algType, HcclCMDType opType);
+    static std::string AlgTypeToStr(const AlgType algType);
     HcclResult SupportDeterministicOptim(bool &isDeterministicOptim);
     HcclResult SetHDCModeInfo(
         std::unordered_map<std::string, std::map<u32, HcclIpAddress>> &rankDevicePhyIdNicInfoMap,
@@ -113,8 +98,18 @@ public:
 
     std::unique_ptr<CollAlgOperator> GetAlgOperator(const HcclCMDType &opType);
 
+    HcclResult GetAlltoAllStatus(DeviceMem &tinySendRecvMem, bool &isAlltoAllZCopyMode);
 private:
     std::unique_ptr<hcclImpl> pimpl_;
+    HcclResult InitExternalEnable();
+    HcclResult InitTopoInfoPartOne(HcclTopoAttr &topoAttr);
+    HcclResult InitTopoInfoPartTwo();
+    HcclResult InitAlgoInfo(HcclAlgoAttr &algoAttr);
+    HcclTopoInfo topoInfo_;
+    HcclAlgoInfo algoInfo_;
+    HcclExternalEnable externalEnable_;
+    std::unique_ptr<TopoMatcher> topoMatcher_;
 };
 }  // namespace hccl
+
 #endif  // HCCL_ALG_H

@@ -530,30 +530,20 @@ HcclResult CfgGetRoleTableInfo(const std::string &rankTableM, RoleTableInfo &rol
     return HCCL_SUCCESS;
 }
 
-HcclResult SetRetryEnable(
-    const u32 &superPodNum, const u32 &serverNum, const u32 &deviceNumPerAggregation, bool &retryEnable)
+void SetRetryEnable(DevType deviceType, const u32 &superPodNum, const u32 &serverNum,
+    const u32 &deviceNumPerAggregation, bool &retryEnable)
 {
-    if (superPodNum > 1 && GetExternalInputInterSuperPodRetryEnable()) {
-        retryEnable = true;
-        HCCL_INFO("[Config][SetRetryEnable] superPodNum[%u], retryEnable[%d].", superPodNum, retryEnable);
-        return HCCL_SUCCESS;
+    retryEnable = false;
+    if (deviceType != DevType::DEV_TYPE_910_73) {
+        retryEnable = false;
+    } else if (superPodNum > 1) { // L2重执行
+        retryEnable = GetExternalInputInterSuperPodRetryEnable();
+    } else if (serverNum > 1) { // L1重执行
+        retryEnable = GetExternalInputInterServerRetryEnable();
+    } else if (deviceNumPerAggregation > 1) { // L0重执行
+        retryEnable = GetExternalInputIntraServerRetryEnable();
     }
-    if (serverNum > 1 && GetExternalInputInterServerRetryEnable()) {
-        retryEnable = true;
-        HCCL_INFO("[Config][SetRetryEnable] serverNum[%u], retryEnable[%d].", serverNum, retryEnable);
-        return HCCL_SUCCESS;
-    }
-    if (deviceNumPerAggregation > 1 && GetExternalInputIntraServerRetryEnable()) {
-        retryEnable = true;
-        HCCL_INFO("[Config][SetRetryEnable] deviceNumPerAggregation[%u], retryEnable[%d].",
-            deviceNumPerAggregation,
-            retryEnable);
-        return HCCL_SUCCESS;
-    }
-    HCCL_INFO("[Config][SetRetryEnable] superPodNum[%u], serverNum[%u], deviceNumPerAggregation[%u], retryEnable[%d].",
-        superPodNum,
-        serverNum,
-        deviceNumPerAggregation,
-        retryEnable);
-    return HCCL_SUCCESS;
+
+    HCCL_INFO("[Config][SetRetryEnable]deviceType[%d], superPodNum[%u], serverNum[%u], deviceNum[%u], retryEnable[%d].",
+        deviceType, superPodNum, serverNum, deviceNumPerAggregation, retryEnable);
 }

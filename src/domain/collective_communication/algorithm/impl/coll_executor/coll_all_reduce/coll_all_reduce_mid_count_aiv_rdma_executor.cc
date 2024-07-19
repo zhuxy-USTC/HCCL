@@ -13,9 +13,10 @@
 namespace hccl {
 constexpr s32 INTRA_RS_STEP = 0;
 constexpr s32 INTRA_AG_STEP = 2;
-
-CollAllReduceMidCountAivRdmaExecutor::CollAllReduceMidCountAivRdmaExecutor(std::unique_ptr<hcclImpl> &pImpl)
-    : CollAllReduceExecutor(pImpl)
+ 
+CollAllReduceMidCountAivRdmaExecutor::CollAllReduceMidCountAivRdmaExecutor(const HcclDispatcher dispatcher,
+                                                                           std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
     DMAReduceFlag_ = false;
 }

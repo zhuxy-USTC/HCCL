@@ -12,63 +12,23 @@
 #define REDUCE_SCATTER_OPERATOR_H
 
 #include "common_operator.h"
+#include "coll_alg_op_registry.h"
 
 namespace hccl {
 class ReduceScatterOperator : public CommonOperator {
 public:
-    ReduceScatterOperator(std::unique_ptr<hcclImpl> &pImpl);
+    ReduceScatterOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~ReduceScatterOperator();
-    HcclResult ReduceScatter(const std::string &tag, void *inputPtr, void *outputPtr, u64 count,
-        HcclDataType dataType, HcclReduceOp op, Stream stream, HcomCollOpInfo *opInfo = nullptr);
-    HcclResult ReduceScatterOutPlace(const std::string &tag, void *inputPtr, void *outputPtr, u64 count,
-        HcclDataType dataType, HcclReduceOp op, Stream stream,
-        const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo = nullptr);
+    HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName, std::string& newTag);
 
 private:
-    // reducescatter
-    HcclResult RunReduceScatter(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-        DeviceMem &scratchMem, u64 count, HcclDataType dataType, HcclReduceOp op, Stream &stream,
-        HcomCollOpInfo *opInfo = nullptr);
+    HcclResult SelectAlgfor310P3(const OpParam& param, std::string& algName);
 
-    HcclResult ReduceScatterComm(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-        DeviceMem &scratchMem, u64 count, HcclDataType dataType, HcclReduceOp op, Stream &stream);
+    HcclResult SelectAlgfor910A(const OpParam& param, std::string& algName);
 
-    HcclResult ReduceScatterDMAReduceRingExecutorMiddlelayer(const std::string &tag, DeviceMem &inputMem,
-        DeviceMem &outputMem, DeviceMem &scratchMem, u64 count, HcclDataType dataType, HcclReduceOp op, Stream &stream,
-        HcomCollOpInfo *opInfo);
+    HcclResult SelectAlgfor910B(const OpParam& param, std::string& algName);
 
-    HcclResult ReduceScatterMeshOpbaseExecutorMiddlelayer(const std::string &tag, DeviceMem &inputMem,
-        DeviceMem &outputMem, DeviceMem &scratchMem, u64 count, HcclDataType dataType, HcclReduceOp op, Stream &stream,
-        HcomCollOpInfo *opInfo = nullptr);
-    
-    HcclResult ReduceScatterDeterExecutor(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-        DeviceMem &scratchMem, u64 count, HcclDataType dataType, HcclReduceOp op, Stream &stream,
-        HcomCollOpInfo *opInfo = nullptr);
-
-    HcclResult ReduceScatterMeshExecutor(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-        DeviceMem &scratchMem, u64 count, HcclDataType dataType, HcclReduceOp op, Stream &stream,
-        HcomCollOpInfo *opInfo = nullptr);
-
-    HcclResult ReduceScatterDoubleRingExecutor(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-                                               DeviceMem &scratchMem, u64 count, HcclDataType dataType, HcclReduceOp op,
-                                               Stream &stream, const HcomCollOpInfo *opInfo = nullptr);
-
-    HcclResult ReduceScatterDoubleRingConcurrentExecutor(const std::string &tag, DeviceMem &inputMem,
-        DeviceMem &outputMem, DeviceMem &scratchMem, u64 count, HcclDataType dataType,
-        HcclReduceOp op, Stream &stream, const HcomCollOpInfo *opInfo = nullptr);
-
-    HcclResult ReduceScatterRingExecutor(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-                                         DeviceMem &scratchMem, u64 count, HcclDataType dataType, HcclReduceOp op,
-                                         Stream &stream, const HcomCollOpInfo *opInfo = nullptr);
-
-    HcclResult ReduceScatterMeshOpbasePipelineExecutor(const std::string &tag, DeviceMem &scratchMem,
-        u64 count, HcclDataType dataType, HcclReduceOp op, Stream &stream, HcomCollOpInfo *opInfo);
-
-    HcclResult ReduceScatterCommFor310P(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-        u64 count, HcclDataType dataType, HcclReduceOp op, Stream &stream);
-
-    std::vector<std::vector<Slice>> ReduceScatterRingSlicePrepare(u32 ringNum, u32 sliceNum, bool useInlineReduce,
-        DeviceMem& outputMem, std::vector<Slice>& dataSegsSlice, const std::string &tag);
+    HcclResult SelectAlgfor91073(const OpParam& param, std::string& algName);
 };
 
 }

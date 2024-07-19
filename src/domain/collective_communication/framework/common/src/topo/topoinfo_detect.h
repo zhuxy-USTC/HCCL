@@ -29,15 +29,21 @@ public:
     HcclResult SetupAgent(u32 rankSize, u32 myrank, const HcclRootHandle &rootInfo);
     HcclResult SetupAgentByMasterInfo(HcclIpAddress &localHostIp, const HcclRootHandle &rootInfo);
     HcclResult SetupServer(HcclRootHandle &rootInfo);
-    HcclResult SetupServerByMasterInfo(const HcclIpAddress &masterIP, u32 masterPort);
+    HcclResult SetupServerByMasterInfo(const HcclIpAddress &masterIP, u32 masterPort, const HcclRootHandle &rootInfo);
+    HcclResult Teardown();
+    HcclResult WaitComplete(const HcclRootHandle &rootInfo);
     HcclResult GetCluterInfo(RankTable_t &clusterInfo);
     HcclResult GetLocalRankInfo(HcclBasicRankInfo &rankInfo);
-    HcclResult Teardown(const HcclRootHandle &rootInfo);
     HcclResult GetRankId(u32 &rankId);
     HcclResult TransformRankTableStr(const RankTable_t &clusterInfo, std::string &ranktableStr);
+    HcclResult GetAgentConnection(std::shared_ptr<HcclSocket> &connectSocket);
+    HcclResult GetServerConnections(std::map<std::string, std::shared_ptr<HcclSocket>> &connectSockets);
+    HcclResult GenerateRootInfo(const HcclIpAddress &hostIP, u32 hostPort, u32 devicePhysicID, HcclRootHandle &rootInfo);
 
 protected:
 private:
+    HcclResult TeardownAgent();
+    HcclResult TeardownServer();
     HcclResult Struct2JsonRankTable(const RankTable_t &clusterInfo, nlohmann::json &ClusterJson);
     HcclResult GetRootHostIP(const std::vector<HcclIpAddress> &whitelist, HcclIpAddress &ip, u32 devPhyId);
     HcclResult StartNetwork(HcclIpAddress &hostIP, bool bInitDevNic);
@@ -54,8 +60,8 @@ private:
         nlohmann::json &perServerJson, u32 serverIndex);
     HcclResult TransformSuperPodList(const std::vector<RankInfo_t> &rankInfo, nlohmann::json &superPodListJson) const;
     void SetupTopoExchangeServer(s32 devicePhysicID, s32 deviceLogicID, HcclIpAddress hostIP, u32 hostPort,
-        std::vector<HcclIpAddress> whitelist, HcclNetDevCtx netDevCtx, std::unique_ptr<HcclSocket> listenSocket,
-        bool isMasterInfo = false) const;
+        std::vector<HcclIpAddress> whitelist, HcclNetDevCtx netDevCtx, std::shared_ptr<HcclSocket> listenSocket,
+        bool isMasterInfo = false);
     HcclResult WaitTopoExchangeServerCompelte(u32 idx) const;
     void SetBootstrapHostIP(HcclIpAddress &ip) const;
     HcclIpAddress GetBootstrapHostIP() const;
@@ -69,7 +75,11 @@ private:
     HcclNetDevCtx agentPortCtx_{nullptr};
     HcclNetDevCtx devNicCtx_{nullptr};
     u32 devicePhysicID_{INVALID_UINT};
-    std::unique_ptr<HcclSocket> listenSocket_{nullptr};
+    std::shared_ptr<HcclSocket> listenSocket_{nullptr};
+    HcclRootHandle rootInfo_;
+    std::shared_ptr<hccl::TopoInfoExchangeAgent> pTopoExchangeAgent_{nullptr};
+    std::shared_ptr<TopoInfoExchangeServer> pTopoExchangeServer_{nullptr};
+    std::unique_ptr<std::thread> exchangeServerThreadPtr_{nullptr};
 };
 }  // namespace hccl
 #endif /* TOPOINFO_DETECT_H */

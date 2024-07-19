@@ -30,14 +30,14 @@ HcclResult CollAlgExecRegistry::Register(const std::string &tag, const CollExecC
 }
 
 std::unique_ptr<CollExecutorBase> CollAlgExecRegistry::GetAlgExec(
-    const std::string &tag, std::unique_ptr<hcclImpl> &pImpl)
+    const std::string &tag, const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher)
 {
     if (execCreators_.find(tag) == execCreators_.end()) {
         HCCL_DEBUG("[CollAlgExecRegistry]Creator for executor tag[%s] has not registered.", tag.c_str());
         return nullptr;
     }
     HCCL_DEBUG("[CollAlgExecRegistry][GetAlgExec]get executor by algName[%s]", tag.c_str());
-    return std::unique_ptr<CollExecutorBase>(execCreators_[tag](pImpl));
+    return std::unique_ptr<CollExecutorBase>(execCreators_[tag](dispatcher, topoMatcher));
 }
 
 } // namespace Hccl

@@ -38,7 +38,7 @@
 #include "device_capacity.h"
 #include "transport_manager.h"
 #include "coll_alg_operator.h"
-#include "alltoall_operator.h"
+#include "opretry_manage_pub.h"
 
 namespace hccl {
 using ServRankInfo_t = std::map<std::string, std::vector<RankInfo_t> >;
@@ -147,6 +147,8 @@ public:
     virtual HcclResult CheckReduceDataType(const HcclDataType dataType, const HcclReduceOp op);
 
     virtual HcclResult ReleaseCommInfos();
+
+    virtual std::vector<u64> GenerateSendCountMatrix(u64 count, u32 rankSize);
 
     virtual HcclResult GetAlltoAllStagedWorkSpaceMemSize(u64 *sendCounts, u64 *sdispls, HcclDataType sendType,
         u64 *recvCounts, u64 *rdispls, HcclDataType recvType, u64 &memSize);
@@ -318,7 +320,7 @@ private:
         CommBase *comm, innerStreamInfo_t &streamInfo, Stream &stream);
     HcclResult GetAicpuOpStreamAndNotify(HcclRtStream *opStream, void** aicpuNotify);
     HcclResult SetAicpuNotifyInvaild();
-    HcclResult AicpuKfcTilingDataLaunch(void *inputPtr, void *outputPtr, u64 count,
+    HcclResult AicpuKfcTilingDataLaunch(const std::string &tag, void *inputPtr, void *outputPtr, u64 count,
         HcclDataType dataType, HcclReduceOp op, HcclRtStream stream, HcclCMDType opType);
 
     HcclResult AllReduceAicpuUnfold(const std::string &tag, void *inputPtr, void *outputPtr, u64 count,
@@ -418,11 +420,19 @@ private:
     HcclResult GetModuleInfo(const std::vector<RankInfo_t> &rankList);
     HcclResult SetInterModeInSuperPod();
     HcclResult CheckSingleServerComm(const std::vector<RankInfo_t> &rankList) const;
+    HcclResult SetInfoToDevice(const OpParam &opParam, const std::unique_ptr<PreProcessMetaInfo> &preMetaInfo,
+        const HcclWorkflowMode &mode, Stream &stream);
+    HcclResult GetInfoFromDevice(const OpParam &opParam, const std::unique_ptr<PreProcessMetaInfo> &preMetaInfo,
+        const HcclWorkflowMode &mode, Stream &stream, HostMem& hostCollectBuffer);
+    HcclResult RegressCalPreOp(const std::unique_ptr<CollAlgOperator>& algOperator,
+        const OpParam &opParam, std::unique_ptr<PreProcessMetaInfo> &preMetaInfo);
 
     HcclResult ExecOp(HcclCMDType opType, const OpParam &opParam);
     // batchsendrecv专用，增量建链
     HcclResult ExecOpExt(HcclCMDType opType, const OpParam &opParam);
-    HcclResult AllocAlgResource(const std::string &tag, const OpParam &opParam,
+    HcclResult CalcTinySendRecvMem(const OpParam &opParam, AlgResourceResponse &algResResponse,
+        DeviceMem &tinySendRecvMem);
+    HcclResult AllocAlgResource(const std::string &tag, HcclCMDType opType, const OpParam &opParam,
         AlgResourceRequest &resRequest, AlgResourceResponse &algResResponse);
     HcclResult IncreAllocLink(const std::string &newTag, const OpParam &opParam,
         AlgResourceRequest &resRequest, AlgResourceResponse &algResResponse);
@@ -453,6 +463,8 @@ private:
         HcclDataType dataType, HcclReduceOp op, HcclRtStream stream, HcclCMDType cmdType);
     u32 GetLocalNicPort();
     std::string GetSupportDataType(bool needReduce);
+    HcclResult InitHDCommunicate();
+    HcclResult InitOpRetry();
 
     HcclIpAddress loopBackIp_;
     bool profilingInitiated_;
@@ -504,6 +516,14 @@ private:
     std::unique_ptr<TransportManager> transportManager_ = { nullptr };
     std::unordered_map<std::string, AlgResourceResponse> resMap_; // tag : AlgResourceResponse
     bool retryEnable_ = false;
+    Stream alltoalltream_;
+
+    std::unique_ptr<OpRetryManagerPub> opRetryManager_ = { nullptr };
+
+    std::shared_ptr<HDCommunicate> kfcControlTransferH2D_;
+    std::shared_ptr<HDCommunicate> kfcStatusTransferD2H_;
+    HcclCommConnections commConnections_;
+    std::shared_ptr<HcclOpStreamRes> opRetryStreamPtr_;
 };
 
 }  // end namespace hccl

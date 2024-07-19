@@ -86,6 +86,29 @@ HcclResult TransportManager::ExceptionHandle(const std::string &tag, OpCommTrans
     return HCCL_SUCCESS;
 }
 
+HcclResult TransportManager::CreateVirturalTransport(SingleSubCommTransport& singleSubCommTransport)
+{
+    MachinePara machinePara;
+    std::chrono::milliseconds kdefaultTimeout = std::chrono::seconds(
+        GetExternalInputHcclLinkTimeOut());
+
+    singleSubCommTransport.virtualLinks.clear();
+    singleSubCommTransport.virtualLinks.resize(singleSubCommTransport.transportRequests.size());
+
+    for (u32 i = 0; i < singleSubCommTransport.transportRequests.size(); i++) {
+        TransportPara para {};
+        para.virtualFlag = true;
+        para.timeout = kdefaultTimeout;
+        para.index = i;
+        singleSubCommTransport.virtualLinks[i].reset(new (std::nothrow) Transport(TransportType::TRANS_TYPE_RESERVED,
+            para, dispatcher_, notifyPool_, machinePara));
+        CHK_PRT_RET(!singleSubCommTransport.virtualLinks[i], HCCL_ERROR("[CreateVirturalTransport]In create link," \
+            "new link failed"), HCCL_E_PTR);
+    }
+
+    return HCCL_SUCCESS;
+}
+
 HcclResult TransportManager::Alloc(const std::string &tag, const TransportIOMem &transMem,
     OpCommTransport &opTransportResponse)
 {
@@ -99,12 +122,19 @@ HcclResult TransportManager::Alloc(const std::string &tag, const TransportIOMem 
             singleSubCommTransport.links.clear();
             singleSubCommTransport.links.reserve(singleSubCommTransport.transportRequests.size());
 
+            if (singleSubCommTransport.needVirtualLink) {
+                // task多线程并行下发，根据当前transport创建vtransport信息
+                CHK_RET(CreateVirturalTransport(singleSubCommTransport));
+            }
+
             u32 linkIdx = 0;
             for (auto &transportRequest : singleSubCommTransport.transportRequests) {
                 singleSubCommTransport.links.emplace_back(std::make_shared<Transport>(nullptr));
                 if (transportRequest.isValid) {
                     DeviceMem inputMem;
                     DeviceMem outputMem;
+                    HCCL_DEBUG("transportRequest.inputMemType[%d] transportRequest.outputMemType[%d]",
+                        transportRequest.inputMemType, transportRequest.outputMemType);
                     GetIOMem(transMem, transportRequest.inputMemType, transportRequest.outputMemType,
                         inputMem, outputMem);
 
@@ -164,6 +194,7 @@ HcclResult TransportManager::Alloc(const std::string &tag, const TransportIOMem 
         }
     }
     CHK_RET(notifyPool_->UnregisterOp(tag));
+
     return HCCL_SUCCESS;
 }
 
@@ -181,11 +212,11 @@ HcclResult TransportManager::IncreAlloc(const std::string &tag, const TransportI
             for (u32 rankIndex = 0; rankIndex < reqSingleSubComm.transportRequests.size(); rankIndex++) {
                 TransportRequest &transportRequest = reqSingleSubComm.transportRequests[rankIndex];
                 CHK_PRT_RET(rankIndex >= respSingleSubComm.links.size(),
-                    HCCL_ERROR("[IncreAlloc] The remote rank_id[%u] is larger than the exist respSingleSubComm map "\
+                    HCCL_ERROR("[IncreAlloc] The remote rank_id[%u] is larger than the existent respSingleSubComm map "\
                     "size[%u]", rankIndex, respSingleSubComm.links.size()), HCCL_E_PARA);
                 if (respSingleSubComm.links[rankIndex] != nullptr &&
                     respSingleSubComm.links[rankIndex]->GetLinkType() != hccl::LinkType::LINK_RESERVED) {
-                    HCCL_INFO("[IncreAlloc] The link to remote userRank[%u] is exist", transportRequest.remoteUserRank);
+                    HCCL_INFO("[IncreAlloc] The link to remote userRank[%u] has existed", transportRequest.remoteUserRank);
                     continue;
                 }
                 if (transportRequest.isValid) {
@@ -197,7 +228,7 @@ HcclResult TransportManager::IncreAlloc(const std::string &tag, const TransportI
                     std::vector<std::shared_ptr<HcclSocket> > connectSockets;
                     bool isInterRdma;
                     HcclResult ret = CreateDestSockets(tag, transportRequest.remoteUserRank, reqSingleSubComm.taskNum,
-                        connectSockets, isInterRdma, reqSingleSubComm.isUsedRdma);
+                        connectSockets, isInterRdma);
                     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[IncreAlloc]Create dest sockets failed"), ret);
 
                     MachineType machineType = transportRequest.localUserRank < transportRequest.remoteUserRank?
@@ -215,7 +246,7 @@ HcclResult TransportManager::IncreAlloc(const std::string &tag, const TransportI
                 }
             }
             for (u32 index = 0; index < linkThreads.size(); index++) {
-                if (linkThreads[index] != nullptr) {
+                if (linkThreads[index] != nullptr && linkThreads[index]->joinable()) {
                     linkThreads[index]->join();
                     CHK_RET(hrtResetDevice(deviceLogicId_)); // 防止线程里面异常退出，在进程中reset
                 }
@@ -240,7 +271,7 @@ HcclResult TransportManager::ConstructTransTag(const std::string& tag, std::stri
     return HCCL_SUCCESS;
 }
 
-void TransportManager::GetIOMem(const TransportIOMem &transMem,
+HcclResult TransportManager::GetIOMem(const TransportIOMem &transMem,
     const TransportMemType inputMemType, const TransportMemType outputMemType,
     DeviceMem &inputMem,  DeviceMem &outputMem)
 {
@@ -252,6 +283,11 @@ void TransportManager::GetIOMem(const TransportIOMem &transMem,
         inputMem = transMem.paramInputMem;
     } else if (inputMemType == AIV_INPUT) {
         inputMem = transMem.aivInputMem;
+    } else if (inputMemType == CCL_OUTPUT) {
+        inputMem = transMem.cclOutputMem;
+    } else {
+        HCCL_ERROR("inputMemType is Invalid, inputMem not set");
+        return HCCL_E_INTERNAL;
     }
 
     if (outputMemType == CCL_OUTPUT) {
@@ -262,7 +298,15 @@ void TransportManager::GetIOMem(const TransportIOMem &transMem,
         outputMem = transMem.paramOutputMem;
     } else if (outputMemType == AIV_OUTPUT) {
         outputMem = transMem.aivOutputMem;
+    } else if (outputMemType == CCL_INPUT) {
+        outputMem = transMem.cclInputMem;
+    } else if (outputMemType == PARAM_INPUT) {
+        outputMem = transMem.paramInputMem;
+    } else {
+        HCCL_ERROR("outputMemType is Invalid, inputMem not set");
+        return HCCL_E_INTERNAL;
     }
+    return HCCL_SUCCESS;
 }
 
 u32 TransportManager::GetRemoteNicPort(u32 remoteRank)
@@ -367,6 +411,8 @@ HcclResult TransportManager::CreateLink(const std::string &tag, const ErrContext
     MachinePara machinePara;
     CHK_RET(SetMachinePara(tag, machineType, serverId, remoteRank, supportDataReceivedAck, linkMode, sockets,
         inputMem, outputMem, machinePara));
+    HCCL_DEBUG("inputMem[%p],outputMem[%p], inputMem size[%llu], outputMem size[%llu]", inputMem.ptr(), outputMem.ptr(),
+        inputMem.size(), outputMem.size());
     HCCL_INFO("[creakLink para]rank[%u]-localUserrank[%u]-localIpAddr[%s], linkMode[%d] "
               "dst_rank[%u]-remoteUserrank[%u]-remote_ip_addr[%s], machineType[%d], serverId[%s], nicDeploy[%d] ",
         userRank_, rankInfoList_[userRank_].worldRank, rankInfoList_[userRank_].serverId.c_str(), machinePara.linkMode,
@@ -454,8 +500,14 @@ TransportType TransportManager::GetTransportType(const u32 dstRank, bool isUsedR
         if (isHaveCpuRank_) {
             transportType = TransportType::TRANS_TYPE_HETEROG_P2P;
         } else {
+            LinkTypeInServer linkType = LinkTypeInServer::RESERVED_LINK_TYPE;
+            hrtGetPairDeviceLinkType(rankInfoList_[userRank_].devicePhyId, rankInfoList_[dstRank].devicePhyId,
+                linkType);
+            if (linkType == LinkTypeInServer::SIO_TYPE && GetExternalInputEnableRdmaSdmaConcurrent() && isUsedRdma
+                && rankInfoList_[userRank_].deviceType == DevType::DEV_TYPE_910_73) {
+                transportType = TransportType::TRANS_TYPE_P2P;
             // Server内判断是否使用rdma
-            if (isUsedRdma) {
+            } else if (isUsedRdma) {
                 transportType = TransportType::TRANS_TYPE_IBV_EXP;
             } else {
                 transportType = TransportType::TRANS_TYPE_P2P;
@@ -538,7 +590,16 @@ HcclResult TransportManager::TransportInit(const u32 dstRank, MachinePara &machi
 
 bool TransportManager::IsSupportInterHccs(const u32 dstRank)
 {
-    return false;
+    // 仅判断超节点内, 兼容打平通信域同时有server内和server间, 因此不判断server_id
+    bool isInterHccs = GetExternalInputInterHccsDisable() == false &&
+        rankInfoList_[userRank_].deviceType == DevType::DEV_TYPE_910_73 &&
+        rankInfoList_[userRank_].superPodId.empty() == false &&
+        rankInfoList_[userRank_].superPodId == rankInfoList_[dstRank].superPodId;
+
+    HCCL_INFO("[IsSupportInterHccs]rank[%u], superPodId[%s], dstRank[%u], dstSuperPodId[%s], isInterHccs[%d]",
+        userRank_, rankInfoList_[userRank_].superPodId.c_str(), dstRank,
+        rankInfoList_[dstRank].superPodId.c_str(), isInterHccs);
+    return isInterHccs;
 }
 
 void TransportManager::UpdateIsInterRdma(const u32 remoteRank, bool &isInterRdma, bool forceRdma) // 待确认判断是否完善
@@ -552,9 +613,17 @@ void TransportManager::UpdateIsInterRdma(const u32 remoteRank, bool &isInterRdma
     }
     LinkTypeInServer linkType;
     hrtGetPairDeviceLinkType(rankInfoList_[userRank_].devicePhyId, rankInfoList_[remoteRank].devicePhyId, linkType);
-    isInterRdma = rankInfoList_[userRank_].serverId != rankInfoList_[remoteRank].serverId ||
-        (isUsedRdmaOuter_ && linkType == LinkTypeInServer::PXI_TYPE) ||
-        (rankInfoList_[userRank_].serverId == rankInfoList_[remoteRank].serverId && forceRdma);
+    if (isConcurrent && forceRdma && rankInfoList_[userRank_].deviceType == DevType::DEV_TYPE_910_73) {
+        if (linkType == LinkTypeInServer::SIO_TYPE) {
+            isInterRdma = false;
+        } else {
+            isInterRdma = true;
+        }
+    } else {
+        isInterRdma = rankInfoList_[userRank_].serverId != rankInfoList_[remoteRank].serverId ||
+            (isUsedRdmaOuter_ && linkType == LinkTypeInServer::PXI_TYPE) ||
+            (rankInfoList_[userRank_].serverId == rankInfoList_[remoteRank].serverId && forceRdma);
+    }
 }
 
 u32 TransportManager::GetInterRemotePort(s32 devicePhyId, u32 dstUserRank)

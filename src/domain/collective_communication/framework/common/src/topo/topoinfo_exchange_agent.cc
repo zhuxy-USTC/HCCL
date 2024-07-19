@@ -18,16 +18,15 @@
 namespace hccl {
 constexpr s32 DEVICE_LOGIC_ID_LENGTH = 4;
 
-TopoInfoExchangeAgent::TopoInfoExchangeAgent(HcclIpAddress &serverIp, u32 serverPort,
-    std::string identifier, HcclNetDevCtx netDevCtx, HcclBasicRankInfo localRankInfo)
+TopoInfoExchangeAgent::TopoInfoExchangeAgent(HcclIpAddress &serverIp, u32 serverPort, std::string identifier,
+    HcclNetDevCtx netDevCtx, HcclBasicRankInfo localRankInfo)
     : serverIP_(serverIp),
       serverPort_(serverPort),
       identifier_(identifier),
       localRankInfo_(localRankInfo),
       clusterTopoInfo_(),
       netDevCtx_(netDevCtx)
-{
-}
+{}
 
 TopoInfoExchangeAgent::~TopoInfoExchangeAgent()
 {
@@ -36,16 +35,13 @@ TopoInfoExchangeAgent::~TopoInfoExchangeAgent()
 
 HcclResult TopoInfoExchangeAgent::Setup()
 {
-    std::shared_ptr<HcclSocket> socket;
-    HcclResult ret = Connect(serverIP_, serverPort_, socket);
+    HcclResult ret = Connect(serverIP_, serverPort_, socket_);
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[TopoInfoExchangeAgent][Setup]TopoExchangeAgent: "\
         "connect server[%s : %u] failed", serverIP_.GetReadableAddress(), serverPort_), ret);
     HCCL_INFO("TopoExchangeAgent: client connect with server ip[%s] port[%u] success.",
         serverIP_.GetReadableAddress(), serverPort_);
 
-    CHK_RET(DetectClusterTopoInfo(socket, clusterTopoInfo_));
-
-    CHK_RET(Disconnect(socket));
+    CHK_RET(DetectClusterTopoInfo(socket_, clusterTopoInfo_));
     
     CHK_RET(SaveClusterInfo(clusterTopoInfo_));
 
@@ -53,14 +49,23 @@ HcclResult TopoInfoExchangeAgent::Setup()
 
     return HCCL_SUCCESS;
 }
+
+HcclResult TopoInfoExchangeAgent::Teardown()
+{
+    CHK_RET(Disconnect(socket_));
+    return HCCL_SUCCESS;
+}
+
+HcclResult TopoInfoExchangeAgent::GetConnection(std::shared_ptr<HcclSocket> &socket)
+{
+    socket = socket_;
+    return HCCL_SUCCESS;
+}
+
 HcclResult TopoInfoExchangeAgent::SetupByMasterInfo()
 {
     isByMasterInfo_ = true;
     CHK_RET(Setup());
-    return HCCL_SUCCESS;
-}
-HcclResult TopoInfoExchangeAgent::Teardown() const
-{
     return HCCL_SUCCESS;
 }
 
@@ -132,7 +137,7 @@ HcclResult TopoInfoExchangeAgent::GetIdentifier(u32 &indentify)
 HcclResult TopoInfoExchangeAgent::Connect(HcclIpAddress &serverIp, u32 port,
     std::shared_ptr<HcclSocket> &socket)
 {
-    std::string tag = TOPO_DETECT_TAG + "_" + std::to_string(port);
+    std::string tag = TOPO_DETECT_TAG + "_" + identifier_ + "_" + std::to_string(port);
     EXECEPTION_CATCH((socket = std::make_shared<HcclSocket>(tag,
         netDevCtx_, serverIp, port, HcclSocketRole::SOCKET_ROLE_CLIENT)), return HCCL_E_PTR);
     CHK_SMART_PTR_NULL(socket);
@@ -231,6 +236,7 @@ void TopoInfoExchangeAgent::GenerateAgentID(HcclBasicRankInfo &localRankInfo, st
 HcclResult TopoInfoExchangeAgent::Disconnect(std::shared_ptr<HcclSocket> &socket)
 {
     CHK_RET(DisconnectSocket(socket));
+    socket = nullptr;
 
     return HCCL_SUCCESS;
 }
@@ -365,6 +371,8 @@ HcclResult TopoInfoExchangeAgent::VerifyClusterInfo(const RankTable_t &clusterIn
         CHK_RET(CheckRankIpFamily(clusterInfo.rankList));
     }
 
+    // 超节点校验
+    CHK_RET(VerifyClusterSuperPodInfo(clusterInfo.rankList));
     return HCCL_SUCCESS;
 }
 
@@ -434,6 +442,60 @@ HcclResult TopoInfoExchangeAgent::VerifyServerDevicePhysicID(const std::vector<R
                 HCCL_E_PARA);
         }
     }
+    return HCCL_SUCCESS;
+}
+
+HcclResult TopoInfoExchangeAgent::VerifyClusterSuperPodInfo(const std::vector<RankInfo_t> &rankInfo) const
+{
+    DevType deviceType;
+    CHK_RET(hrtGetDeviceType(deviceType));
+    CHK_PRT_RET(deviceType != DevType::DEV_TYPE_910_73,
+        HCCL_DEBUG("[Verify][SuperPodInfo]deviceType[%d] does not need verify superPod info", deviceType),
+        HCCL_SUCCESS);
+
+    // 获取每个超节点内的serverId
+    std::map<std::string, std::set<std::string>> superPodSrvIdMap; // super_pod_id -> serverId
+    std::map<std::string, std::set<u32>> superPodSdidMap; // super_pod_id -> superDeviceId
+    for (u32 i = 0; i < rankInfo.size(); i++) {
+        auto iter = superPodSrvIdMap.find(rankInfo[i].superPodId);
+        if (iter == superPodSrvIdMap.end()) {
+            std::set<std::string> serverIdSet;
+            serverIdSet.insert(rankInfo[i].serverId);
+            superPodSrvIdMap.insert({rankInfo[i].superPodId, serverIdSet});
+        } else if (iter->second.find(rankInfo[i].serverId) == iter->second.end()) {
+            iter->second.insert(rankInfo[i].serverId);
+        }
+
+        auto it = superPodSdidMap.find(rankInfo[i].superPodId);
+        if (it == superPodSdidMap.end()) {
+            std::set<u32> superDeviceIdSet;
+            superDeviceIdSet.insert(rankInfo[i].superDeviceId);
+            superPodSdidMap.insert({rankInfo[i].superPodId, superDeviceIdSet});
+        } else if (it->second.find(rankInfo[i].superDeviceId) == it->second.end()) {
+            it->second.insert(rankInfo[i].superDeviceId);
+        } else {
+            // 超节点内superDeviceId在超节点内唯一
+            CHK_PRT_RET(it->second.find(rankInfo[i].superDeviceId) != it->second.end(),
+                HCCL_ERROR("[Verify][SuperPodInfo]superDeviceId[0x%x] in superPod[%s]"
+                "is already exist.",
+                rankInfo[i].superDeviceId, it->first.c_str()),
+                HCCL_E_PARA);
+        }
+    }
+
+    // 校验每个超节点内的server数量一致
+    u32 serverNumPerPod = 0;
+    for (auto iter = superPodSrvIdMap.begin(); iter != superPodSrvIdMap.end(); ++iter) {
+        if (iter == superPodSrvIdMap.begin()) {
+            serverNumPerPod = superPodSrvIdMap.begin()->second.size();
+        }
+        u32 serverNumCurPod = iter->second.size();
+        CHK_PRT_RET(serverNumPerPod != serverNumCurPod,
+            HCCL_ERROR("[Verify][SuperPodInfo]serverNum[%u] in superPod[%s] and serverNum[%u] in superPod[%s] "\
+            "are different.", serverNumPerPod, superPodSrvIdMap.begin()->first.c_str(),
+            serverNumCurPod, iter->first.c_str()), HCCL_E_PARA);
+    }
+
     return HCCL_SUCCESS;
 }
 }

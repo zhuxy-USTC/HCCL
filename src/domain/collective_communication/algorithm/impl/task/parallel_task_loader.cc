@@ -19,14 +19,14 @@ ParallelTaskLoader::ParallelTaskLoader(const s32 deviceLogicId, const HcclDispat
 ParallelTaskLoader::~ParallelTaskLoader()
 {}
 
-HcclResult ParallelTaskLoader::Prepare(std::vector<Stream *> streamsPtr, void *commPtr)
+HcclResult ParallelTaskLoader::Prepare(std::vector<Stream *> streamsPtr, SubCommInfo outerCommInfo)
 {
     // 参数保存
     streamsPtr_.resize(streamsPtr.size());
     for (u32 streamIndex = 0; streamIndex < streamsPtr.size(); streamIndex++) {
         streamsPtr_[streamIndex] = streamsPtr[streamIndex];
     }
-    commPtr_ = commPtr;
+    commInfo_ = outerCommInfo;
     HCCL_INFO("[ParallelTaskLoader]Prepare streams size[%d], taskLoaderNum_[%u]", streamsPtr_.size(), taskLoaderNum_);
 
     // 当前现有的taskLoader线程可以满足业务多流的使用
@@ -57,7 +57,7 @@ HcclResult ParallelTaskLoader::StartTaskLoad()
 
     // 配置线程启动参数
     for (u32 streamIndex = 0; streamIndex < streamsPtr_.size(); streamIndex++) {
-        streamTaskLoader_[streamIndex]->Prepare(streamsPtr_[streamIndex], commPtr_);
+        streamTaskLoader_[streamIndex]->Prepare(streamsPtr_[streamIndex], commInfo_);
         // 获取线程ID
         tidInfo_[streamIndex] = streamTaskLoader_[streamIndex]->GetTid();
     }
@@ -77,6 +77,15 @@ HcclResult ParallelTaskLoader::WaitTaskLoadFinish()
     for (u32 streamIndex = 0; streamIndex < streamsPtr_.size(); streamIndex++) {
         streamTaskLoader_[streamIndex]->WaitDone();
         CHK_RET(streamTaskLoader_[streamIndex]->GetExecuteResult());
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult ParallelTaskLoader::ClearTagCommInfo()
+{
+    commInfo_ = SubCommInfo{};
+    for (u32 streamIndex = 0; streamIndex < streamsPtr_.size(); streamIndex++) {
+        CHK_RET(streamTaskLoader_[streamIndex]->ClearTagCommInfo());
     }
     return HCCL_SUCCESS;
 }

@@ -83,8 +83,6 @@ bool Ascending(const RankInfo &first, const RankInfo &second);  // 排序规则�
 bool CompareWithUserRankAscend(const RankInfo &left, const RankInfo &right); // 按UserRank升序
 // 生成多个ring环的设备物理ID排序
 std::vector<std::vector<u32>> GetRingsOrderByTopoType(u32 ranksSize, TopoType topoType, std::vector<u32> &nicList);
-bool CheckRankNeighbors(const std::vector<u32> &nicList);
-bool CheckSdmaWithRohTopo(const std::vector<u32> &nicList, std::vector<u32> &topoList);
 
 class ExchangerNetwork;
 class CommFactory {
@@ -130,14 +128,10 @@ public:
         std::unordered_map<std::string, std::map<u32, HcclIpAddress>> &rankDevicePhyIdNicInfoMap,
         std::vector<u32> &ranksPort, bool isSetHDCModeInfo, bool isUseRankPort);
 
-    /*
-    * *********************************************************************************
-    * comm_factory后续不承担建链功能，只进行通信关系推导
-    * *********************************************************************************
-    */
-    HcclResult CalcCommPlaneInfo(const std::string &tag, const CommParaInfo &commParaInfo,
-        std::vector<SingleSubCommTransport> &commTransport, TransportMemType inPutMemType,
-        TransportMemType outPutMemType);
+    HcclResult GetCommPlaneRanks(std::vector<std::vector<std::vector<u32>>> &CommPlaneRanks);
+    HcclResult GetIsBridgeVector(std::vector<bool> &isBridgeVector);
+    HcclResult GetIsUsedRdmaMap(std::unordered_map<u32, bool> &isUsedRdmaMap);
+    HcclResult GetRankVecInfo(std::vector<std::vector<std::vector<u32>>> &serverAndsuperPodToRank);
 
 protected:
     /* 禁止用户对工厂类的实体做拷贝构造或拷贝赋值的操作，内部有指针成员变量 */
@@ -164,7 +158,7 @@ private:
     HcclResult CreateCommNHR(const std::string &tag, const DeviceMem &inputMem, const DeviceMem &outputMem,
         const CommParaInfo &commParaInfo, const std::vector<std::vector<RankInfo> > &commPlaneVec,
         bool isUsedRdma, std::vector<std::unique_ptr<CommBase> > &commVec);
-    
+
     HcclResult CreateCommNHRV1(const std::string &tag, const DeviceMem &inputMem, const DeviceMem &outputMem,
         const CommParaInfo &commParaInfo, const std::vector<std::vector<RankInfo> > &commPlaneVec,
         bool isUsedRdma, std::vector<std::unique_ptr<CommBase> > &commVec);
