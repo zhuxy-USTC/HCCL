@@ -1972,11 +1972,6 @@ HcclResult ReduceLoop(const std::string &tag, void *inputPtr, void *outputPtr, c
     return HCCL_SUCCESS;
 }
 
-/*
- * **********************************************************************
- * 单算子GatherAllToAllV的函数接口，目前不对外开放，仅图模式动态shape使用
- * **********************************************************************
- */
 HcclResult HcclGatherAlltoAllV(HcomGatherAllToAllVParams params, HcclComm comm, aclrtStream stream)
 {
     HcclUs startut = TIME_NOW();
