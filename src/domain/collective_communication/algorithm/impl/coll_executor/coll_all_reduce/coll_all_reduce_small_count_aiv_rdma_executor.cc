@@ -90,7 +90,7 @@ HcclResult CollAllReduceSmallCountAivRdmaExecutor::CalcLevel1CommInfo(TransportM
     return HCCL_SUCCESS;
 }
 
-HcclResult CollAllReduceSmallCountAivRdmaExecutor::Orchestrate(const OpParam& param, const AlgResourceResponse& algRes)
+HcclResult CollAllReduceSmallCountAivRdmaExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algRes)
 {
     HcclUs startut = TIME_NOW();
     allreduceSmallDataAivRdmaCount_ += 1;
@@ -98,7 +98,6 @@ HcclResult CollAllReduceSmallCountAivRdmaExecutor::Orchestrate(const OpParam& pa
         allreduceSmallDataAivRdmaCount_);
     tag_ = param.tag;
     algResResp_ = &algRes;
-    CHK_RET(GetStreamInfo(algRes));
 
     // 小数据量：使用AIVIN+AIVOUT，标记区在AIVOUT
     ExecMem execMem;
@@ -188,7 +187,7 @@ HcclResult CollAllReduceSmallCountAivRdmaExecutor::InterServerHDOneshot(const Op
 HcclResult CollAllReduceSmallCountAivRdmaExecutor::KernelRun(const OpParam &param, ExecMem &execMem)
 {
     HCCL_INFO("[CollAllReduceSmallCountAivRdmaExecutor][KernelRun]allreduce aiv enter.");
-    HcclWorkflowMode workflow = GetWorkflowMode();
+    HcclWorkflowMode workflow = workflowMode_;
     bool isOpbase = (workflow == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
 
     // 获取通信域信息

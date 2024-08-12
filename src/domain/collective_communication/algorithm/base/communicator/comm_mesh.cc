@@ -20,10 +20,10 @@ CommMesh::CommMesh(const std::string &collectiveId,
     const void* transportResourceInfoAddr, size_t transportResourceInfoSize, const std::string &tag,
     bool isAlltoAllCommMesh, const NICDeployment nicDeployInner,
     const bool useOneDoorbell, const bool isAicpuModeEn,
-    const bool isHaveCpuRank, const bool useSdidForDeviceId): CommBase(collectiveId, userRank, userRankSize,
+    const bool isHaveCpuRank, const bool useSuperPodMode): CommBase(collectiveId, userRank, userRankSize,
     rank, rankSize, paraVector, topoFlag, dispatcher, notifyPool, netDevCtxMap, exchanger, inputMem, outputMem,
     isUsedRdmaOuter, transportResourceInfoAddr, transportResourceInfoSize, tag, nicDeployInner,
-    isAlltoAllCommMesh, useOneDoorbell, isAicpuModeEn, INVALID_UINT, isHaveCpuRank, useSdidForDeviceId)
+    isAlltoAllCommMesh, useOneDoorbell, isAicpuModeEn, INVALID_UINT, isHaveCpuRank, useSuperPodMode)
 {}
 
 CommMesh::~CommMesh()

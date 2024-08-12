@@ -46,7 +46,7 @@ HcclResult CollAllReduceMeshAivExecutor::CalcCommInfo(std::vector<LevelNSubCommT
 
 HcclResult CollAllReduceMeshAivExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::AIV_INPUT;
         outputType = TransportMemType::AIV_OUTPUT;
     } else {
@@ -66,12 +66,11 @@ HcclResult CollAllReduceMeshAivExecutor::CalcLevel0CommInfo(TransportMemType inp
     CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel0, opTransport[COMM_LEVEL0], inputType, outputType));
     return HCCL_SUCCESS;
 }
-HcclResult CollAllReduceMeshAivExecutor::Orchestrate(const OpParam& param, const AlgResourceResponse& algRes)
+HcclResult CollAllReduceMeshAivExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algRes)
 {
     HcclUs startut = TIME_NOW();
     tag_ = param.tag;
     algResResp_ = &algRes;
-    GetStreamInfo(algRes);
 
     HcclResult ret = HCCL_SUCCESS;
     ExecMem execMem;
@@ -79,7 +78,7 @@ HcclResult CollAllReduceMeshAivExecutor::Orchestrate(const OpParam& param, const
     execMem.inputPtr = param.inputPtr;
     execMem.outputPtr = param.outputPtr;
 
-    if (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) { // 图模式
+    if (workflowMode_ != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) { // 图模式
         execMem.inputMem = algRes.paramInputMem;
         execMem.outputMem = algRes.aivOutputMem; // 存放flag
         execMem.scratchMem = algRes.scratchMem; // 不需要
@@ -124,7 +123,7 @@ HcclResult CollAllReduceMeshAivExecutor::KernelRun(const OpParam &param, ExecMem
         }
     }
 
-    bool isOpbase = (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
+    bool isOpbase = (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
     HcclResult ret = ExecuteKernelLaunch(HcclCMDType::HCCL_CMD_ALLREDUCE, execMem.inputPtr, execMem.outputPtr,
         execMem.count, param.DataDes.dataType, param.reduceType, localRank, localRankSize, 0,
         buffersIn, buffersOut, param.stream.ptr(), isOpbase, execMem.inputMem.size());

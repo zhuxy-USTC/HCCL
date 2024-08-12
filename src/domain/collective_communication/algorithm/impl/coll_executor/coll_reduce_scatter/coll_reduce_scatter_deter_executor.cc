@@ -28,10 +28,11 @@ void CollReduceScatterDeterExecutor::ParseParam(const OpParam& param)
     meshSinglePlane_ = false;
 
     // 是否需要scratch memory 选中确定性计算Executor，其他条件必定满足，只需区分是否为图模式
-    scratchMemFlag_ = (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
+    scratchMemFlag_ = (workflowMode_ != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
 
     // 记录图模式总数据量
     totalSize_ = topoAttr_.userRankSize * param.DataDes.count * SIZE_TABLE[param.DataDes.dataType];
+    aicpuUnfoldMode_ = param.aicpuUnfoldMode;
 }
 
 HcclResult CollReduceScatterDeterExecutor::CalcScratchMemSize(u64& scratchMemSize)
@@ -49,7 +50,7 @@ HcclResult CollReduceScatterDeterExecutor::CalcScratchMemSize(u64& scratchMemSiz
 HcclResult CollReduceScatterDeterExecutor::CalcStreamNum(u32& streamNum)
 {
     u32 totalStreamNum = 0U;
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
         totalStreamNum = topoAttr_.deviceNumPerAggregation - 1U;
     } else {
         totalStreamNum = topoAttr_.deviceNumPerAggregation;
@@ -71,7 +72,7 @@ HcclResult CollReduceScatterDeterExecutor::CalcCommInfo(std::vector<LevelNSubCom
 HcclResult CollReduceScatterDeterExecutor::CalcTransportMemType(TransportMemType &inputType,
     TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         if (scratchMemFlag_) {
             outputType = TransportMemType::SCRATCH;
@@ -138,13 +139,13 @@ HcclResult CollReduceScatterDeterExecutor::KernelRun(const OpParam &param, ExecM
         param.root, param.reduceType};
 
     if ((param.DataDes.count * unitSize > HCCL_SMALL_COUNT_32_KB) ||
-        (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) ||
+        (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) ||
         ((topoAttr_.deviceNumPerAggregation != DEVICE_EIGHT) && (topoAttr_.deviceNumPerAggregation != DEVICE_FOUR))) {
         outerExecutor.reset(new (std::nothrow) ReduceScatterLocalReduce(dispatcher_, reduceAttr,
-            streamInfo_.ringStreams, streamInfo_.ringSignal, streamInfo_.ringSignalAux, topoAttr_.userRank, &opInfo));
+            algResResp_->slaveStreams, algResResp_->notifiesM2S, algResResp_->notifiesS2M, topoAttr_.userRank, &opInfo));
     } else {
-        outerExecutor.reset(new (std::nothrow) ReduceScatterHDStage(dispatcher_, reduceAttr, streamInfo_.ringStreams,
-            streamInfo_.ringSignal, streamInfo_.ringSignalAux, topoAttr_.userRank, &opInfo));
+        outerExecutor.reset(new (std::nothrow) ReduceScatterHDStage(dispatcher_, reduceAttr, algResResp_->slaveStreams,
+            algResResp_->notifiesM2S, algResResp_->notifiesS2M, topoAttr_.userRank, &opInfo));
     }
 
     CHK_SMART_PTR_NULL(outerExecutor);

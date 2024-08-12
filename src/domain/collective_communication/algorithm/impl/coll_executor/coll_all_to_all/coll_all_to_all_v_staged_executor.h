@@ -17,13 +17,12 @@ public:
     CollRunAlltoAllVStaged(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollRunAlltoAllVStaged() = default;
 
-    bool CheckNeedRecreateComm(u64 lastScratchMemSize) override;
+    HcclResult CheckNeedRecreateComm(u64 lastScratchMemSize, bool& needRecreateAlltoallComm) override;
     HcclResult CheckNeedCreateVirtualLinks(AlgResourceRequest &resourceRequest) override;
     HcclResult ParallelTaskLoaderProcess(const std::string &tag, Stream &stream, SubCommInfo &outerCommInfo,
         std::vector<Stream> &ringStreams);
 
 private:
-
     HcclResult CalcStreamNum(u32& streamNum) override;
     void CalcWorkSpaceMemSize(const AlltoAllUserRankInfo &userRankInfo,
         const std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo, u64 &workspaceMemSize,

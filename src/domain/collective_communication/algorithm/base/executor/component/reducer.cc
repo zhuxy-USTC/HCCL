@@ -14,10 +14,22 @@ namespace hccl {
 Reducer::Reducer(const HcclDataType dataType, const HcclReduceOp reductionOp, const u64 reduceAttribute)
     : dataType_(dataType), reductionOp_(reductionOp), reduceAttribute_(reduceAttribute)
 {
+    setPreSyncFunc([](){ return HCCL_SUCCESS; });
+    setPostSyncFunc([](){ return HCCL_SUCCESS; });
 }
 
 Reducer::~Reducer()
 {
+}
+
+void Reducer::setPreSyncFunc(std::function<HcclResult()> lambda)
+{
+    PreSync_ = std::move(lambda);
+}
+
+void Reducer::setPostSyncFunc(std::function<HcclResult()> lambda)
+{
+    PostSync_ = std::move(lambda);
 }
 
 HcclResult Reducer::run(const HcclDispatcher dispatcher, const std::shared_ptr<Transport> &link,
@@ -143,7 +155,7 @@ HcclResult Reducer::run(const HcclDispatcher dispatcher, const std::shared_ptr<T
         if (link->GetSupportDataReceivedAck()) {
             CHK_RET(link->DataReceivedAck(stream));
         }
-
+        CHK_RET(PreSync_());
         if (resultMem == DstMemType::RESULT_OUTPUT_MEM) {
             for (ReducerMemoryInfo reduceMem : reducerMems) {
                 ret = HcclD2DMemcpyAsync(dispatcher, reduceMem.localdst, reduceMem.localsrc, stream);
@@ -153,12 +165,16 @@ HcclResult Reducer::run(const HcclDispatcher dispatcher, const std::shared_ptr<T
                     ret);
             }
         }
+        CHK_RET(PostSync_());
     } else if (isSpTransportWithReduce && (linkType == LinkType::LINK_STANDARD_ROCE)) {
+        CHK_RET(PreSync_());
         CHK_RET(link->RxWithReduce(rxWithReduceMems, dataType_, reductionOp_, stream, reduceAttribute_));
+        CHK_RET(PostSync_());
     } else if (isSpInlineReduce && (INLINE_REDUCE_BITMASK & reduceAttribute_)) {
         CHK_RET(link->RxDataSignal(stream));
         void *remoteMem = nullptr;
         CHK_RET(link->GetRemoteMem(UserMemType::INPUT_MEM, &remoteMem));
+        CHK_RET(PreSync_());
         for (ReducerMemoryInfo reduceMem : reducerMems) {
             const u64 dataBytes = reduceMem.remoteRcvTemp.size();
             CHK_RET(
@@ -174,17 +190,19 @@ HcclResult Reducer::run(const HcclDispatcher dispatcher, const std::shared_ptr<T
                     ret);
             }
         }
+        CHK_RET(PostSync_());
     } else {
         CHK_RET(link->RxAsync(rxMems, stream));
         if (link->GetSupportDataReceivedAck()) {
             CHK_RET(link->DataReceivedAck(stream));
         }
-
+        CHK_RET(PreSync_());
         for (RxWithReduceMemoryInfo rxReduceMem : rxWithReduceMems) {
             CHK_RET(HcclReduceAsync(dispatcher, rxReduceMem.reduceSrc, rxReduceMem.reduceDataCount, dataType_,
                 reductionOp_, stream, rxReduceMem.reduceDst, INVALID_VALUE_RANKID, LinkType::LINK_ONCHIP,
                 reduceAttribute_));
         }
+        CHK_RET(PostSync_());
     }
 
     return HCCL_SUCCESS;

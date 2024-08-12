@@ -12,6 +12,7 @@
 #define EXECUTOR_IMPL_H
 
 /* * 节点间的集合通信操作汇总 */
+#include "aligned_reduce_scatter_double_ring_with_serial_local_copy_pub.h"
 #include "all_reduce_reduce_broadcast_pub.h"
 #include "all_reduce_ring_pub.h"
 #include "inc_all_reduce_deter/all_reduce_local_reduce_bcast_pub.h"

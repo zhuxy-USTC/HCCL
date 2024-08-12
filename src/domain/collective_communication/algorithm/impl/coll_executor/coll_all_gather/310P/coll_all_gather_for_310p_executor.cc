@@ -30,7 +30,7 @@ HcclResult CollAllGatherFor310PExecutor::CalcCommInfo(std::vector<LevelNSubCommT
 HcclResult CollAllGatherFor310PExecutor::CalcTransportMemType(TransportMemType &inputType,
     TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -47,11 +47,8 @@ HcclResult CollAllGatherFor310PExecutor::CalcLevel0CommInfo(TransportMemType inp
     TransportMemType outputType,
     std::vector<LevelNSubCommTransport>& opTransport)
 {
-    HCCL_INFO("[CollAllGatherFor310PExecutor][CalcOuterCommInfo]tag[%s]start", tag_.c_str());
-    CommParaInfo commParaInfo(COMM_LEVEL0, CommType::COMM_TAG_MESH);
+    CommParaInfo commParaInfo(COMM_LEVEL0, CommType::COMM_TAG_RING_INNER);
     CHK_RET(CalcCommPlaneInfo(tag_, commParaInfo, opTransport[COMM_LEVEL0], inputType, outputType));
-    HCCL_INFO("[CollAllGatherFor310PExecutor][CalcOuterCommInfo]tag[%s] Calc RingComm finish",
-        tag_.c_str());
     return HCCL_SUCCESS;
 }
 

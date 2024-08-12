@@ -16,7 +16,7 @@ CollAllReduceRingExecutor::CollAllReduceRingExecutor(const HcclDispatcher dispat
                                                      std::unique_ptr<TopoMatcher> &topoMatcher)
     : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
         topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
         DMAReduceFlag_ = true;
     } else {
@@ -38,8 +38,10 @@ HcclResult CollAllReduceRingExecutor::CalcStreamNum(u32& streamNum)
             break;
         case AlgType::ALG_NP_SINGLE_RING_PLUS_RING:
         case AlgType::ALG_NP_SINGLE_RING_PLUS_HD:
+        case AlgType::ALG_NP_SINGLE_RING_PLUS_NHR:
+        case AlgType::ALG_NP_SINGLE_RING_PLUS_NB:
             if (topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
-                if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+                if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
                     totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
                 } else {
                     totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE;
@@ -67,7 +69,7 @@ HcclResult CollAllReduceRingExecutor::CalcCommInfo(std::vector<LevelNSubCommTran
 
 HcclResult CollAllReduceRingExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -92,6 +94,9 @@ HcclResult CollAllReduceRingExecutor::CalcLevel0CommInfo(TransportMemType inputT
 
 bool CollAllReduceRingExecutor::IsHugeData(const u64 curSize)
 {
+    if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT) {
+        return true;
+    }
     bool hugeData = curSize / topoAttr_.deviceNumPerAggregation / HCCL_INTERNODE_MAX_DATA_RATE > RDMA_SEND_MAX_SIZE ||
             curSize > SDMA_SEND_MAX_SIZE;
     return hugeData;

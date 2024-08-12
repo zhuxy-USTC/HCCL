@@ -18,7 +18,7 @@
 namespace hccl {
 CollScatterExecutor::CollScatterExecutor(const HcclDispatcher dispatcher,
                                 std::unique_ptr<TopoMatcher> &topoMatcher)
-    : CollNativeExecutorBase(dispatcher, topoMatcher)
+    : CollCommExecutor(dispatcher, topoMatcher)
 {
 }
 
@@ -34,7 +34,7 @@ HcclResult CollScatterExecutor::CalcCommInfo(std::vector<LevelNSubCommTransport>
 
 HcclResult CollScatterExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_INPUT;
     } else {
@@ -46,12 +46,16 @@ HcclResult CollScatterExecutor::CalcTransportMemType(TransportMemType &inputType
 
 bool CollScatterExecutor::IsHugeData(u64 curSize)
 {
-    bool hugeData = curSize / topoAttr_.deviceNumPerAggregation / HCCL_INTERNODE_MAX_DATA_RATE > RDMA_SEND_MAX_SIZE ||
+    if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT) {
+        return true;
+    }
+
+    bool hugeData = curSize * topoAttr_.userRankSize / HCCL_INTERNODE_MAX_DATA_RATE > RDMA_SEND_MAX_SIZE ||
         curSize > SDMA_SEND_MAX_SIZE;
     return hugeData;
 }
 
-HcclResult CollScatterExecutor::RunLoop(const OpParam &param, const AlgResourceResponse &algRes)
+HcclResult CollScatterExecutor::RunLoop(OpParam &param, AlgResourceResponse &algRes)
 {
     auto dataType = param.DataDes.dataType;
     u32 unitSize = SIZE_TABLE[dataType];
@@ -109,13 +113,12 @@ HcclResult CollScatterExecutor::RunLoop(const OpParam &param, const AlgResourceR
 
         inputOffset = curRecvSize;
         outputOffset = curRecvSize;
-        CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));
+        CHK_RET(LaunchTaskExtend(dispatcher_, param.stream, algResResp_->slaveStreams));
     }
     return HCCL_SUCCESS;
 }
 
-HcclResult CollScatterExecutor::RunLoopInner(
-    const OpParam &param, ExecMem &execMem, const AlgResourceResponse &algRes)
+HcclResult CollScatterExecutor::RunLoopInner(OpParam &param, ExecMem &execMem, AlgResourceResponse &algRes)
 {
     auto dataType = param.DataDes.dataType;
     u32 unitSize = SIZE_TABLE[dataType];
@@ -127,7 +130,7 @@ HcclResult CollScatterExecutor::RunLoopInner(
     u64 recvSize = execMem.outputMem.size();
 
     auto meta = HcclOpMetaInfo::GetOneForScatter(root, IsHugeData(execMem.outputMem.size()));
-    CHK_RET(InitTask(dispatcher_, const_cast<Stream&>(param.stream), meta.isEnableCache, meta.GetCacheKey()));
+    CHK_RET(InitTask(dispatcher_, param.stream, meta.isEnableCache, meta.GetCacheKey()));
 
     DeviceMem dstMem;
     DeviceMem srcMem;
@@ -137,7 +140,7 @@ HcclResult CollScatterExecutor::RunLoopInner(
             // 拷贝input上每个slice的数据到中转内存，源端每个slice的size固定为totalRecvSize
             srcMem = DeviceMem::create((u8*)execMem.inputPtr + totalRecvSize * i, recvSize);
             dstMem = algRes.cclInputMem.range(recvSize * i, recvSize);
-            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, const_cast<Stream&>(param.stream)));
+            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, param.stream));
         }
     }
 
@@ -160,7 +163,7 @@ HcclResult CollScatterExecutor::RunLoopInner(
     // 将 CCLOut 上的数据搬运到 userOut
     srcMem = algRes.cclOutputMem.range(0, recvSize);
     dstMem = DeviceMem::create(execMem.outputPtr, recvSize);
-    CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, const_cast<Stream&>(param.stream)));
+    CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, param.stream));
     return HCCL_SUCCESS;
 }
 
@@ -203,12 +206,12 @@ HcclResult CollScatterExecutor::KernelRunInner(DeviceMem& inputMem, u64 count, H
     u32 subCommSize = subCommInfo.localRankSize;
 
     if (subCommSize <= 1 || subRoot != topoAttr_.userRank) {
-        HCCL_INFO("[ScatterRing][KernelRunInner]: no need to run intra-server, subCommSize[%u], subRoot[%u], "
+        HCCL_INFO("[ScatterRing][KernelRunInner]: no need to run intra-server, subCommSize[%u], subRoot[%u]," \
             "userRank[%u]", subCommSize, subRoot, topoAttr_.userRank);
         return HCCL_SUCCESS;
     }
 
-    HCCL_INFO("[ScatterRing][KernelRunInner]: start to run intra-server, subCommSize[%u], subRoot[%u], "
+    HCCL_INFO("[ScatterRing][KernelRunInner]: start to run intra-server, subCommSize[%u], subRoot[%u]," \
         "userRank[%u]", subCommSize, subRoot, topoAttr_.userRank);
 
     u32 rootRankInner = 0;
@@ -244,16 +247,13 @@ HcclResult CollScatterExecutor::KernelRunInner(DeviceMem& inputMem, u64 count, H
     return HCCL_SUCCESS;
 }
 
-HcclResult CollScatterExecutor::Orchestrate(const OpParam& param,
-    const AlgResourceResponse& algRes)
+HcclResult CollScatterExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algRes)
 {
     HcclUs startut = TIME_NOW();
     tag_ = param.tag;
     algResResp_ = &algRes;
-    GetStreamInfo(algRes);
-    auto rtStream = param.stream.ptr();
-    HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, GetWorkflowMode());
-    HCCL_PROFILER_ADD_STREAM(rtStream, param.tag, 0, algType_);
+    HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, workflowMode_);
+    HCCL_PROFILER_ADD_STREAM(param.stream.id(), param.tag, 0, algType_);
     CHK_RET(AddSubStreamToProfiling());
 
     HcclResult ret = HCCL_SUCCESS;
@@ -262,10 +262,12 @@ HcclResult CollScatterExecutor::Orchestrate(const OpParam& param,
     execMem.count = param.DataDes.count;
     execMem.inputPtr = param.inputPtr;
     execMem.outputPtr = param.outputPtr;
-    if (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         execMem.inputMem = algRes.paramInputMem;
         execMem.outputMem = algRes.paramOutputMem;
         execMem.scratchMem = algRes.scratchMem;
+        ret = KernelRun(param, execMem);
+    } else if (topoAttr_.userRankSize == 1) {
         ret = KernelRun(param, execMem);
     } else {
         ret = RunLoop(param, algRes);
@@ -274,8 +276,8 @@ HcclResult CollScatterExecutor::Orchestrate(const OpParam& param,
         HCCL_ERROR("[CollScatterExecutor][Orchestrate]errNo[0x%016llx]all reudce excutor kernel run failed",
             HCCL_ERROR_CODE(ret)), ret);
 
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
-        HCCL_PROFILER_DEL_STREAM(rtStream);
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
+        HCCL_PROFILER_DEL_STREAM(param.stream.id());
         HCCL_PROFILER_DEL_TAG(param.tag);
     }
     HCCL_INFO("tag[%s] Scatter executor orchestrate success, take time [%lld]us.",

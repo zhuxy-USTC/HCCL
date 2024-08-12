@@ -11,19 +11,18 @@
 #ifndef COLL_SCATTER_EXECUTOR_H
 #define COLL_SCATTER_EXECUTOR_H
 
-#include "coll_native_executor_base.h"
+#include "coll_comm_executor.h"
 #include "coll_alg_exec_registry.h"
 
 namespace hccl {
 
-// 所有 Scatter Executor 的基类，继承自 NativeExecutor
-class CollScatterExecutor : public CollNativeExecutorBase {
+class CollScatterExecutor : public CollCommExecutor {
 public:
     explicit CollScatterExecutor(const HcclDispatcher dispatcher,
                                 std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollScatterExecutor() = default;
 
-    HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes) override;
+    HcclResult Orchestrate(OpParam& param, AlgResourceResponse& algRes) override;
 protected:
     /* *************** 资源计算 *************** */
     virtual HcclResult CalcCommInfo(std::vector<LevelNSubCommTransport>& opTransport);
@@ -34,8 +33,8 @@ protected:
     virtual HcclResult KernelRunInner(DeviceMem &inputMem, u64 count, HcclDataType dataType, u32 &commIndex,
         u32 root, u32 &subRoot, CommPlane commLevel, Stream &stream);
     // 用于需要Loop的Executor
-    virtual HcclResult RunLoop(const OpParam &param, const AlgResourceResponse &algRes);
-    virtual HcclResult RunLoopInner(const OpParam &param, ExecMem &execMem, const AlgResourceResponse &algRes);
+    virtual HcclResult RunLoop(OpParam &param, AlgResourceResponse &algRes);
+    virtual HcclResult RunLoopInner(OpParam &param, ExecMem &execMem, AlgResourceResponse &algRes);
 
     virtual bool IsHugeData(u64 curSize);
     /* *************** 通用工具 *************** */

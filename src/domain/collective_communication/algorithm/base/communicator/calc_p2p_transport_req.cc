@@ -28,7 +28,6 @@ HcclResult CalcP2PTransportReq::CalcTransportRequest(const std::string &tag, Tra
 {
     u32 planeSize = subCommPlaneVector_.size();
     commTransport.resize(planeSize);
-    // 看一下是否需要循环
 
     for (u32 planeIndex = 0; planeIndex < planeSize; planeIndex++) {
         u32 rankSize = subCommPlaneVector_[planeIndex].size();
@@ -38,6 +37,7 @@ HcclResult CalcP2PTransportReq::CalcTransportRequest(const std::string &tag, Tra
         // send,recv算子只有一张卡时报错
         if (rankSize == 1) {
             HCCL_ERROR("[CommFactory][CalcP2PCommInfo] sendrecv rankSize is 1");
+            return HCCL_E_NOT_SUPPORT;
         }
         TransportRequest &tmpTransport = subCommTransport.transportRequests[0];
 
@@ -46,8 +46,8 @@ HcclResult CalcP2PTransportReq::CalcTransportRequest(const std::string &tag, Tra
         tmpTransport.remoteUserRank = commParaInfo.peerUserRank;
         tmpTransport.inputMemType = inputMemType;
         tmpTransport.outputMemType = outputMemType;
-        HCCL_INFO("[CommFactory][CalcP2PCommInfo] param_.tag[%s] planeIndex[%u], localRank[%u], \
-            remoteRank[%u], inputMemType[%d], outputMemType[%d]", tag.c_str(), planeIndex, userRank_,
+        HCCL_INFO("[CommFactory][CalcP2PCommInfo] param_.tag[%s] planeIndex[%u], localRank[%u]," \
+            "remoteRank[%u], inputMemType[%d], outputMemType[%d]", tag.c_str(), planeIndex, userRank_,
             tmpTransport.remoteUserRank, inputMemType, outputMemType);
     }
     return HCCL_SUCCESS;

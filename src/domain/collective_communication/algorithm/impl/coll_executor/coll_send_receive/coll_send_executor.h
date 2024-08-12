@@ -20,7 +20,7 @@ public:
     CollSendExecutor(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollSendExecutor() = default;
 
-    HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes) override;
+    HcclResult Orchestrate(OpParam& param, AlgResourceResponse& algRes) override;
 
 private:
     /* *************** 资源计算 *************** */
@@ -31,7 +31,7 @@ private:
         std::vector<LevelNSubCommTransport>& opTransport, u32 dstRank);
 
     /* *************** 算法编排 *************** */
-    HcclResult RunLoop(const OpParam &param, const AlgResourceResponse &algRes);
+    HcclResult RunLoop(OpParam &param, AlgResourceResponse &algRes);
     HcclResult RunTemplate(const OpParam &param, DeviceMem &inputMem);
 };
 

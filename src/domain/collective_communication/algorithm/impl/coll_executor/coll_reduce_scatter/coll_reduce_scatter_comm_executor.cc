@@ -24,7 +24,7 @@ void CollReduceScatterCommExecutor::ParseParam(const OpParam& param)
     tag_ = param.tag;
 
     // 是否需要scratch memory
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
         (topoAttr_.deviceType == DevType::DEV_TYPE_910B || topoAttr_.deviceType == DevType::DEV_TYPE_910_73) &&
         IsSupportSDMAReduce(param.inputPtr, param.outputPtr, param.DataDes.dataType, param.reduceType) &&
         IsSupportRDMAReduce(param.DataDes.dataType, param.reduceType)) {
@@ -35,12 +35,13 @@ void CollReduceScatterCommExecutor::ParseParam(const OpParam& param)
 
     // 记录图模式总数据量
     totalSize_ = topoAttr_.userRankSize * param.DataDes.count * SIZE_TABLE[param.DataDes.dataType];
+    aicpuUnfoldMode_ = param.aicpuUnfoldMode;
 }
 
 HcclResult CollReduceScatterCommExecutor::CalcScratchMemSize(u64& scratchMemSize)
 {
     if (scratchMemFlag_) {
-        if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+        if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
             scratchMemSize = inCCLbufferSize_ + CCE_REDUCE_ALIGN_FACTOR * CCE_REDUCE_ALIGN_SIZE;
         } else {
             scratchMemSize = totalSize_ + CCE_REDUCE_ALIGN_FACTOR * CCE_REDUCE_ALIGN_SIZE;
@@ -66,7 +67,7 @@ HcclResult CollReduceScatterCommExecutor::CalcCommInfo(std::vector<LevelNSubComm
 HcclResult CollReduceScatterCommExecutor::CalcTransportMemType(TransportMemType &inputType,
     TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         if (scratchMemFlag_) {
             outputType = TransportMemType::SCRATCH;
@@ -114,6 +115,9 @@ u64 CollReduceScatterCommExecutor::CalcLoopMaxCount(const u32 unitSize)
 
 bool CollReduceScatterCommExecutor::IsHugeData(const u64 curSize)
 {
+    if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT) {
+        return true;
+    }
     bool hugeData = (curSize * topoAttr_.userRankSize / HCCL_INTERNODE_MAX_DATA_RATE > RDMA_SEND_MAX_SIZE) ||
                     (curSize > SDMA_SEND_MAX_SIZE);
     return hugeData;

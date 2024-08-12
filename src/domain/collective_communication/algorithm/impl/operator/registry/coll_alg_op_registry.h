@@ -11,7 +11,7 @@
 #ifndef COLL_ALG_OP_REGISTRY_H
 #define COLL_ALG_OP_REGISTRY_H
 
-#include <map>
+#include <unordered_map>
 #include <functional>
 #include <memory>
 
@@ -19,24 +19,34 @@
 
 namespace hccl {
 
-using CollAlgOpCreator = std::function<CollAlgOperator *(std::unique_ptr<hcclImpl> &, std::unique_ptr<TopoMatcher> &)>;
+struct EnumClassHash
+{
+    template<typename T>
+    std::size_t operator()(T t) const
+    {
+        return static_cast<std::size_t>(t);
+    }
+};
 
-template <typename P> static CollAlgOperator *DefaultOpCreator(std::unique_ptr<hcclImpl> &pImpl,
+using CollAlgOpCreator = std::function<CollAlgOperator *(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &, std::unique_ptr<TopoMatcher> &)>;
+
+template <typename P> static CollAlgOperator *DefaultOpCreator(AlgConfigurator* algConfigurator,
+                                                               std::unique_ptr<hcclImpl> &pImpl,
                                                                std::unique_ptr<TopoMatcher> &topoMatcher)
 {
     static_assert(std::is_base_of<CollAlgOperator, P>::value, "CollAlgOp type must derived from Hccl::CollAlgOperator");
-    return new (std::nothrow) P(pImpl, topoMatcher);
+    return new (std::nothrow) P(algConfigurator, pImpl, topoMatcher);
 }
 
 class CollAlgOpRegistry {
 public:
     static CollAlgOpRegistry *Instance();
     HcclResult Register(const HcclCMDType &opType, const CollAlgOpCreator &collAlgOpCreator);
-    std::unique_ptr<CollAlgOperator> GetAlgOp(const HcclCMDType &opType, std::unique_ptr<hcclImpl> &pImpl,
-                                              std::unique_ptr<TopoMatcher> &topoMatcher);
+    std::unique_ptr<CollAlgOperator> GetAlgOp(const HcclCMDType &opType, AlgConfigurator* algConfigurator,
+        std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
 
 private:
-    std::map<HcclCMDType, const CollAlgOpCreator> opCreators_;
+    std::unordered_map<HcclCMDType, const CollAlgOpCreator, EnumClassHash> opCreators_;
     mutable std::mutex mu_;
 };
 

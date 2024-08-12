@@ -51,7 +51,7 @@ HcclResult CalcTransportReqBase::GetRankByUserRank(const std::vector<u32> &vecPa
     rank = INVALID_VALUE_RANKID;
 
     for (u32 rankIndex = 0; rankIndex < vecPara.size(); rankIndex++) {
-        if (userRank_ == vecPara[rankIndex]) {
+        if (userRank == vecPara[rankIndex]) {
             rank = rankIndex;
             break;
         }

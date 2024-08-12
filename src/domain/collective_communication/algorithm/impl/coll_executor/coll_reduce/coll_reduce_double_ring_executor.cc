@@ -23,7 +23,7 @@ HcclResult CollReduceDoubleRingExecutor::CalcStreamNum(u32& streamNum)
 {
     u32 totalStreamNum = 0U;
     // DoubleRing只支持910_73场景
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) { // aicpu normal
         totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_DOUBLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
     } else {
         totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_DOUBLE;
@@ -47,7 +47,7 @@ HcclResult CollReduceDoubleRingExecutor::CalcCommInfo(std::vector<LevelNSubCommT
 
 HcclResult CollReduceDoubleRingExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) { // aicpu normal
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -119,6 +119,9 @@ HcclResult CollReduceDoubleRingExecutor::KernelRun(const OpParam &param, ExecMem
     u32 segmentIdx = 0;
     CHK_RET(PrepareInnerCommInfo(segmentIdx, commIndex, level1Size, outerCommInfo, multiRingsSliceZero, tag_));
     u64 level1Count = level1Size / perDataSize;
+    CHK_PRT_RET(segmentIdx >= dataSegsSlice.size(),
+        HCCL_ERROR("[CollReduceDoubleRingExecutor][KernelRun]dataSegsSliceis size is smaller than segmentIdx."),
+        HCCL_E_INTERNAL);
     if (topoAttr_.devNumInLevel2 <= 1) {
         CHK_RET(CheckCommSize(COMM_LEVEL1, commIndex + 1));
         SubCommInfo innerCommInfo = GetSubCommInfo(COMM_LEVEL1, commIndex);
@@ -248,7 +251,7 @@ HcclResult CollReduceDoubleRingExecutor::KernelRun(const OpParam &param, ExecMem
 
     if (outerTransportInfo.userRank2subCommRank.find(param.root) !=
         outerTransportInfo.userRank2subCommRank.end()) {
-        CHK_RET(MultiRingGather(tag_, execMem.outputMem, execMem.outputMem, level1Count, param.DataDes.dataType,
+        CHK_RET(MultiRingGather(tag_, execMem.inputMem, execMem.outputMem, level1Count, param.DataDes.dataType,
             multiRingsSliceZero, param.reduceType, param.root, const_cast<Stream &>(param.stream), PROF_STAGE_2));
     }
     HCCL_INFO("[CollReduceDoubleRingExecutor]reduce double ring stage2 run success");

@@ -64,7 +64,7 @@ HcclResult BroadcastStar::RunAsync(const u32 rank, const u32 rankSize,
         CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[BroadcastStar][RunAsync] dstrank [%u] recv broadcast from"\
             "root [%u] run failed!", rank, root_), ret);
     }
-    HCCL_INFO("BroadBastStar finished: rank[%u], end", rank);
+    HCCL_INFO("BroadBastStar finished: rank[%u]", rank);
     return HCCL_SUCCESS;
 }
 

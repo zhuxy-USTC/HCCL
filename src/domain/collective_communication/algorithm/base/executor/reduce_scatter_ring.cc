@@ -166,7 +166,7 @@ HcclResult ReduceScatterRing::RunAsync(const u32 rank, const u32 rankSize, const
         CHK_RET(ExecuteBarrier(linkLeft_, linkRight_));
     }
 
-    HCCL_INFO("ReduceScatterRing finished: rank[%u] end", rank);
+    HCCL_INFO("ReduceScatterRing finished: rank[%u]", rank);
     return HCCL_SUCCESS;
 }
 

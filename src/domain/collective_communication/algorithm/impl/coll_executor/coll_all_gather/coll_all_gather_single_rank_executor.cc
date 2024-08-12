@@ -32,9 +32,9 @@ HcclResult CollAllGatherSingleRankExecutor::KernelRun(const OpParam &param, Exec
         // ranksize = 1; intput、output地址不同，input->output
         DeviceMem srcMem(execMem.inputPtr, execMem.count * unitSize);
         DeviceMem dstMem(execMem.outputPtr, execMem.count * unitSize);
-        HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, const_cast<Stream&>(param.stream));
+        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, const_cast<Stream&>(param.stream)));
     }
-    CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));
+    CHK_RET(LaunchTaskExtend(dispatcher_, const_cast<Stream&>(param.stream), algResResp_->slaveStreams));
 
     return HCCL_SUCCESS;
 }

@@ -26,17 +26,26 @@ public:
                                     const HcclReduceOp reductionOp,
                                     const std::vector<std::vector<Slice>> &multRingsSliceZero, Stream stream,
                                     s32 profStage, const u64 baseOffset = 0);
+    HcclResult CollectMultiRingsUserMemInputSlices(u32 ringNum, const HcclDataType dataType,
+        const HcomCollOpInfo *opInfo, const std::vector<std::vector<Slice>> &multRingsSliceZero,
+        const std::vector<std::vector<u32>> &multiRingsOrder,
+        const std::vector<std::vector<Slice>> &multRingsUserMemSlice,
+        std::vector<std::vector<Slice>> &userMemInputSlicesOfMultiRings);
+    HcclResult CollectMultiRingsRankOrder(u32 ringNum,
+        const std::vector<std::vector<u32>> &multiRingsOrder,
+        std::vector<std::vector<u32>> &rankOrders);
     HcclResult MultiRingReduceScatter(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem, const u64 count,
         const HcclDataType dataType, const HcclReduceOp reductionOp,
         const std::vector<std::vector<Slice>> multRingsSliceZero, Stream stream,
         s32 profStage, const u64 baseOffset = 0, const HcomCollOpInfo *opInfo = nullptr,
         const std::vector<std::vector<Slice>> multRingsUserMemSlice = std::vector<std::vector<Slice>> (0));
 
-    HcclResult MultiRingReduceScatterConcurrent(const std::string &tag, DeviceMem inputMem,
-        DeviceMem outputMem, const u64 count, const HcclDataType dataType,
-        const HcclReduceOp reductionOp,
+    HcclResult MultiRingReduceScatterConcurrent(const std::string &tag, DeviceMem inputMem,DeviceMem outputMem, 
+        const u64 count, const HcclDataType dataType, const HcclReduceOp reductionOp,
         const std::vector<std::pair<bool, std::vector<Slice>>> multRingsSliceZero, Stream stream,
-        s32 profStage, const u64 baseOffset, const HcomCollOpInfo *opInfo = nullptr);
+        s32 profStage, const u64 baseOffset = 0, const HcomCollOpInfo *opInfo = nullptr,
+        const std::vector<std::pair<bool, std::vector<Slice>>> multRingsUserMemSlice =
+        std::vector<std::pair<bool, std::vector<Slice>>> (0));
 
     HcclResult MultiRingAllGather(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem, const u64 count,
         const HcclDataType dataType,
@@ -47,7 +56,9 @@ public:
     HcclResult MultiRingAllGatherConcurrent(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem,
         const u64 count, const HcclDataType dataType,
         const std::vector<std::pair<bool, std::vector<Slice>>> multRingsSliceZero, Stream stream,
-        s32 profStage, const u64 baseOffset = 0, const HcomCollOpInfo *opInfo = nullptr);
+        s32 profStage, const u64 baseOffset = 0, const HcomCollOpInfo *opInfo = nullptr,
+        const std::vector<std::pair<bool, std::vector<Slice>>> multRingsUserMemSlice =
+        std::vector<std::pair<bool, std::vector<Slice>>> (0));
 
     HcclResult MultiRingMultiRootScatter(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
         const u64 count, const HcclDataType dataType, const std::vector<std::vector<Slice>> &multRingsSliceZero,
@@ -76,7 +87,7 @@ public:
 
     HcclResult MultiRingScatter(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem, const u64 count,
                                 const HcclDataType dataType, const std::vector<std::vector<Slice> > multRingsSliceZero,
-                                u32 root, Stream stream, const HcomCollOpInfo *opInfo);
+                                u32 root, Stream stream, const HcomCollOpInfo *opInfo, const u64 baseOffset = 0);
     std::vector<std::vector<u32>> GetRingsOrderByTopoType(u32 ranksSize, TopoType topoType, std::vector<u32> &nicList);
     HcclResult MutliSegSlicePrepare(const std::vector<Slice> &dataSegsSlice,
         std::vector<std::vector<Slice> >& mutliSegsSlices, u32 ringCount);
@@ -100,7 +111,7 @@ public:
                                           const std::vector<std::vector<Slice> > &multRingsSliceZero,
                                           const std::string &tag);
 protected:
-    HcclResult GetSubStreamInfoOnOneRing(const innerStreamInfo_t &streamInfo, const u32 ringIndex,
+    HcclResult GetSubStreamInfoOnOneRing(const u32 ringIndex,
                                          std::vector<Stream>                       &subStreamsInOneRing,
                                          std::vector<std::shared_ptr<LocalNotify>> &mainSignalsInOneRing,
                                          std::vector<std::shared_ptr<LocalNotify>> &subSignalsInOneRing);

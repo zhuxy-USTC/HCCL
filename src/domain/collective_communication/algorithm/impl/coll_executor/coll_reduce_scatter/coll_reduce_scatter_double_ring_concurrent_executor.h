@@ -36,7 +36,7 @@ private:
     /* *************** 算法编排 *************** */
     u64 CalcLoopMaxCount(const u32 unitSize) override;
     bool IsHugeData(const u64 curSize) override;
-    u32 CalcDataSplit(const u64 curSize) override;
+    u32 IsDataSplit(const u64 curSize) override;
     HcclResult KernelRun(const OpParam &param, ExecMem &execMem) override;
 };
 

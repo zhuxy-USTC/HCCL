@@ -14,10 +14,10 @@ AllGatherRingConcurrentDirect::AllGatherRingConcurrentDirect(
     const HcclDispatcher dispatcher, const HcomCollOpInfo *opInfo, const u32 userRank,
     std::vector<Stream> &subStreams, const std::vector<std::shared_ptr<LocalNotify>> &mainSignals,
     const std::vector<std::shared_ptr<LocalNotify>> &subSignals, const std::vector<u32> &ringsOrder,
-    const std::vector<Slice> &userMemOutputSlices)
+    const std::vector<Slice> &userMemOutputSlices, bool isSdma)
     : ExecutorBase(dispatcher), opInfo_(opInfo), userRank_(userRank), subStreams_(subStreams),
       mainSignals_(mainSignals), subSignals_(subSignals), ringsOrder_(ringsOrder),
-      userMemOutputSlices_(userMemOutputSlices)
+      userMemOutputSlices_(userMemOutputSlices), isSdma_(isSdma)
 {
 }
 
@@ -193,6 +193,8 @@ HcclResult AllGatherRingConcurrentDirect::RunAllGather(const u32 rank, const u32
     u32 sliceSize = slices_.size() / rankSize;
     u32 rxSliceIdx = (rank + rankSize - 1) % rankSize;
 
+    std::vector<DeviceMem> finalSrc;
+    std::vector<DeviceMem> finalDst;
     for (u32 step = 0; step < rankSize - 1; step++) {
         std::vector<Slice> rxSliceVector;
         std::vector<Slice> mainSliceVector;
@@ -226,10 +228,10 @@ HcclResult AllGatherRingConcurrentDirect::RunAllGather(const u32 rank, const u32
             txMems.emplace_back(TxMemoryInfo{UserMemType::OUTPUT_MEM, txSliceVector[sliceIdx].offset + baseOffset_,
                 src.ptr(), txSliceVector[sliceIdx].size});
             DeviceMem dst;
-            if (step == rankSize - DMA_REDUCE_TWO_OFFSET) {
+            if (isSdma_ && step == rankSize - DMA_REDUCE_TWO_OFFSET) {
                 HCCL_DEBUG(
-                "MemcpyAsync operation: step[%u] stream[main], dst rank[%u] starts to rcv offset[%llu] size[%llu] "
-                "at userMemOutput_",
+                "DMAReduce(sdma) MemcpyAsync operation: step[%u] stream[main], dst rank[%u] starts to rcv "
+                "offset[%llu] size[%llu] at userMemOutput_",
                 step, userRank_, mainSliceVector[sliceIdx].offset, mainSliceVector[sliceIdx].size);
                 dst = DeviceMem::create(static_cast<u8 *>(opInfo_->outputAddr) + mainSliceVector[sliceIdx].offset,
                     mainSliceVector[sliceIdx].size);
@@ -239,6 +241,12 @@ HcclResult AllGatherRingConcurrentDirect::RunAllGather(const u32 rank, const u32
                     "at outputMem_",
                     step, userRank_, rxSliceVector[sliceIdx].offset, rxSliceVector[sliceIdx].size);
                 dst = outputMem_.range(rxSliceVector[sliceIdx].offset, rxSliceVector[sliceIdx].size);
+                if (!isSdma_ && step == rankSize - DMA_REDUCE_TWO_OFFSET) {
+                    HCCL_DEBUG("DMAReduce(rdma) record final addr");
+                    finalSrc.push_back(outputMem_.range(rxSliceVector[sliceIdx].offset, rxSliceVector[sliceIdx].size));
+                    finalDst.push_back(DeviceMem::create(static_cast<u8 *>(opInfo_->outputAddr) + 
+                    mainSliceVector[sliceIdx].offset, mainSliceVector[sliceIdx].size));
+                }
             }
             rxMems.emplace_back(RxMemoryInfo{UserMemType::OUTPUT_MEM, rxSliceVector[sliceIdx].offset + baseOffset_,
                 dst.ptr(), rxSliceVector[sliceIdx].size});
@@ -264,6 +272,11 @@ HcclResult AllGatherRingConcurrentDirect::RunAllGather(const u32 rank, const u32
         // 更新索引
         txSliceIdx = (txSliceIdx + rankSize - 1) % rankSize;
         rxSliceIdx = (rxSliceIdx + rankSize - 1) % rankSize;
+    }
+    if (!isSdma_) {
+        for (u32 vecIdx = 0; vecIdx < finalSrc.size(); vecIdx++) {
+            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, finalDst[vecIdx], finalSrc[vecIdx], stream_));
+        }
     }
     HCCL_INFO("AllGatherRingConcurrentDirect finished to RunAllGather");
     return HCCL_SUCCESS;

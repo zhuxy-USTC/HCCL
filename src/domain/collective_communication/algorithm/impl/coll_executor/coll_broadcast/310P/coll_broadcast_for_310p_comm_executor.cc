@@ -16,7 +16,6 @@ CollBroadcastFor310PCommExecutor::CollBroadcastFor310PCommExecutor(const HcclDis
     std::unique_ptr<TopoMatcher> &topoMatcher)
     : CollBroadcastExecutor(dispatcher, topoMatcher)
 {
-    DMAReduceFlag_ = false;
 }
 
 HcclResult CollBroadcastFor310PCommExecutor::CalcCommInfo(std::vector<LevelNSubCommTransport>& opTransport)

@@ -58,6 +58,7 @@ private:
     HcclResult GenerateLocalRankInfo(u32 rankSize, u32 rankID);
     void GenerateAgentID(HcclBasicRankInfo &localRankInfo, std::string &agentID);
     HcclResult ConstructRankTableMsg(RankTable_t &clusterInfo);
+    void ConstructRankTableServerId(std::string &serverId);
     HcclResult SetTransportInfo(RankTable_t &clusterInfo);
     HcclResult VerifyClusterInfo(const RankTable_t &clusterInfo);
     HcclResult VerifyClusterDeviceIP(const RankTable_t &clusterInfo);

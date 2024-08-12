@@ -12,7 +12,6 @@
 #define COLL_ALLTOALL_COMM_EXECUTOR_H
 #include "coll_comm_executor.h"
 namespace hccl {
-constexpr u64 MAX_ALLTOALL_MESH_ALGO_RANK_INTRA_MESH = 16;
 constexpr u64 TINY_MEM_SIZE = 2 * 1024 * 1024; // tinyMem size
 constexpr u32 MINORS_NUM_TWO = 2;
 
@@ -21,10 +20,23 @@ public:
     CollAlltoAllExecutor(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollAlltoAllExecutor() = default;
 
-    HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes) override;
-    HcclResult SetExcutorExtraInfo(const std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo) override;
+    HcclResult Orchestrate(OpParam& param, AlgResourceResponse& algRes) override;
+    virtual HcclResult SetExcutorExtraInfo(const std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo);
     HcclResult CalcResRequest(const OpParam& param, AlgResourceRequest &resourceRequest) override;
     virtual HcclResult CheckNeedCreateVirtualLinks(AlgResourceRequest &resourceRequest);
+
+    HcclResult SetVirtualDispatcher(const HcclDispatcher virtualDispatcher);
+
+    HcclResult SetParallelTaskLoader(ParallelTaskLoader *parallelTaskLoader);
+
+    virtual HcclResult CheckNeedRecreateComm(u64 lastScratchMemSize, bool& needRecreateAlltoallComm);
+    static HcclResult RunAlltoAllTemplate(const std::unique_ptr<AlltoAllVPairWise> &executor,
+        const SubCommInfo &commInfo);
+    static HcclResult RunAlltoAllVTemplateStaged(const std::unique_ptr<AlltoAllVStagedBase> &executor,
+        const SubCommInfo &commInfo);
+    static HcclResult RunTemplateWithVirtualLink(const std::unique_ptr<AlltoAllVStagedBase> &executor,
+        const SubCommInfo &commInfo);
+
 protected:
     /* *************** 算法编排 *************** */
     // 公共接口
@@ -46,15 +58,15 @@ protected:
         const std::vector<SendRecvInfo> &myMeshAggregationSendRecvInfo, u64 &localOffset, u32 &offsetCounter,
         u64 &localLength, u64 &remoteOffset, u32 meshAggregationRankSize);
     u64 CalAlltoAllVScratchMemSize(u64 &workSpaceMemSize);
-    bool NAFullmeshSatisfyHighPerfAlltoallMeshCondition(DevType deviceType, u32 rankSize);
-    bool FullmeshPairwiseSatisfyHighPerfAlltoallMeshCondition(DevType deviceType, u32 rankSize);
     bool HasMassTasks(std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo);
 
     OpParam AlltoAllVParam_;
     AlgResourceResponse algRes_;
-    bool DMAReduceFlag_{false}; // 是否DMA消减
     std::vector<SendRecvInfo> allMeshAggregationSendRecvInfo_;
     bool isAlltoAllZCopyMode_ = false;
+
+    HcclDispatcher vDispatcher_;
+    ParallelTaskLoader* parallelTaskLoader_; // 并行下发taskloader管理
 };
 
 } // namespace hccl

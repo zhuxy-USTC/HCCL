@@ -42,14 +42,6 @@ HcclResult CollScatterCommExecutor::CalcCombinedCommInfo(TransportMemType inputT
     return HCCL_SUCCESS;
 }
 
-HcclResult CollScatterCommExecutor::CalcStreamNum(u32& streamNum)
-{
-    // 只传递从流数量
-    streamNum = 0;
-    HCCL_INFO("[CollScatterCommExecutor][CalcStreamNum]tag[%s] streamNum_ is [%u]", tag_.c_str(), streamNum);
-    return HCCL_SUCCESS;
-}
-
 HcclResult CollScatterCommExecutor::KernelRun(const OpParam &param, ExecMem &execMem)
 {
     DeviceMem& inputMem = execMem.inputMem;
@@ -69,6 +61,7 @@ HcclResult CollScatterCommExecutor::KernelRun(const OpParam &param, ExecMem &exe
 
     // 将scratchMem赋值给outputMem
     u8 *inputMemPtr = static_cast<u8 *>(inputMem.ptr());
+    CHK_PTR_NULL(inputMemPtr);
     DeviceMem resultMem(inputMemPtr + outputMem.size() * combinedCommInfo.localRank, outputMem.size());
     CHK_RET(HcclD2DMemcpyAsync(dispatcher_, outputMem, resultMem, stream));
     return HCCL_SUCCESS;
