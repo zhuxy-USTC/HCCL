@@ -33,7 +33,7 @@ HcclResult CollAllGatherRingExecutor::CalcStreamNum(u32& streamNum)
         case AlgType::ALG_NP_SINGLE_RING_PLUS_RING:
         case AlgType::ALG_NP_SINGLE_RING_PLUS_HD:
             if (topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
-                if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+                if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
                     totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
                 } else {
                     totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE;
@@ -61,7 +61,7 @@ HcclResult CollAllGatherRingExecutor::CalcCommInfo(std::vector<LevelNSubCommTran
 
 HcclResult CollAllGatherRingExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {

@@ -104,7 +104,7 @@ using HcclTopoAttr = struct HcclTopoAttrDef {
 
     u32 devicePhyId;
     s32 deviceLogicId;
-    bool useSdidForDeviceId;    // 使用SDID作为DeviceId做相关查询操作
+    bool useSuperPodMode;    // 使用SDID作为DeviceId做相关查询操作
 
     DevType deviceType;
     bool isStandardCard;
@@ -132,7 +132,7 @@ using HcclTopoAttr = struct HcclTopoAttrDef {
         rankInfoList(0),
         devicePhyId(0),
         deviceLogicId(0),
-        useSdidForDeviceId(false),
+        useSuperPodMode(false),
         deviceType(DevType::DEV_TYPE_COUNT),
         isStandardCard(false),
         is310PDuoCard(false),

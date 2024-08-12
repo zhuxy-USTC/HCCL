@@ -7,7 +7,6 @@
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
-
 #include "coll_reduce_scatter_ring_for_910_73_executor.h"
 
 namespace hccl {
@@ -16,15 +15,16 @@ CollReduceScatterRingFor91073Executor::CollReduceScatterRingFor91073Executor(con
     std::unique_ptr<TopoMatcher> &topoMatcher)
     : CollReduceScatterExecutor(dispatcher, topoMatcher)
 {
-    DMAReduceFlag_ = (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
+    DMAReduceFlag_ = (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
 }
 
 void CollReduceScatterRingFor91073Executor::ParseParam(const OpParam& param)
 {
     tag_ = param.tag;
+    aicpuUnfoldMode_ = param.aicpuUnfoldMode;
 
     // 是否需要scratch memory
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
+    if ((workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) && // aicpu normal
         IsSupportSDMAReduce(param.inputPtr, param.outputPtr, param.DataDes.dataType, param.reduceType) &&
         IsSupportRDMAReduce(param.DataDes.dataType, param.reduceType)) {
         scratchMemFlag_ = false;
@@ -34,12 +34,13 @@ void CollReduceScatterRingFor91073Executor::ParseParam(const OpParam& param)
 
     // 记录图模式总数据量
     totalSize_ = topoAttr_.userRankSize * param.DataDes.count * SIZE_TABLE[param.DataDes.dataType];
+    aicpuUnfoldMode_ = param.aicpuUnfoldMode;
 }
 
 HcclResult CollReduceScatterRingFor91073Executor::CalcScratchMemSize(u64& scratchMemSize)
 {
     if (scratchMemFlag_) {
-        if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+        if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) { // aicpu normal
             scratchMemSize = inCCLbufferSize_ + CCE_REDUCE_ALIGN_FACTOR * CCE_REDUCE_ALIGN_SIZE;
         } else {
             scratchMemSize = totalSize_ + CCE_REDUCE_ALIGN_FACTOR * CCE_REDUCE_ALIGN_SIZE;
@@ -56,7 +57,7 @@ HcclResult CollReduceScatterRingFor91073Executor::CalcStreamNum(u32& streamNum)
 {
     u32 totalStreamNum = (topoType_ == TopoType::TOPO_TYPE_NP_DOUBLE_RING ? OUTER_PLANE_NUM_IN_NPRING_DOUBLE :
         OUTER_PLANE_NUM_IN_NPRING_SINGLE);
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) { // aicpu normal
         totalStreamNum *= STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
     }
     streamNum = totalStreamNum - 1;
@@ -79,7 +80,7 @@ HcclResult CollReduceScatterRingFor91073Executor::CalcCommInfo(std::vector<Level
 HcclResult CollReduceScatterRingFor91073Executor::CalcTransportMemType(TransportMemType &inputType,
     TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) { // aicpu normal
         inputType = TransportMemType::CCL_INPUT;
         if (scratchMemFlag_) {
             outputType = TransportMemType::SCRATCH;
@@ -131,6 +132,14 @@ u64 CollReduceScatterRingFor91073Executor::CalcLoopMaxCount(const u32 unitSize)
 
 bool CollReduceScatterRingFor91073Executor::IsHugeData(const u64 curSize)
 {
+    // 这里如果CheckCommSize返回ERROR，相当于HugeData true，防止GetSubCommInfo越界
+    CHK_RET(CheckCommSize(COMM_LEVEL2, COMM_INDEX_0 + 1));
+    SubCommInfo level2CommInfo = GetSubCommInfo(COMM_LEVEL2, COMM_INDEX_0);
+    u32 level2RankSize = level2CommInfo.localRankSize;
+    if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT && level2RankSize > 1) {
+        return true;
+    }
+
     bool hugeData;
     if (DMAReduceFlag_) {
         hugeData = curSize > SDMA_SEND_MAX_SIZE;
@@ -140,6 +149,17 @@ bool CollReduceScatterRingFor91073Executor::IsHugeData(const u64 curSize)
     }
 
     return hugeData;
+}
+
+HcclResult CollReduceScatterRingFor91073Executor::RunIntraSeverReduceScatter(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem,
+    const u64 count, const HcclDataType dataType, const HcclReduceOp reductionOp,
+    const std::vector<std::vector<Slice> > multRingsSliceZero, Stream stream, s32 profStage,
+    const u64 baseOffset, const HcomCollOpInfo *opInfo,
+    const std::vector<std::vector<Slice>> multRingsUserMemSlice)
+{
+    CHK_RET(MultiRingReduceScatter(tag, inputMem, outputMem, count, dataType, reductionOp,
+        multRingsSliceZero, stream, profStage, baseOffset, opInfo, multRingsUserMemSlice));
+    return HCCL_SUCCESS;
 }
 
 HcclResult CollReduceScatterRingFor91073Executor::KernelRun(const OpParam &param, ExecMem &execMem)
@@ -337,11 +357,11 @@ HcclResult CollReduceScatterRingFor91073Executor::KernelRun(const OpParam &param
     if (opInfoPtr != nullptr && innerRankSize > 1) {
         HcomCollOpInfo opInfoByReduceScatterDMAreduce = *opInfoPtr;
         opInfoByReduceScatterDMAreduce.outputAddr      = nullptr;
-        CHK_RET(MultiRingReduceScatter(param.tag, execMem.inputMem, execMem.scratchMem, execMem.count,
+        CHK_RET(RunIntraSeverReduceScatter(param.tag, execMem.inputMem, execMem.scratchMem, execMem.count,
             param.DataDes.dataType, param.reduceType, level0DataSegsSlice,
             param.stream, PROF_STAGE_1, 0, &opInfoByReduceScatterDMAreduce, multRingsUserMemSlice));
     } else {
-        CHK_RET(MultiRingReduceScatter(param.tag, execMem.inputMem, execMem.scratchMem, execMem.count,
+        CHK_RET(RunIntraSeverReduceScatter(param.tag, execMem.inputMem, execMem.scratchMem, execMem.count,
             param.DataDes.dataType, param.reduceType,
             level0DataSegsSlice, param.stream, PROF_STAGE_1, 0, opInfoPtr, multRingsUserMemSlice));
     }

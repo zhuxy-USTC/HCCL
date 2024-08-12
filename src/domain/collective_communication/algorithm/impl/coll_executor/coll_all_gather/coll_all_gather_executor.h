@@ -18,13 +18,13 @@ public:
     explicit CollAllGatherExecutor(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollAllGatherExecutor() = default;
 
-    HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes) override;
+    HcclResult Orchestrate(OpParam& param, AlgResourceResponse& algRes) override;
 protected:
     // AllGather Loop Executor公共接口
     virtual u64 CalcLoopMaxCount(const u64 cclBuffSize, const u32 unitSize);
     virtual bool IsHugeData(const u64 curSize);
     virtual u32 IsDataSplit(const u64 curSize);
-    HcclResult RunLoop(const OpParam &param, const AlgResourceResponse &algRes);
+    HcclResult RunLoop(OpParam &param, AlgResourceResponse &algRes);
 
     // 工具类
     HcclResult PrepareAllgatherSlice(u32 sliceNum, u64 inputMemSize, std::vector<Slice> &dataSegsSlice) const;
@@ -39,8 +39,6 @@ protected:
         u64 count, HcclDataType dataType, Stream &stream, const HcomCollOpInfo *opInfo = nullptr);
 
     bool DMAReduceFlag_{false}; // 是否DMA消减的标志
-private:
-    HcclResult RunLoopInner(const OpParam &param, ExecMem &execMem);
 };
 
 } // namespace hccl

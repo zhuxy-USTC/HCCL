@@ -55,53 +55,44 @@ HcclResult TopoMatcher::CalcCommPlaneInfo(const std::string &tag, const CommPara
         case CommType::COMM_TAG_RING_COMBINED: {
             calcTransportReq.reset(new (std::nothrow) CalcRingTransportReq(CommPlaneVector_[commParaInfo.commPlane],
                 isBridgeVector_, userRank_));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport);
             break;
         }
         case CommType::COMM_TAG_HALVING_DOUBLING: {
             calcTransportReq.reset(new (std::nothrow) CalcHDTransportReq(CommPlaneVector_[commParaInfo.commPlane],
                 isBridgeVector_, userRank_));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport,
-                subUserRankRoot);
             break;
         }
         case CommType::COMM_TAG_NONUNIFORM_HIERARCHICAL_RING:
         case CommType::COMM_TAG_WHOLE_NHR:{
             calcTransportReq.reset(new (std::nothrow) CalcNHRTransportReq(CommPlaneVector_[commParaInfo.commPlane],
                 isBridgeVector_, userRank_));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport);
             break;
         }
         case CommType::COMM_TAG_NONUNIFORM_HIERARCHICAL_RING_V1:
         case CommType::COMM_TAG_WHOLE_NHR_V1: {
             calcTransportReq.reset(new (std::nothrow) CalcNHRV1TransportReq(CommPlaneVector_[commParaInfo.commPlane],
                 isBridgeVector_, userRank_));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport);
             break;
         }
         case CommType::COMM_TAG_NONUNIFORM_BRUCK:
         case CommType::COMM_TAG_WHOLE_NB: {
             calcTransportReq.reset(new (std::nothrow) CalcNBTransportReq(CommPlaneVector_[commParaInfo.commPlane],
                 isBridgeVector_, userRank_));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport);
             break;
         }
         case CommType::COMM_TAG_MESH: {
             calcTransportReq.reset(new (std::nothrow) CalcMeshTransportReq(CommPlaneVector_[commParaInfo.commPlane],
                 isBridgeVector_, userRank_));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport);
             break;
         }
         case CommType::COMM_TAG_PARTIAL_MESH_COMBINED: {
             calcTransportReq.reset(new (std::nothrow) CalcPartialMeshTransportReq
                 (CommPlaneVector_[commParaInfo.commPlane], isBridgeVector_, userRank_));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport);
             break;
         }
         case CommType::COMM_TAG_P2P: {
             calcTransportReq.reset(new (std::nothrow) CalcP2PTransportReq(CommPlaneVector_[commParaInfo.commPlane],
                 isBridgeVector_, userRank_));
-            ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport);
             break;
         }
         default: {
@@ -109,6 +100,10 @@ HcclResult TopoMatcher::CalcCommPlaneInfo(const std::string &tag, const CommPara
             return HCCL_E_PARA;
         }
     }
+
+    CHK_SMART_PTR_NULL(calcTransportReq);
+    ret = calcTransportReq->CalcTransportRequest(tag, inputMemType, outputMemType, commParaInfo, commTransport,
+                                                 subUserRankRoot);
 
     CHK_RET(SetIsUsedRdma(commParaInfo, commTransport));
     CHK_RET(GetRankMap(commParaInfo, commTransport));
@@ -316,14 +311,15 @@ const u32 TopoMatcher::GetSubCollectiveRank(const std::vector<u32> &vecPara) con
     return tmpRank;
 }
 
-u32 TopoMatcher::GetSubRootForScatter(const u32 root)
+HcclResult TopoMatcher::GetSubRootForScatter(const u32 root, u32& subRoot)
 {
     // 通过root找到ringIndex, 通过userRank找到Inner中的rank
-    u32 subRoot = INVALID_VALUE_RANKID;
     u32 planeIdx = INVALID_VALUE_RANKID;
     u32 ringSize = CommPlaneVector_[COMM_LEVEL1_INDEX].size();
 
     CHK_PRT_RET(ringSize == 0, HCCL_ERROR("[GET][GetSubRootForScatter]bridgeRankVector size is zero."), HCCL_E_PARA);
+    CHK_PRT_RET(isBridgeVector_.size() != ringSize,
+        HCCL_ERROR("[GET][GetSubRootForScatter]bridgeRankVector is not equal ringSize."), HCCL_E_PARA);
 
     u32 rank = INVALID_VALUE_RANKID;
     for (u32 ringIndex = 0; ringIndex < ringSize; ringIndex++) {
@@ -342,7 +338,7 @@ u32 TopoMatcher::GetSubRootForScatter(const u32 root)
         HCCL_ERROR("[GET][GetSubRootForScatter]get root[%u] planeIdx[%u] failed.", root, planeIdx), HCCL_E_PARA);
     subRoot = CommPlaneVector_[COMM_LEVEL1_INDEX][planeIdx][rank];
     HCCL_DEBUG("[GetSubRootForScatter] userRank_:[%u] subRoot:[%u]", userRank_, subRoot);
-    return subRoot;
+    return HCCL_SUCCESS;
 }
 
 u32 TopoMatcher::GetSubRootUserRank(const u32 userRank, const u32 rootUserRank)

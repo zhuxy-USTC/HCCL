@@ -11,45 +11,18 @@
 #ifndef SCATTER_OPERATOR_H
 #define SCATTER_OPERATOR_H
 
-#include "common_operator.h"
+#include "coll_alg_operator.h"
 #include "coll_alg_op_registry.h"
 
 namespace hccl {
-class ScatterOperator : public CommonOperator {
+constexpr u32 FACTOR_TWO = 2;
+class ScatterOperator : public CollAlgOperator {
 public:
-    ScatterOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
+    ScatterOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~ScatterOperator();
-    HcclResult Scatter(const std::string &tag, void *inputPtr, void *outputPtr, u64 recvCount, HcclDataType dataType,
-        u32 root, Stream stream);
-    HcclResult ScatterOutPlace(const std::string &tag, void *inputPtr, void *outputPtr, u64 recvCount,
-        HcclDataType dataType, u32 root, Stream stream,
-        const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo = nullptr);
     HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName,
         std::string& newTag);
 private:
-    HcclResult RunScatter(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-        u64 count, HcclDataType dataType, u32 root, Stream &stream);
-    
-    HcclResult ScatterComm(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-        u64 count, HcclDataType dataType, u32 root, Stream &stream);
-
-    HcclResult SetScatterRingPrepareMem(DeviceMem& inputMem, u64 count,
-        HcclDataType dataType, u32 &perDataSize, u32 &innerRankSize, u32 &commIndex, u32 root, u32 &subRoot,
-        CommInfo* &currComm, Stream& stream);
-
-    HcclResult ScatterRingExecutor(const std::string &tag, DeviceMem& inputMem, DeviceMem& outputMem,
-        u64 count, HcclDataType dataType, u32 root, Stream& stream);
-
-    HcclResult SetScatterMeshPrepareMem(DeviceMem& inputMem, u64 count,
-        HcclDataType dataType, u32 &commIndex, u32 root, u32 &subRoot, u32 &innerRankSize,
-        CommInfo* &currComm, Stream& stream);
-
-    HcclResult ScatterMeshExecutor(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-        u64 count, HcclDataType dataType, u32 root, Stream &stream);
-
-    HcclResult ScatterOutPlaceForOneRankSize(const std::string &tag, void *inputPtr, void *outputPtr, u64 recvCount,
-        HcclDataType dataType, u32 root, Stream stream,
-        const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo = nullptr);
 };
 }
 

@@ -11,12 +11,12 @@
 #ifndef BROADCAST_OPERATOR_H
 #define BROADCAST_OPERATOR_H
 
-#include "common_operator.h"
+#include "coll_alg_operator.h"
 
 namespace hccl {
-class BroadCastOperator : public CommonOperator {
+class BroadCastOperator : public CollAlgOperator {
 public:
-    BroadCastOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
+    BroadCastOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~BroadCastOperator();
     HcclResult Broadcast(const std::string &tag, void *ptr, u64 count, HcclDataType dataType, u32 root,
         Stream stream, HcomCollOpInfo *opInfo = nullptr);
@@ -28,35 +28,9 @@ private:
     // broadcast
     HcclResult RunBroadCast(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem, u64 count,
         HcclDataType dataType, HcclReduceOp op, u32 root, Stream &stream, HcomCollOpInfo *opInfo = nullptr);
-    HcclResult BroadCastMeshExecutor(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem, u64 count,
-                                     HcclDataType dataType, HcclReduceOp op, u32 root, Stream &stream);
-
-    HcclResult BroadCastComm(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem, u64 count,
-                                HcclDataType dataType, HcclReduceOp op, u32 root, Stream &stream);
-
-    HcclResult BroadCast4pRingExecutor(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem, u64 count,
-        HcclDataType dataType, HcclReduceOp op, u32 root, Stream &stream);
-
-    HcclResult BroadCastDoubleRingExecutor(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem, u64 count,
-        HcclDataType dataType, HcclReduceOp op, u32 root, Stream &stream, const HcomCollOpInfo *opInfo = nullptr);
-
-    HcclResult BroadCastRingExecutor(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem, u64 count,
-        HcclDataType dataType, HcclReduceOp op, u32 root, Stream &stream, const HcomCollOpInfo *opInfo = nullptr);
-
-    HcclResult BroadcastPlusBroadcast(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem, u64 count,
-        HcclDataType dataType, HcclReduceOp op, u32 root, Stream &stream);
 
     HcclResult BroadcastStarExecutor(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem, u64 count,
         HcclDataType dataType, HcclReduceOp op, u32 root, Stream &stream);
-    HcclResult BroadCastCommFor310P(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-        u64 count, HcclDataType dataType, u32 root, Stream &stream);
-
-    HcclResult IsUserRankInSameServer(u32 userRankA, u32 userRankB, bool& inSameServer);
-
-    HcclResult GetUserRankByDevIDInServerOfUserRankIn(u32 userRankIn, s32 devPyID, u32& userRankOut);
-
-    HcclResult GetRankSliceSize(HcclDataType dataType, const u64 count, const u32 rankSize,
-        std::vector<Slice> &sliceList);
 
     bool IsBroadcastSmallData(u64 size);
 

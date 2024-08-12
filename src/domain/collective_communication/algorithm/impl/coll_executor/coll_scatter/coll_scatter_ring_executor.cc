@@ -30,7 +30,7 @@ HcclResult CollScatterRingExecutor::CalcLevel0CommInfo(TransportMemType inputTyp
     return HCCL_SUCCESS;
 }
 
-HcclResult CollScatterRingExecutor::CalcStreamNum(u32 &streamNum)
+HcclResult CollScatterRingExecutor::CalcStreamNum(u32& streamNum)
 {
     u32 totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE;
     switch (algType_) {
@@ -72,7 +72,8 @@ HcclResult CollScatterRingExecutor::KernelRun(const OpParam &param, ExecMem &exe
         HCCL_E_INTERNAL);
 
     /* ***********第一步: 节点间scatter ****************************/
-    u32 subRoot = topoMatcher_->GetSubRootForScatter(param.root);
+    u32 subRoot = INVALID_VALUE_RANKID;
+    CHK_RET(topoMatcher_->GetSubRootForScatter(param.root, subRoot));
     CHK_PRT_RET(subRoot == INVALID_VALUE_RANKID,
         HCCL_ERROR("[CollScatterRingExecutor][KernelRun]GetSubRootForScatter failed, ",
         "userRank[%u], root[%u], subRoot[%u]", topoAttr_.userRank, param.root, subRoot), HCCL_E_INTERNAL);

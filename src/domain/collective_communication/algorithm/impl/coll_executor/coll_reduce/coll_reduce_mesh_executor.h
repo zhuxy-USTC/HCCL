@@ -21,6 +21,7 @@ public:
 
 private:
     /* *************** 资源计算 *************** */
+    void ParseParam(const OpParam& param) override;
     HcclResult CalcCommInfo(std::vector<LevelNSubCommTransport>& opTransport) override;
     HcclResult CalcLevel0CommInfo(TransportMemType inputType,
         TransportMemType outputType,

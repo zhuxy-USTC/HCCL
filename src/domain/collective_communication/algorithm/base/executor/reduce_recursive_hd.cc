@@ -33,7 +33,7 @@ HcclResult ReduceRecursiveHalvingDoubling::RunAsync(const u32 rank, const u32 ra
             rank);
         return HCCL_E_PTR;
     }
-    HCCL_INFO("ReduceRecursiveHalvingDoubling run: rank[%u] root[%u] totalrank[%u] inputMem[%p] outputMem[%p] "
+    HCCL_INFO("ReduceRecursiveHalvingDoubling run: rank[%u] root[%u] totalrank[%u] inputMem[%p] outputMem[%p]" \
         "count[%llu]", rank, root_, rankSize, inputMem_.ptr(), outputMem_.ptr(), count_);
 
     HcclResult ret = HCCL_SUCCESS;
@@ -71,7 +71,7 @@ HcclResult ReduceRecursiveHalvingDoubling::RunAsync(const u32 rank, const u32 ra
     // 使用output进行gather
     CHK_RET(GatherInBlock(rank, rankSize, links));
 
-    HCCL_INFO("ReduceRecursiveHalvingDoubling finished: rank[%u] finished", rank);
+    HCCL_INFO("ReduceRecursiveHalvingDoubling rank[%u] finished", rank);
     return HCCL_SUCCESS;
 }
 

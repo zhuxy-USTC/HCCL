@@ -7,21 +7,21 @@
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
- 
+
 #include "send_operator.h"
 #include "rank_consistent.h"
 #include "executor_impl.h"
- 
+
 namespace hccl {
-SendOperator::SendOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher)
-    : CollAlgOperator(pImpl, topoMatcher, HcclCMDType::HCCL_CMD_SEND)
+SendOperator::SendOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAlgOperator(algConfigurator, pImpl, topoMatcher, HcclCMDType::HCCL_CMD_SEND)
 {
 }
- 
+
 SendOperator::~SendOperator()
 {
 }
- 
+
 HcclResult SendOperator::SelectAlg(const std::string& tag, const OpParam& param, std::string& algName,
                                         std::string& newTag)
 {

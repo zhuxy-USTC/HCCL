@@ -524,16 +524,7 @@ HcclResult TopoInfoDetect::GenerateLocalRankInfo(u32 rankSize, u32 rankID, HcclB
     CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<u32>(localRankInfo.deviceLogicID), localRankInfo.devicePhysicID));
 
     if (localRankInfo.deviceType == DevType::DEV_TYPE_910_73) {
-        s64 superPodId = 0;
-        s64 superDeviceId = 0;
-        CHK_RET(hrtGetDeviceInfo(localRankInfo.deviceLogicID, HcclRtDeviceModuleType::HCCL_RT_MODULE_TYPE_SYSTEM,
-            HcclRtDeviceInfoType::HCCL_INFO_TYPE_SUPER_POD_ID, superPodId));
-        CHK_RET(hrtGetDeviceInfo(localRankInfo.deviceLogicID, HcclRtDeviceModuleType::HCCL_RT_MODULE_TYPE_SYSTEM,
-            HcclRtDeviceInfoType::HCCL_INFO_TYPE_SDID, superDeviceId));
-        localRankInfo.superPodId = std::to_string(superPodId);
-        localRankInfo.superDeviceId = static_cast<u32>(superDeviceId);
-        HCCL_INFO("[Generate][LocalRankInfo]deviceLogicID[%d], superPodId[%s], superDeviceId[%u]",
-            localRankInfo.deviceLogicID, localRankInfo.superPodId.c_str(), localRankInfo.superDeviceId);
+        CHK_RET(GetSuperPodInfo(localRankInfo.deviceLogicID, localRankInfo.superPodId, localRankInfo.superDeviceId));
     }
     
     localRankInfo.deviceIP.clear();
@@ -568,6 +559,27 @@ HcclResult TopoInfoDetect::GenerateLocalRankInfo(u32 rankSize, u32 rankID, HcclB
         localRankInfo.deviceIP.push_back(invalidAddr);
         HCCL_RUN_INFO("no device ip: use 0 as device ip.");
     }
+    return HCCL_SUCCESS;
+}
+
+HcclResult TopoInfoDetect::GetSuperPodInfo(s32 deviceLogicId, std::string &superPodId, u32 &superDeviceId)
+{
+    // 解析super_pod_id
+    superPodId = GetExternalInputLogicSuperPodId(); // 逻辑super pod id
+    if (superPodId.empty()) {
+        s64 val = 0;
+        CHK_RET(hrtGetDeviceInfo(deviceLogicId, HcclRtDeviceModuleType::HCCL_RT_MODULE_TYPE_SYSTEM,
+            HcclRtDeviceInfoType::HCCL_INFO_TYPE_SUPER_POD_ID, val));
+        superPodId = std::to_string(val); // 真实super pod id
+    }
+
+    // 解析sdid
+    s64 sdid = 0;
+    CHK_RET(hrtGetDeviceInfo(deviceLogicId, HcclRtDeviceModuleType::HCCL_RT_MODULE_TYPE_SYSTEM,
+        HcclRtDeviceInfoType::HCCL_INFO_TYPE_SDID, sdid));
+    superDeviceId = static_cast<u32>(sdid);
+    HCCL_INFO("[Get][SuperPodInfo]deviceLogicID[%d], superPodId[%s], superDeviceId[%u]",
+        deviceLogicId, superPodId.c_str(), superDeviceId);
     return HCCL_SUCCESS;
 }
 

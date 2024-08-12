@@ -23,6 +23,8 @@
 #include "resource_manager/queue_notify_manager.h"
 #include "topo_matcher.h"
 #include "coll_alg_operator.h"
+#include "topo_info_extractor.h"
+#include "alg_configurator.h"
 
 namespace hccl {
 class hcclImpl;
@@ -38,25 +40,11 @@ public:
         const std::unique_ptr<QueueNotifyManager> &queueNotifyManager,
         HcclAlgoAttr &algoAttr, HcclTopoAttr &topoAttr, bool isHeterogComm = false);
     HcclResult ReleaseCommInfos();
-    HcclResult AllGather(const std::string &tag, void *inputPtr, void *outputPtr, u64 inputCount,
-        HcclDataType dataType, Stream stream, HcomCollOpInfo *opInfo = nullptr);
-    HcclResult AllGatherOutPlace(const std::string &tag, void *inputPtr, void *outputPtr, u64 inputCount,
-        HcclDataType dataType, Stream stream, const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo = nullptr);
 
     HcclResult Broadcast(const std::string &tag, void *ptr, u64 count, HcclDataType dataType, u32 root,
         Stream stream);
     HcclResult BroadcastOutPlace(const std::string &tag, void *ptr, u64 count, HcclDataType dataType, u32 root,
         Stream stream, const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo = nullptr);
-    HcclResult Scatter(const std::string &tag, void *inputPtr, void *outputPtr, u64 recvCount,
-        HcclDataType dataType, u32 root, Stream stream);
-    HcclResult ScatterOutPlace(const std::string &tag, void *inputPtr, void *outputPtr, u64 recvCount,
-        HcclDataType dataType, u32 root, Stream stream,
-        const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo = nullptr);
-    HcclResult Reduce(const std::string &tag, void *inputPtr, void *outputPtr, u64 count,
-        HcclDataType dataType, HcclReduceOp op, u32 root, Stream stream);
-    HcclResult ReduceOutPlace(const std::string &tag, void *inputPtr, void *outputPtr, u64 count,
-        HcclDataType dataType, HcclReduceOp op, u32 root, Stream stream,
-        const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo = nullptr);
     HcclResult Send(const std::string &tag, void *inputPtr, u64 count, HcclDataType dataType,
         u32 destRank, Stream stream);
     HcclResult SendOutPlace(const std::string &tag, void *inputPtr, u64 count, HcclDataType dataType,
@@ -67,8 +55,6 @@ public:
         u32 srcRank, Stream stream);
     HcclResult Gather(const std::string &tag, void *inputPtr, void *outputPtr, u32 rootRank, u64 inputCount,
         HcclDataType dataType, Stream stream);
-    HcclResult GetAlltoAllStagedWorkSpaceMemSize(u64 *sendCounts, u64 *sdispls, HcclDataType sendType,
-        u64 *recvCounts, u64 *rdispls, HcclDataType recvType, u64 &memSize);
     HcclResult GetAlltoAllStagedWorkSpaceMemSize(std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo,
         u64 &memSize);
     HcclResult GetAllReduceScratchSize(const u32 count, const HcclDataType dataType, u64 &scratchSize);
@@ -87,27 +73,35 @@ public:
     void Break();
     HcclResult SetAlgType(AlgType algType, HcclCMDType opType);
     HcclResult GetAlgType(AlgType &algType, HcclCMDType opType);
-    static std::string AlgTypeToStr(const AlgType algType);
     HcclResult SupportDeterministicOptim(bool &isDeterministicOptim);
     HcclResult SetHDCModeInfo(
         std::unordered_map<std::string, std::map<u32, HcclIpAddress>> &rankDevicePhyIdNicInfoMap,
         std::vector<u32> &ranksPort, bool isSetHDCModeInfo, bool isUseRankPort);
 
     u8 GetDeterministicConfig() const;  // 获取确定性计算配置
-    HcclResult SetDeterministicConfig(const u8 deterministic);  // 设置确定性计算配置
+    HcclResult SetDeterministicConfig(const u8 deterministic); // 设置确定性计算配置
+    HcclResult GetIsBridgeVector(std::vector<bool> &isBridgeVector);
+    HcclResult GetRankVecInfo(std::vector<std::vector<std::vector<u32>>> &serverAndsuperPodToRank);
+    HcclResult GetCommPlaneRanks(std::vector<std::vector<std::vector<u32>>> &CommPlaneRanks);
+    HcclResult GetIsUsedRdmaMap(std::unordered_map<u32, bool> &isUsedRdmaMap);
 
     std::unique_ptr<CollAlgOperator> GetAlgOperator(const HcclCMDType &opType);
 
+    HcclResult GetTopoType(TopoType &topoType);
     HcclResult GetAlltoAllStatus(DeviceMem &tinySendRecvMem, bool &isAlltoAllZCopyMode);
 private:
     std::unique_ptr<hcclImpl> pimpl_;
-    HcclResult InitExternalEnable();
-    HcclResult InitTopoInfoPartOne(HcclTopoAttr &topoAttr);
-    HcclResult InitTopoInfoPartTwo();
-    HcclResult InitAlgoInfo(HcclAlgoAttr &algoAttr);
-    HcclTopoInfo topoInfo_;
-    HcclAlgoInfo algoInfo_;
-    HcclExternalEnable externalEnable_;
+    HcclResult InitTopoInfo(HcclTopoInfo& topoInfo, HcclTopoAttr &topoAttr);
+    HcclResult InitAlgoInfo(HcclAlgoInfo& algoInfo, HcclAlgoAttr &algoAttr);
+    HcclResult InitExternalEnable(HcclExternalEnable& externalEnable);
+
+    // 缓存初始传入传入的属性值
+    HcclAlgoAttr algoAttr_;
+    HcclTopoAttr topoAttr_;
+
+    std::shared_ptr<AlgConfigurator> algConfigurator_;
+    std::shared_ptr<TopoInfoExtractor> topoInfoEx_;
+
     std::unique_ptr<TopoMatcher> topoMatcher_;
 };
 }  // namespace hccl

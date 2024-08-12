@@ -36,7 +36,7 @@ private:
     u64 CalcLoopMaxCount(const u32 unitSize) override;
     bool IsHugeData(const u64 curSize) override;
 
-    HcclResult RunLoop(const OpParam &param, const AlgResourceResponse &algRes) override;
+    HcclResult RunLoop(OpParam &param, AlgResourceResponse &algRes) override;
 };
 
 } // namespace hccl

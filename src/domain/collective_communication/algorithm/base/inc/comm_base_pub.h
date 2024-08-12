@@ -21,8 +21,6 @@
 #include "hccl_socket_manager.h"
 #include "transport_pub.h"
 #include "executor_base_pub.h"
-#include "alltoallv_pairwise_pub.h"
-#include "alltoallv_staged_base_pub.h"
 #include "common.h"
 
 
@@ -51,7 +49,7 @@ public:
                       const NICDeployment nicDeployInner = NICDeployment::NIC_DEPLOYMENT_DEVICE,
                       bool isAlltoAllCommMesh = false, const bool useOneDoorbell = false,
                       const bool isAicpuModeEn = false, const u32 rankRoot = INVALID_UINT,
-                      const bool isHaveCpuRank = false, const bool useSdidForDeviceId = false);
+                      const bool isHaveCpuRank = false, const bool useSuperPodMode = false);
     virtual ~CommBase();
 
     inline const std::string &CollectiveId() const
@@ -112,9 +110,6 @@ public:
         const std::vector<std::shared_ptr<HcclSocket> > &sockets); // 节点间建链起线程
     HcclResult RunExecutor(const std::unique_ptr<ExecutorBase> &executor);
     HcclResult RunExecutorStaged(const std::unique_ptr<ExecutorBase> &executor, const RunStage &stage);
-    HcclResult RunAlltoAll(const std::unique_ptr<AlltoAllVPairWise> &executor);
-    HcclResult RunAlltoAllVStaged(const std::unique_ptr<AlltoAllVStagedBase> &executor);
-    HcclResult RunAlltoAllVStagedMesh(const std::unique_ptr<AlltoAllVStagedBase> &executor);
     std::shared_ptr<Transport> &GetTrasportInfoByVTransportInfoIndex(u32 index);
     HcclResult BuildAsync(u32& status);
     HcclResult BuildQuerry(u32& status);
@@ -264,7 +259,7 @@ protected:
     bool isSetHDCModeInfo_{ false };
     bool isUseRankPort_{ false };
     bool isHaveCpuRank_{ false };
-    bool useSdidForDeviceId_{ false };
+    bool useSuperPodMode_{ false };
     std::shared_ptr<HcclSocketManager> socketManager_{ nullptr };
 };
 }  // namespace hccl

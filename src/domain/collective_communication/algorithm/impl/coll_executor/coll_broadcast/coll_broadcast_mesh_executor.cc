@@ -30,12 +30,12 @@ HcclResult CollBroadcastMeshExecutor::CalcStreamNum(u32& streamNum)
             totalStreamNum = OUTER_PLANE_NUM_IN_4PMESH;
             break;
         default:
-            if ((GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) &&
+            if ((workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) &&
                 (topoAttr_.deviceType == DevType::DEV_TYPE_910B) && topoAttr_.isSingleMeshAggregation ) {
                 totalStreamNum = topoAttr_.deviceNumPerAggregation;
-            } else if ((topoAttr_.deviceType == DevType::DEV_TYPE_910_73)) { // && (isAicpuModeEn == true)
+            } else if ((topoAttr_.deviceType == DevType::DEV_TYPE_910_73 || aicpuUnfoldMode_)) { // && (isAicpuModeEn == true)
                 totalStreamNum = topoAttr_.deviceNumPerAggregation;
-            } else if ((GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) &&
+            } else if ((workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) &&
                        (topoAttr_.deviceType == DevType::DEV_TYPE_910B) && UseInterServerPipelineAlgo(algType_)) {
                 totalStreamNum = topoAttr_.deviceNumPerAggregation + 1; /* pipeline ring场景下性能优化 */
             } else {
@@ -44,7 +44,8 @@ HcclResult CollBroadcastMeshExecutor::CalcStreamNum(u32& streamNum)
             break;
     }
 
-    streamNum = totalStreamNum - 1;
+    streamNum = totalStreamNum > 0 ? totalStreamNum - 1 : 0;
+
     HCCL_INFO("[CollBroadcastMeshExecutor][CalcStreamNum] tag[%s] streamNum_[%u]",
         tag_.c_str(), streamNum);
     return HCCL_SUCCESS;
@@ -84,6 +85,7 @@ HcclResult CollBroadcastMeshExecutor::KernelRun(const OpParam &param, ExecMem &e
     outer1Executor.reset(
         new (std::nothrow) ScatterMesh(dispatcher_, outerCommInfo.localRank, outerCommInfo.localRankSize));
     CHK_SMART_PTR_NULL(outer1Executor);
+    outer1Executor->CloseBarrier();
 
     /* 内层topo:all_reduce */
     /* 外层所有rank均参与内层的broadcast计算，所以此处对rank不作限制，但是每个rank需找到自己所在的内层通信域 */
@@ -126,13 +128,13 @@ HcclResult CollBroadcastMeshExecutor::KernelRun(const OpParam &param, ExecMem &e
     /* 外层topo:all_gather */
     if (topoAttr_.deviceType == DevType::DEV_TYPE_910B) {
         outer2Executor.reset(
-            new (std::nothrow) AllGatherMeshAtomic(dispatcher_, streamInfo_.ringStreams,
-            streamInfo_.ringSignal, streamInfo_.ringSignalAux, outerCommInfo.localRank, outerCommInfo.localRankSize,
+            new (std::nothrow) AllGatherMeshAtomic(dispatcher_, algResResp_->slaveStreams,
+            algResResp_->notifiesM2S, algResResp_->notifiesS2M, outerCommInfo.localRank, outerCommInfo.localRankSize,
             topoAttr_.userRank));
     } else {
         outer2Executor.reset(
-            new (std::nothrow) AllGatherMesh(dispatcher_, streamInfo_.ringStreams, streamInfo_.ringSignal,
-            streamInfo_.ringSignalAux, outerCommInfo.localRank, outerCommInfo.localRankSize,
+            new (std::nothrow) AllGatherMesh(dispatcher_, algResResp_->slaveStreams, algResResp_->notifiesM2S,
+            algResResp_->notifiesS2M, outerCommInfo.localRank, outerCommInfo.localRankSize,
             topoAttr_.userRank));
     }
     CHK_SMART_PTR_NULL(outer2Executor);
@@ -184,10 +186,10 @@ HcclResult CollBroadcastMeshExecutor::KernelRun(const OpParam &param, ExecMem &e
 
     /* 节点内执行器 stage2 */
     {
-        if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) { // offline
-            for (u32 streamIndex = 0; streamIndex < streamInfo_.ringStreams.size(); streamIndex++) {
+        if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) { // offline
+            for (u32 streamIndex = 0; streamIndex < algResResp_->slaveStreams.size(); streamIndex++) {
                 CHK_RET(StreamActiveManager::GetInstance(topoAttr_.deviceLogicId).StreamActive(
-                    streamInfo_.ringStreams[streamIndex].ptr(), param.stream.ptr()));
+                    algResResp_->slaveStreams[streamIndex].ptr(), param.stream.ptr()));
             }
         }
         CHK_RET(outer2Executor->Prepare(execMem.outputMem, execMem.outputMem, execMem.outputMem, execMem.count,

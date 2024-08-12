@@ -18,6 +18,8 @@
 #include "device_capacity.h"
 #include "hccl_communicator.h"
 #include "hccl_comm_pub.h"
+#include "task_abort_handler_pub.h"
+#include "coll_alg_utils.h"
 
 namespace hccl {
 RankTable_t g_hcclDefaultRankTable;
@@ -37,6 +39,7 @@ hcclComm::hcclComm(u64 inCCLbufferSize, u64 outCCLbufferSize, std::string identi
 hcclComm::~hcclComm()
 {
     RealeaseBarrierMemory();
+    (void)UnRegistTaskAbortHandler();
     communicator_ = nullptr;
 }
 
@@ -113,7 +116,9 @@ HcclResult hcclComm::init(HcclCommParams &params, const RankTable_t &rankTable)
         return ret;
     }
 
-    CHK_RET(communicator_->InitCCLbuffer(inCCLbufferSize_, outCCLbufferSize_));
+    if (params.totalRanks != 1 ) {
+        CHK_RET(communicator_->InitCCLbuffer(inCCLbufferSize_, outCCLbufferSize_));
+    }
 
     HCCL_RUN_INFO("hcclCommInitInfo:commId[%s], rank[%u], totalRanks[%u], serverId[%s], deviceType[%d]," \
         "logicDevId[%d], identifier[%s]", params.id.internal, params.rank, params.totalRanks, params.serverId.c_str(),
@@ -218,7 +223,7 @@ HcclResult hcclComm::DestroyGroup(const std::string &group) const
 HcclResult hcclComm::GetAlgType(AlgType &algType, HcclCMDType opType)
 {
     /* 增加输出日志关键字 */
-    HCCL_DEBUG("algType[%s]", HcclAlg::AlgTypeToStr(algType).c_str());
+    HCCL_DEBUG("algType[%s]", AlgTypeToStr(algType).c_str());
     return communicator_->GetAlgType(algType, opType);
 }
 
@@ -699,6 +704,7 @@ HcclResult hcclComm::InitImpl(DevType deviceType)
     communicator_.reset(new (std::nothrow) HcclCommunicator());
     CHK_SMART_PTR_NULL(communicator_);
     deviceType_ = deviceType;
+    CHK_RET(RegistTaskAbortHandler());
 
     return HCCL_SUCCESS;
 }
@@ -997,4 +1003,33 @@ u64 hcclComm::GetConfigOutCCLbufferSize()
 {
     return outCCLbufferSize_;
 }
+
+HcclResult hcclComm::RegistTaskAbortHandler() const
+{
+    HCCL_INFO("RegistTaskAbortHandler begin");
+    CHK_RET(TaskAbortHandler::Init(communicator_.get()));
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult hcclComm::UnRegistTaskAbortHandler() const
+{
+    HCCL_INFO("UnRegistTaskAbortHandler begin");
+    CHK_RET(TaskAbortHandler::DeInit(communicator_.get()));
+
+    return HCCL_SUCCESS;
+}
+
+HcclResult hcclComm::Suspend()
+{
+    communicator_->Suspend();
+    return HCCL_SUCCESS;
+}
+
+HcclResult hcclComm::Resume()
+{
+    communicator_->Resume();
+    return HCCL_SUCCESS;
+}
+
 }  // namespace hccl

@@ -19,6 +19,17 @@ CollReduceMeshExecutor::CollReduceMeshExecutor(const HcclDispatcher dispatcher,
 {
 }
 
+void CollReduceMeshExecutor::ParseParam(const OpParam& param)
+{
+    tag_ = param.tag;
+    root_ = param.root;
+    bool isInlineReduce = IsSupportSDMAReduce(param.inputPtr, param.outputPtr,
+        param.DataDes.dataType, param.reduceType);
+    meshSinglePlane_ = (topoAttr_.deviceType == DevType::DEV_TYPE_910B) &&
+        topoMatcher_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_DISABLE && isInlineReduce &&
+        (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
+}
+
 HcclResult CollReduceMeshExecutor::CalcStreamNum(u32& streamNum)
 {
     u32 totalStreamNum = topoAttr_.deviceNumPerAggregation > 1U ? topoAttr_.deviceNumPerAggregation - 1U : 1U;
@@ -40,7 +51,7 @@ HcclResult CollReduceMeshExecutor::CalcCommInfo(std::vector<LevelNSubCommTranspo
 
 HcclResult CollReduceMeshExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -155,8 +166,8 @@ HcclResult CollReduceMeshExecutor::KernelRun(const OpParam &param, ExecMem &exec
         const u32 rootRank = outerTransportInfo.userRank2subCommRank[param.root];
 
         std::unique_ptr<ExecutorBase> outerExecutor;
-        outerExecutor.reset(new (std::nothrow) GatherMesh(dispatcher_, streamInfo_.ringStreams,
-                streamInfo_.ringSignal, streamInfo_.ringSignalAux, topoAttr_.userRank));
+        outerExecutor.reset(new (std::nothrow) GatherMesh(dispatcher_, algResResp_->slaveStreams,
+                algResResp_->notifiesM2S, algResResp_->notifiesS2M, topoAttr_.userRank));
         CHK_SMART_PTR_NULL(outerExecutor);
         CHK_RET(outerExecutor->Prepare(execMem.outputMem, execMem.outputMem, execMem.inputMem, execMem.count,
             param.DataDes.dataType, const_cast<Stream &>(param.stream), param.reduceType, rootRank, dataSegsSlice));

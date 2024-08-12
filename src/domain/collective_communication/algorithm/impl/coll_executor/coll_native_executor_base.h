@@ -35,7 +35,6 @@ public:
     ~CollNativeExecutorBase() = default;
 
     HcclResult CalcResRequest(const OpParam& param, AlgResourceRequest &resourceRequest) override;
-    bool CheckNeedRecreateComm(u64 lastScratchMemSize) override;
 
 protected:
     /* *************** 资源计算 *************** */
@@ -68,8 +67,6 @@ protected:
     // 按Inner、Outer、Level2可继续进行拆分。
     virtual HcclResult KernelRun(const OpParam &param, ExecMem &execMem);
 
-    // 算法编排资源获取
-    HcclResult GetStreamInfo(const AlgResourceResponse &algRes);
     // 图模式下激活从流
     HcclResult ActiveSlaveStreams(const Stream &stream);
     // 将从流添加至Profiling
@@ -81,32 +78,21 @@ protected:
     // 为了避免循环调用时反复校验Range引发性能问题，此处不做Range校验，建议调用该接口前先调用CheckCommSize避免OutOfRange问题
     SubCommInfo GetSubCommInfo(const CommPlane levelIndex, const u32 subLevelIndex);
 
-    // 算法类型工具类
-    AlgTypeLevel0 GetLevel0AlgType(const AlgType algType) const;
-    AlgTypeLevel1 GetLevel1AlgType(const AlgType algType) const;
-    AlgTypeLevel2 GetLevel2AlgType(const AlgType algType) const;
-
-    bool UseInterServerRingAlgo(AlgType algType);
-    bool UseInterServerHDAlgo(AlgType algType);
-    bool UseInterServerNHRAlgo(AlgType algType);
-    bool UseInterServerNHRV1Algo(AlgType algType);
-    bool UseInterServerNBAlgo(AlgType algType);
-    bool UseLevel2RingAlgo(AlgType algType);
-    bool UseInterServerPipelineAlgo(AlgType algType);
     HcclResult GetRankByUserRank(CommPlane levelIndex, u32 subLevelIndex, u32 userRank, u32 &rank);
     HcclResult GetUserRankByRank(CommPlane levelIndex, u32 subLevelIndex, u32 rank, u32 &userRank);
 
     /* ---------------以下为 protected 成员变量定义领域-------------------------- */
     std::string tag_;
     u32 root_ = INVALID_VALUE_RANKID;
-    const AlgResourceResponse *algResResp_ = nullptr;
-    innerStreamInfo_t streamInfo_;
+    AlgResourceResponse *algResResp_ = nullptr;
 
     // Infos got from topoMatcher_
     const HcclTopoInfo topoAttr_;
     const HcclAlgoInfo algoAttr_;
     TopoType topoType_;
     bool is310P3Common_ = false;
+    bool aicpuUnfoldMode_ = false;
+    HcclWorkflowMode workflowMode_;
 };
 }
 #endif

@@ -345,7 +345,20 @@ inline void HcclCommConfigInit(HcclCommConfig *config)
 
     config->hcclBufferSize = HCCL_COMM_DEFAULT_BUFFSIZE;
     config->hcclDeterministic = HCCL_COMM_DEFAULT_DETERMINISTIC;
+    config->hcclCommName[0] = '\0';
 }
+
+/**
+ * @brief Suspend communication.
+ * @param comm A pointer identifying the communication resource based on.
+*/
+extern HcclResult HcclCommSuspend(HcclComm comm);
+ 
+/**
+ * @brief Clear and recover communication.
+ * @param comm A pointer identifying the communication resource based on.
+*/
+extern HcclResult HcclCommResume(HcclComm comm);
 #ifdef __cplusplus
 }
 #endif // __cplusplus

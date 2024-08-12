@@ -22,7 +22,7 @@ public:
     CollAllReduceMidCountAivRdmaExecutor(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollAllReduceMidCountAivRdmaExecutor() = default;
 
-    HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes) override;
+    HcclResult Orchestrate(OpParam& param, AlgResourceResponse& algRes) override;
 private:
     /* *************** 资源计算 *************** */
     HcclResult CalcStreamNum(u32& streamNum) override;

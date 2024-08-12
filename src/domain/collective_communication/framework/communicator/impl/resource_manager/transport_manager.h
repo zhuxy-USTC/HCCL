@@ -132,7 +132,7 @@ public:
         bool isUseRankPort,
         bool isUsedRdmaOuter,
         const std::vector<u32> &ranksPort,
-        bool useSdidForDeviceId,
+        bool useSuperPodMode,
         const std::vector<HcclIpAddress> &devIpAddr,
         const HcclIpAddress &hostIp,
         const HcclIpAddress &localVnicIp,
@@ -141,9 +141,10 @@ public:
     ~TransportManager();
 
     HcclResult CreateVirturalTransport(SingleSubCommTransport& singleSubCommTransport);
-    HcclResult Alloc(const std::string &tag, const TransportIOMem &transMem, OpCommTransport &opTransportResponse);
+    HcclResult Alloc(const std::string &tag, const TransportIOMem &transMem, OpCommTransport &opTransportResponse,
+        bool isAicpuModeEn);
     HcclResult IncreAlloc(const std::string &tag, const TransportIOMem &transMem, OpCommTransport &opTransportReq,
-        OpCommTransport &opTransportResponse);
+        OpCommTransport &opTransportResponse, bool isAicpuModeEn);
     TransportManager(TransportManager const&) = delete;                 // Copy construct
     TransportManager(TransportManager&&) = delete;                      // Move construct
     TransportManager& operator=(TransportManager const&) = delete;      // Copy assign
@@ -164,8 +165,8 @@ private:
     u32 GetSocketsPerLink(u64 taskNum);
     HcclResult SetMachinePara(const std::string &tag, MachineType machineType, const std::string &serverId, u32 dstRank,
         const bool supportDataReceivedAck, const LinkMode linkMode,
-        const std::vector<std::shared_ptr<HcclSocket> > &socketList,
-        const DeviceMem &inputMem, const DeviceMem &outputMem, MachinePara &machinePara);
+        const std::vector<std::shared_ptr<HcclSocket> > &socketList, const DeviceMem &inputMem,
+        const DeviceMem &outputMem, bool isAicpuModeEn, MachinePara &machinePara);
     TransportType GetTransportType(const u32 dstRank, bool isUsedRdma);
     void SetTransportParam(TransportPara &para, MachinePara &machinePara);
     HcclResult TransportInit(const u32 dstRank, MachinePara &machinePara,
@@ -173,9 +174,8 @@ private:
     HcclResult CreateLink(const std::string &tag, const ErrContextPub &error_context, const MachineType machineType,
         const std::string &serverId, const u32 remoteRank, const bool supportDataReceivedAck, const LinkMode linkMode,
         const bool enableUseOneDoorbell, const std::string threadStr,
-        const std::vector<std::shared_ptr<HcclSocket> > sockets,
-        const DeviceMem inputMem, const DeviceMem outputMem, bool isUsedRdma,
-        std::shared_ptr<Transport> &link);
+        const std::vector<std::shared_ptr<HcclSocket> > sockets, const DeviceMem inputMem, const DeviceMem outputMem,
+        bool isUsedRdma, std::shared_ptr<Transport> &link, bool isAicpuModeEn);
     HcclResult ConstructTransTag(const std::string& tag, std::string& transTag, bool isInterRdma);
     HcclResult ExceptionHandle(const std::string &tag, OpCommTransport &opTransportResponse);
 
@@ -194,7 +194,7 @@ private:
     bool isUseRankPort_{ false };
     bool isUsedRdmaOuter_{ false };
     const std::vector<u32> &ranksPort_;
-    bool useSdidForDeviceId_{ false };
+    bool useSuperPodMode_{ false };
     const std::vector<HcclIpAddress> &devIpAddr_;
     const HcclIpAddress &hostIp_;
     const HcclIpAddress &localVnicIp_;

@@ -20,16 +20,16 @@ public:
     std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollReduceExecutor() = default;
 
-    HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes) override;
+    HcclResult Orchestrate(OpParam& param, AlgResourceResponse& algRes) override;
 protected:
     /* *************** 算法编排 *************** */
     // Reduce Loop Executor公共接口
     virtual u64 CalcLoopMaxCount(const u32 unitSize, const AlgResourceResponse& algRes);
     virtual bool IsHugeData(const u64 curSize);
-    HcclResult RunLoop(const OpParam &param, const AlgResourceResponse &algRes);
+    HcclResult RunLoop(OpParam &param, AlgResourceResponse &algRes);
 
 private:
-    HcclResult RunLoopInner(const OpParam &param, const ReduceType &reduceType, ExecMem &execMem);
+    HcclResult RunLoopInner(OpParam &param, const ReduceType &reduceType, ExecMem &execMem);
 };
 
 } // namespace hccl
