@@ -13,7 +13,7 @@ HCCL的软件架构如下图所示，分为“通信框架”、“通信算法�
 - 适配层，图引擎与单算子适配，进行通信切分寻优等操作。
 - 集合通信业务层，包括通信框架与通信算法两个模块：
   - 通信框架：负责通信域管理，通信算子的业务串联，协同通信算法模块完成算法选择，协同通信平台模块完成资源申请并实现集合通信任务的下发。
-  - 通信算法：作为集合通信算法的承载模块，提供特性集合通信操作的资源计算，并根据通信域信息完成通信任务编排。
+  - 通信算法：作为集合通信算法的承载模块，提供特定集合通信操作的资源计算，并根据通信域信息完成通信任务编排。
 - 集合通信平台层，提供NPU之上与集合通信关联的资源管理，并提供集合通信维测能力。
 
 本源码仓提供了Mesh、Ring、Recursive Halving-Doubling（RHD）、PairWise四种拓扑算法的实现源码。
@@ -100,14 +100,14 @@ HCCL支持源码编译，在源码编译前，请根据如下步骤完成相关�
    执行安装命令时，请确保安装用户对软件包具有可执行权限。
    - 使用默认路径安装
      ```shell
-     ./Ascend-cann-toolkit_<soc_version>_linux_<arch>.run --install
+     ./Ascend-cann-toolkit_<version>_linux_<arch>.run --install
      ```
      若使用root用户安装，安装完成后相关软件存储在`/usr/local/Ascend/ascend-toolkit/latest`路径下。
 
      若使用非root用户安装，安装完成后相关软件存储在`$HOME/Ascend/ascend-toolkit/latest`路径下。
    - 指定路径安装
      ```shell
-     ./Ascend-cann-toolkit_<soc_version>_linux_<arch>.run --install --install-path=${install_path}
+     ./Ascend-cann-toolkit_<version>_linux_<arch>.run --install --install-path=${install_path}
      ```
      安装完成后，相关软件存储在${install_path}指定路径下。
 
@@ -150,14 +150,15 @@ bash build.sh --nlohmann_path ${JSON头文件所在目录的绝对路径}
 bash build.sh --nlohmann_path /home/nlohmann_json/include
 ```
 
-编译完成后会在output目录下生成`CANN-hccl_alg-linux.x86_64.run`软件包或者`CANN-hccl_alg-linux.aarch64.run`软件包。
+编译完成后会在output目录下生成`CANN-hccl_alg-<version>-linux.<arch>.run`软件包。
+
+\<version>表示软件版本号，\<arch>表示操作系统架构，取值包括x86_64与aarch64。
 
 ## 安装
 
-安装编译生成的HCCL软件包，例如：
-
+安装编译生成的HCCL软件包：
 ```shell
-./output/CANN-hccl_alg-linux.x86_64.run
+./output/CANN-hccl_alg-<version>-linux.<arch>.run
 ```
 请注意：编译时需要将上述命令示例中的软件包名称替换为实际编译生成的软件包名称。
 
@@ -200,7 +201,7 @@ HCCL软件包安装完成后，开发者可通过HCCL Test工具进行集合通�
 若您想回退安装的自定义HCCL软件包，可执行如下命令。
 
 ```
-./output/CANN-hccl_alg-linux.x86_64.run --rollback
+./output/CANN-hccl_alg-<version>-linux.<arch>.run --rollback
 ```
 
 说明：
