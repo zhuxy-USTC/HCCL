@@ -143,7 +143,7 @@ HcclResult ReduceRing::RunAsync(const u32 rank, const u32 rankSize,
     }
     CHK_RET(linkRight_->TxDataSignal(stream_));
     CHK_RET(linkLeft_->RxDataSignal(stream_));
-    HCCL_INFO("ReduceRing finished: rank[%u] end", rank);
+    HCCL_INFO("ReduceRing finished: rank[%u]", rank);
     return HCCL_SUCCESS;
 }
 }  // namespace hccl

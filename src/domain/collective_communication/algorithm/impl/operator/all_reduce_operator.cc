@@ -19,8 +19,9 @@
 
 namespace hccl {
 
-AllReduceOperator::AllReduceOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher)
-    : CommonOperator(pImpl, topoMatcher, HcclCMDType::HCCL_CMD_ALLREDUCE)
+AllReduceOperator::AllReduceOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl,
+    std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAlgOperator(algConfigurator, pImpl, topoMatcher, HcclCMDType::HCCL_CMD_ALLREDUCE)
 {
 }
 
@@ -96,7 +97,7 @@ HcclResult AllReduceOperator::GetScratchSizeForDeterAllReduce(const u32 count, c
 HcclResult AllReduceOperator::GetAllReduceScratchSize(const u32 count, const HcclDataType dataType, u64 &scratchSize)
 {
     // 针对 单机、910B、确定性计算、图模式 的特殊优化
-    if (hcclImpl_->SupportDeterministicOptim()) {
+    if (algConfigurator_->SupportDeterministicOptim()) {
         CHK_RET(GetScratchSizeForDeterAllReduce(count, dataType, deviceNumPerAggregation_, scratchSize));
     } else {
         scratchSize = 0;
@@ -108,7 +109,8 @@ HcclResult AllReduceOperator::GetAllReduceScratchSize(const u32 count, const Hcc
 HcclResult AllReduceOperator::SelectAlg(const std::string& tag, const OpParam& param, std::string& algName,
                                         std::string& newTag)
 {
-    if (userRankSize_ == 1 && GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (userRankSize_ == 1 && (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE ||
+        param.aicpuUnfoldMode)) {
         algName = "AllReduceSingleExecutor";
         return HCCL_SUCCESS;
     }
@@ -398,10 +400,23 @@ HcclResult AllReduceOperator::SelectAlgfor91073(const OpParam& param, std::strin
     if (topoType_ == TopoType::TOPO_TYPE_NP_SINGLE_RING) {
         algName = "AllReduceRingExecutor";
     } else if (topoType_ == TopoType::TOPO_TYPE_NP_DOUBLE_RING) {
-        if (GetExternalInputEnableRdmaSdmaConcurrent()) {
+        if (GetExternalInputEnableRdmaSdmaConcurrent() && !param.aicpuUnfoldMode) {
+            if (!(UseInterServerRingAlgo(algType_) || UseInterServerNBAlgo(algType_))) {
+                HcclResult ret = SetInterServerRingAlgo(algType_);
+                HCCL_WARNING("[AllReduceOperator][SelectAlgfor91073] concurrent only support ring or NB in AlgoLevel1 "\
+                    "yet, default is ring.");
+                CHK_PRT_RET(ret != HCCL_SUCCESS,
+                    HCCL_ERROR("[AllReduceOperator][SelectAlgfor91073]errNo[0x%016llx] tag[%s], AllGather concurrent "\
+                    "set inter server ring algo failed", HCCL_ERROR_CODE(ret), param.tag.c_str()), ret);
+            }
             algName = "AllReduceDoubleRingConcurrentExecutor";
         } else {
-            algName = "AllReduceDoubleRingExecutor";
+            if (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLREDUCE)[HCCL_ALGO_LEVEL_0] ==
+                HcclAlgoType::HCCL_ALGO_TYPE_FAST_DOUBLE_RING) {
+                    algName = "AllReduceFastDoubleRingFor91073Executor";
+                } else {
+                    algName = "AllReduceDoubleRingExecutor";
+                }
         }
     } else {
         algName = "AllReduceComm";

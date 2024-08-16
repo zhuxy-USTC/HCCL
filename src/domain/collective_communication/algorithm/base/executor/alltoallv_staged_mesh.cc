@@ -130,7 +130,7 @@ HcclResult AlltoAllVStagedMesh::RunZCopyMode(const u32 rank, const u32 rankSize,
         CHK_RET(LocalNotify::Wait(mainStream_, dispatcher_, meshSignalSubToMain_[i], INVALID_VALUE_STAGE));
         CHK_RET(LocalNotify::Post(subStreams_[i], dispatcher_, meshSignalSubToMain_[i], INVALID_VALUE_STAGE));
     }
-    // 添加空task,保证子图执行时不乱序
+
     CHK_RET(ExecutorBase::ExecEmptyTask(sendMem_, recvMem_, mainStream_, dispatcher_));
     return HCCL_SUCCESS;
 }

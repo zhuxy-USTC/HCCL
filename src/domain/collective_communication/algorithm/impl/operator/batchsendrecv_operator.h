@@ -11,14 +11,14 @@
 #ifndef BATCHSENDRECV_OPERATOR_H
 #define BATCHSENDRECV_OPERATOR_H
 
-#include "common_operator.h"
-#include "coll_alg_op_registry.h"
 #include <set>
+#include "coll_alg_operator.h"
+#include "coll_alg_op_registry.h"
 
 namespace hccl {
-class BatchSendRecvOperator : public CommonOperator {
+class BatchSendRecvOperator : public CollAlgOperator {
 public:
-    BatchSendRecvOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
+    BatchSendRecvOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~BatchSendRecvOperator();
     HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName, std::string& newTag);
 };

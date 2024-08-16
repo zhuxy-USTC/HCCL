@@ -22,6 +22,7 @@
 #include "hccl_socket_manager.h"
 #include "dispatcher.h"
 #include "coll_alg_param.h"
+#include "topo_info_extractor.h"
 
 namespace hccl {
 constexpr u32 COMM_P2P_QUERRY_WAIT_TIME = 100;
@@ -42,20 +43,6 @@ enum class CommType {
     COMM_TAG_PARTIAL_MESH_COMBINED,
     COMM_TAG_MAX,
 };
-
-// 通信域级别
-typedef enum {
-    COMM_LEVEL0 = 0,    // 一级通信域(server内)
-    COMM_LEVEL0_RDMA,
-    COMM_LEVEL1,        // 二级通信域(server间)
-    COMM_LEVEL1_RDMA,
-    COMM_LEVEL2,        // 三级通信域(超节点间)
-    COMM_MESH_L0,       // mesh内
-    COMM_MESH_L1,       // mesh间
-    COMM_COMBINE,       // 打平通信域，大ring环
-    COMM_COMBINE_ORDER, // 打平通信域，按rank排序
-    COMM_LEVEL_RESERVED,
-} CommPlane;
 
 // 通信域建链信息
 struct CommParaInfo {
@@ -79,17 +66,13 @@ struct CommParaInfo {
     }
 };
 
-bool Ascending(const RankInfo &first, const RankInfo &second);  // 排序规则自小到大
-bool CompareWithUserRankAscend(const RankInfo &left, const RankInfo &right); // 按UserRank升序
-// 生成多个ring环的设备物理ID排序
-std::vector<std::vector<u32>> GetRingsOrderByTopoType(u32 ranksSize, TopoType topoType, std::vector<u32> &nicList);
-
 class ExchangerNetwork;
 class CommFactory {
 public:
     explicit CommFactory(const std::string &identifier, const u32 userRank, const u32 userRankSize,
                          const HcclDispatcher dispatcher, const std::unique_ptr<NotifyPool> &notifyPool,
                          std::map<HcclIpAddress, HcclNetDevCtx> &netDevCtxMap,
+                         std::shared_ptr<TopoInfoExtractor> topoInfoEx,
                          const bool isUsedRdmaOuter = false,
                          const TopoType topoFlag = TopoType::TOPO_TYPE_COMMON,
                          const DevType deviceType = DevType::DEV_TYPE_910,
@@ -99,7 +82,7 @@ public:
                          bool isDiffAggregation = false,
                          const void* transportResourceInfoAddr = nullptr, size_t transportResourceInfoSize = 0,
                          u32 meshAggregationRankSize = 0, bool isHaveCpuRank = false,
-                         bool isUsedInterHccsMode = false, bool useSdidForDeviceId = false);
+                         bool isUsedInterHccsMode = false, bool useSuperPodMode = false);
 
     virtual ~CommFactory();
 
@@ -109,7 +92,6 @@ public:
     std::vector<std::unique_ptr<CommBase> > CreateCommP2PAsync(const std::string &tag,
         const DeviceMem& inputMem, const DeviceMem& outputMem, const u32 dstUserRank, u32& status);
     HcclResult CreateCommP2PQuerry(std::vector<std::unique_ptr<CommBase> >& comm, u32& status);
-
     // 创建单层通信域
     HcclResult CreateCommPlane(const std::string &tag,
                                const DeviceMem &inputMem,
@@ -127,11 +109,6 @@ public:
     HcclResult SetHDCModeInfo(
         std::unordered_map<std::string, std::map<u32, HcclIpAddress>> &rankDevicePhyIdNicInfoMap,
         std::vector<u32> &ranksPort, bool isSetHDCModeInfo, bool isUseRankPort);
-
-    HcclResult GetCommPlaneRanks(std::vector<std::vector<std::vector<u32>>> &CommPlaneRanks);
-    HcclResult GetIsBridgeVector(std::vector<bool> &isBridgeVector);
-    HcclResult GetIsUsedRdmaMap(std::unordered_map<u32, bool> &isUsedRdmaMap);
-    HcclResult GetRankVecInfo(std::vector<std::vector<std::vector<u32>>> &serverAndsuperPodToRank);
 
 protected:
     /* 禁止用户对工厂类的实体做拷贝构造或拷贝赋值的操作，内部有指针成员变量 */
@@ -182,44 +159,8 @@ private:
     HcclResult SetIsUsedRdma(const CommParaInfo &commParaInfo, std::vector<SingleSubCommTransport> &commTransport,
         bool isUsedRdma);
 
-    /*
-    * *********************************************************************************
-    * comm_factory后续不承担建链功能，只进行通信关系推导
-    * *********************************************************************************
-    */
-    HcclResult GetRankMap(const CommParaInfo &commParaInfo, std::vector<SingleSubCommTransport> &commTransport);
-
-    HcclResult SetRankMap();
-
-    HcclResult GetSub2UserRankMap(CommPlane commPlane, u32 ringIndex, std::map<u32, u32> &subCommRank2UserRank);
-
-    HcclResult GetUserRank2SubMap(CommPlane commPlane, u32 ringIndex, std::map<u32, u32> &subCommRank2UserRank);
-
-    HcclResult SetRankInfo(); // 该函数用于解决后续所要用到的所有数据结构:rank_data_、rank_map_
-    HcclResult SetTopologyInfo(); // 设置拓扑信息
-    HcclResult SetTopoDefaultInfo(); // 填充combined_rank_vector_:default单层拓扑
-    HcclResult SetTopoDefaultInfoFor8P(); // 填充combined_rank_vector_:8P满配
-    HcclResult SetTopoInfoForLevel0(); // 填充一层拓扑: server内
-    HcclResult SetTopoInfoForLevel1(); // 填充二层拓扑: superPod内server间
-    HcclResult SetTopoInfoForLevel2(); // 填充三层拓扑: superPod间
-    HcclResult SetTopoInfoForMeshL0(); // 填充mesh内拓扑
-    HcclResult SetTopoInfoForMeshL1(); // 填充mesh间拓扑
-
-    HcclResult SetSingleOuter();
-    HcclResult SetSingleOuterFor8P();
-    HcclResult SetMultiOuter(u32 ringNum);
-    HcclResult CheckInitInfo(); // 该函数用于检测factory的构造函数入参合法性
-    HcclResult CheckPlaneInfo(); // 该函数用于检测平面信息合法性
-    HcclResult CheckServerInfo(); // 该函数用于检测server信息合法性
-
-    HcclResult CheckSuperPodInfo(); // 该函数用于检测superPod信息合法性
-
-    HcclResult SetBridgeLinkInfo(RankInfo &bridgePara, u32 bridgeUserRank);
     // 获取本rank在子通信域(多平面)内当前平面的rank号
     const u32 GetSubCollectiveRank(const std::vector<RankInfo> &vecPara) const;
-    HcclResult GetServerIdx(const RankInfo &rankInfo, u32 &serverIdx) const;
-    HcclResult GetModuleIdx(const RankInfo &rankInfo, u32 &moduleIdx);
-    bool IsDiffDeviceModuleInServer() const;
     bool JudgmentSetHeterogP2p(u32 rank) const;
     void CreateStarLinkPara(std::vector<RankInfo> &linkParas);
     bool IsUseSdidForVnicIp(); // 是否使用sdid作为vnicip
@@ -236,6 +177,7 @@ private:
     const HcclDispatcher dispatcher_;  // signal调度句柄(event/notify机制)
     const std::unique_ptr<NotifyPool> &notifyPool_;
     std::map<HcclIpAddress, HcclNetDevCtx> &netDevCtxMap_;
+    std::shared_ptr<TopoInfoExtractor> topoInfoEx_;
     const bool isUsedRdmaOuter_;
 
     // 保存所有级别的通信rank关系, CommPlaneVector_[CommPlane][ringIndex]: 第CommPlane级 第ringIndex个环
@@ -250,34 +192,24 @@ private:
     // 记录server内, 本rank和其他rank的连接关系
     std::map<s32, LinkTypeInServer> deviceLinkTypeMap_;
 
-    // 8pring 多环的commouter 顺序
-    std::vector<std::vector<u32> > multiOuterOrder_;
     // 整个通信域内rank的信息(直接调用exchanger生成，下标为userrank)
     std::vector<RankInfo> rankVector_;
-    // 不同拓扑场景每个server上的设备数
-    std::array<u32, static_cast<u32>(TopoType::TOPO_TYPE_RESERVED) > ranksOneNode_;
 
     NICDeployment nicDeployInner_;
     bool isHeterogComm_;
-    bool isDiffAggregation_;
     const void* transportResourceInfoAddr_;
     size_t transportResourceInfoSize_;
-    u32 meshAggregationRankSize_;
-    u32 serverNum_;
     bool isHaveCpuRank_;
     // 复用Socket时, 复用SocketManager
     std::shared_ptr<HcclSocketManager> reusedSocketManager_;
     s32 deviceLogicId_;
 
     bool isUsedInterHccsMode_;
-    bool useSdidForDeviceId_;
+    bool useSuperPodMode_;
     std::unordered_map<std::string, std::map<u32, HcclIpAddress>> rankDevicePhyIdNicInfoMap_;
     std::vector<u32> ranksPort_;
     bool isSetHDCModeInfo_ { false };
     bool isUseRankPort_{ false };
-
-    std::vector<std::vector<std::map<u32, u32>>> subCommRank2UserRank_;
-    std::vector<std::vector<std::map<u32, u32>>> userRank2subCommRank_;
 };
 }  // namespace hccl
 

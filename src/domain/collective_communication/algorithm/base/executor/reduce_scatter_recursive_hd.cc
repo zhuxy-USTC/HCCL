@@ -28,8 +28,7 @@ HcclResult ReduceScatterRecursiveHalvingDoubling::RunAsync(const u32 rank, const
 {
     CHK_SMART_PTR_NULL(dispatcher_);
     CHK_PTR_NULL(stream_.ptr());
-    HCCL_INFO("run: rank[%u] totalrank[%u] \
-        inputMem[%p] outputMem[%p] count[%llu]", rank, rankSize, \
+    HCCL_INFO("run: rank[%u] totalrank[%u] inputMem[%p] outputMem[%p] count[%llu]", rank, rankSize,
               inputMem_.ptr(), outputMem_.ptr(), count_);
     if (!outputMem_ || !inputMem_) {
         HCCL_ERROR("[ReduceScatterRecursiveHalvingDoubling][RunAsync]rank[%u] run_async inputmem or outputmem is null",
@@ -72,7 +71,7 @@ HcclResult ReduceScatterRecursiveHalvingDoubling::RunAsync(const u32 rank, const
 
     CHK_RET(ScatterInPartOne(rank, rankSize, links));
 
-    HCCL_INFO("ReduceScatterRecursiveHalvingDoubling finished: rank[%u], finished", rank);
+    HCCL_INFO("ReduceScatterRecursiveHalvingDoubling finished: rank[%u]", rank);
     return HCCL_SUCCESS;
 }
 

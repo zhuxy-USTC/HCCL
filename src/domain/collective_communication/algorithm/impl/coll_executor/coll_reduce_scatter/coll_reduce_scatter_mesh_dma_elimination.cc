@@ -24,6 +24,7 @@ CollReduceScatterMeshDmaEliminationExecutor::CollReduceScatterMeshDmaElimination
 void CollReduceScatterMeshDmaEliminationExecutor::ParseParam(const OpParam& param)
 {
     tag_ = param.tag;
+    aicpuUnfoldMode_ = param.aicpuUnfoldMode;
 }
 
 HcclResult CollReduceScatterMeshDmaEliminationExecutor::CalcStreamNum(u32& streamNum)
@@ -48,7 +49,7 @@ HcclResult CollReduceScatterMeshDmaEliminationExecutor::CalcCommInfo(
 HcclResult CollReduceScatterMeshDmaEliminationExecutor::CalcTransportMemType(TransportMemType &inputType,
     TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {

@@ -23,6 +23,7 @@ CollReduceScatterMeshOpbasePipelineExecutor::CollReduceScatterMeshOpbasePipeline
 void CollReduceScatterMeshOpbasePipelineExecutor::ParseParam(const OpParam& param)
 {
     tag_ = param.tag;
+    aicpuUnfoldMode_ = param.aicpuUnfoldMode;
 }
 
 HcclResult CollReduceScatterMeshOpbasePipelineExecutor::CalcStreamNum(u32& streamNum)
@@ -85,11 +86,15 @@ u64 CollReduceScatterMeshOpbasePipelineExecutor::CalcLoopMaxCount(const u32 unit
 
 bool CollReduceScatterMeshOpbasePipelineExecutor::IsHugeData(const u64 curSize)
 {
+    if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT) {
+        return true;
+    }
+
     bool hugeData = curSize > RDMA_SEND_MAX_SIZE || curSize > SDMA_SEND_MAX_SIZE;
     return hugeData;
 }
 
-HcclResult CollReduceScatterMeshOpbasePipelineExecutor::RunLoop(const OpParam &param, const AlgResourceResponse &algRes)
+HcclResult CollReduceScatterMeshOpbasePipelineExecutor::RunLoop(OpParam &param, AlgResourceResponse &algRes)
 {
     HCCL_INFO("[CollReduceScatterMeshOpbasePipelineExecutor][RunLoop] begins.");
 
@@ -156,8 +161,8 @@ HcclResult CollReduceScatterMeshOpbasePipelineExecutor::RunLoop(const OpParam &p
             param.root, param.reduceType};
 
         CHK_RET(executor->Prepare(&opInfo, execMem.inputMem, curCount, bufferSize, curOffset, outerCommInfo,
-            innerCommInfo, const_cast<Stream&>(param.stream), streamInfo_.ringStreams, streamInfo_.ringSignal,
-            streamInfo_.ringSignalAux));
+            innerCommInfo, const_cast<Stream&>(param.stream), algResResp_->slaveStreams, algResResp_->notifiesM2S,
+            algResResp_->notifiesS2M));
         CHK_RET(executor->RunAsync());
 
         CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));

@@ -60,7 +60,7 @@ HcclResult CalcMeshTransportReq::CalcTransportRequest(const std::string &tag, Tr
                 tmpTransport.remoteUserRank = subCommPlaneVector_[ringIndex][rankIndex];
                 tmpTransport.inputMemType = inputMemType;
                 tmpTransport.outputMemType = outputMemType;
-                HCCL_INFO("[CommFactory][CalcMeshCommInfo] param_.tag[%s] ringIndex[%u], localRank[%u], "\
+                HCCL_INFO("[CommFactory][CalcMeshCommInfo] param_.tag[%s] ringIndex[%u], localRank[%u], " \
                     "remoteRank[%u], inputMemType[%d], outputMemType[%d]", tag.c_str(), ringIndex, userRank_,
                     tmpTransport.remoteUserRank, inputMemType, outputMemType);
             } else {

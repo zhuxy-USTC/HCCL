@@ -16,7 +16,7 @@ CollBroadcastRingExecutor::CollBroadcastRingExecutor(const HcclDispatcher dispat
     std::unique_ptr<TopoMatcher> &topoMatcher)
     : CollBroadcastExecutor(dispatcher, topoMatcher)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
         topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
         DMAReduceFlag_ = true;
     } else {
@@ -30,7 +30,7 @@ HcclResult CollBroadcastRingExecutor::CalcStreamNum(u32& streamNum)
         OUTER_PLANE_NUM_IN_NPRING_SINGLE;
 
     if (topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
-        if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+        if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
             totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
         } else {
             totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE;

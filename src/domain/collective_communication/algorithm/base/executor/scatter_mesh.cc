@@ -88,7 +88,7 @@ HcclResult ScatterMesh::RunAsync(const u32 rank, const u32 rankSize, const std::
         }
     }
 
-    HCCL_INFO("ScatterMesh finished: rank[%u] end", rank);
+    HCCL_INFO("ScatterMesh finished: rank[%u]", rank);
     return HCCL_SUCCESS;
 }
 

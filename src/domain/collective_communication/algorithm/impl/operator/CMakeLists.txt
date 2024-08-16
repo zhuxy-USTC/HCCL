@@ -1,6 +1,5 @@
 set(src_list
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_alg_operator.cc
-    ${CMAKE_CURRENT_SOURCE_DIR}/common_operator.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/scatter_operator.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/reduce_operator.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/all_reduce_operator.cc

@@ -134,7 +134,7 @@ HcclResult ReduceScatterMeshDirect::RunAsync(const u32 rank, const u32 rankSize,
     DeviceMem srcMem = commMemOut.range(0, sliceSize);
     CHK_RET(HcclD2DMemcpyAsync(dispatcher_, userMemOut, srcMem, stream_));
 
-    HCCL_INFO("ReduceScatterMeshDirect finished: rank[%u", rank);
+    HCCL_INFO("ReduceScatterMeshDirect finished: rank[%u]", rank);
     return HCCL_SUCCESS;
 }
 }

@@ -39,7 +39,7 @@ HcclResult CollAllGatherMeshExecutor::CalcCommInfo(std::vector<LevelNSubCommTran
 
 HcclResult CollAllGatherMeshExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -56,7 +56,7 @@ HcclResult CollAllGatherMeshExecutor::CalcLevel0CommInfo(TransportMemType inputT
 {
     CommParaInfo commParaLevel0(COMM_LEVEL0, CommType::COMM_TAG_MESH);
     commParaLevel0.meshSinglePlane = (topoAttr_.deviceType == DevType::DEV_TYPE_910B) &&
-        !topoMatcher_->GetExternalInputHcclDeterministic() && (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
+        !topoMatcher_->GetExternalInputHcclDeterministic() && (workflowMode_ != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
     CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel0, opTransport[COMM_LEVEL0], inputType, outputType));
     return HCCL_SUCCESS;
 }
@@ -109,13 +109,13 @@ HcclResult CollAllGatherMeshExecutor::KernelRun(const OpParam &param, ExecMem &e
     std::unique_ptr<ExecutorBase> outerExecutor;
     if (topoAttr_.deviceType == DevType::DEV_TYPE_910B) {
         outerExecutor.reset(
-            new (std::nothrow) AllGatherMeshAtomic(dispatcher_, streamInfo_.ringStreams,
-            streamInfo_.ringSignal, streamInfo_.ringSignalAux, commIndex, outerRankSize,
+            new (std::nothrow) AllGatherMeshAtomic(dispatcher_, algResResp_->slaveStreams,
+            algResResp_->notifiesM2S, algResResp_->notifiesS2M, commIndex, outerRankSize,
             topoAttr_.userRank));
     } else {
         outerExecutor.reset(
-            new (std::nothrow) AllGatherMesh(dispatcher_, streamInfo_.ringStreams, streamInfo_.ringSignal,
-                streamInfo_.ringSignalAux, commIndex, outerRankSize, topoAttr_.userRank));
+            new (std::nothrow) AllGatherMesh(dispatcher_, algResResp_->slaveStreams, algResResp_->notifiesM2S,
+                algResResp_->notifiesS2M, commIndex, outerRankSize, topoAttr_.userRank));
     }
     CHK_SMART_PTR_NULL(outerExecutor);
     CHK_RET(outerExecutor->Prepare(currentOutputMem, currentOutputMem, execMem.inputMem,

@@ -23,7 +23,8 @@ public:
                                            const std::vector<std::shared_ptr<LocalNotify>> &mainSignals,
                                            const std::vector<std::shared_ptr<LocalNotify>> &subSignals,
                                            const std::vector<u32>                          &ringsOrder,
-                                           const std::vector<Slice>                        &userMemOutputSlices);
+                                           const std::vector<Slice>                        &userMemOutputSlices,
+                                           bool isSdma = true);
 
     ~AllGatherRingConcurrentDirect() override;
 
@@ -53,6 +54,7 @@ private:
     const std::vector<u32>                    ringsOrder_;
     const std::vector<Slice>                  userMemOutputSlices_;
     std::vector<Slice>                        inputSlices_; // 需要吗？
+    bool                                      isSdma_;
 };
 } // namespace hccl
 

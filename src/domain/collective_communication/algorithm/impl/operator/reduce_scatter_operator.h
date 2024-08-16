@@ -11,13 +11,13 @@
 #ifndef REDUCE_SCATTER_OPERATOR_H
 #define REDUCE_SCATTER_OPERATOR_H
 
-#include "common_operator.h"
+#include "coll_alg_operator.h"
 #include "coll_alg_op_registry.h"
 
 namespace hccl {
-class ReduceScatterOperator : public CommonOperator {
+class ReduceScatterOperator : public CollAlgOperator {
 public:
-    ReduceScatterOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
+    ReduceScatterOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~ReduceScatterOperator();
     HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName, std::string& newTag);
 

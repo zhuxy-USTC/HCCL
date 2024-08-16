@@ -18,16 +18,15 @@ CollReceiveExecutor::CollReceiveExecutor(const HcclDispatcher dispatcher,
 {
 }
 
-HcclResult CollReceiveExecutor::Orchestrate(const OpParam& param, const AlgResourceResponse& algRes)
+HcclResult CollReceiveExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algRes)
 {
     HcclUs startut = TIME_NOW();
     tag_ = param.tag;
     algResResp_ = &algRes;
-    GetStreamInfo(algRes);
 
     HcclResult ret = HCCL_SUCCESS;
     // 图模式场景下不需要Loop
-    if (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         DeviceMem outputMem = algRes.paramOutputMem;
         ret = RunTemplate(param, outputMem);
     } else {
@@ -45,7 +44,7 @@ HcclResult CollReceiveExecutor::Orchestrate(const OpParam& param, const AlgResou
 
 HcclResult CollReceiveExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
         inputType = TransportMemType::CCL_OUTPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -100,7 +99,7 @@ HcclResult CollReceiveExecutor::CalcResRequest(const OpParam& param, AlgResource
     return HCCL_SUCCESS;
 }
 
-HcclResult CollReceiveExecutor::RunLoop(const OpParam &param, const AlgResourceResponse &algRes)
+HcclResult CollReceiveExecutor::RunLoop(OpParam &param, AlgResourceResponse &algRes)
 {
     HcclResult ret;
 
@@ -115,7 +114,7 @@ HcclResult CollReceiveExecutor::RunLoop(const OpParam &param, const AlgResourceR
     u64 outputOffset = 0;
     u64 countLeft = param.DataDes.count;
     while (countLeft > 0) {
-        CHK_RET(InitTask(dispatcher_, const_cast<Stream&>(param.stream), meta.isEnableCache, meta.GetCacheKey()));
+        CHK_RET(InitTask(dispatcher_, param.stream, meta.isEnableCache, meta.GetCacheKey()));
         curOutputPtr += outputOffset;
         HCCL_DEBUG("RecvOutPlace:outputOffset[%llu]", outputOffset);
         u64 curCount = ((countLeft * unitSize) > commOutputSize) ? (commOutputSize / unitSize) : countLeft;
@@ -143,12 +142,12 @@ HcclResult CollReceiveExecutor::RunLoop(const OpParam &param, const AlgResourceR
         DeviceMem outCommMem(cclOutputMem.ptr(), curSize);
         DeviceMem outMem(curOutputPtr, curSize);
 
-        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, outMem, outCommMem, const_cast<Stream&>(param.stream)));
+        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, outMem, outCommMem, param.stream));
         CHK_PRT_RET((curCount == 0), HCCL_ERROR("In OP_BASE curCount is zero"), HCCL_E_PARA);
         countLeft -= curCount;
         outputOffset = curSize;
 
-        CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));
+        CHK_RET(LaunchTaskExtend(dispatcher_, param.stream, algResResp_->slaveStreams));
     }
     return HCCL_SUCCESS;
 }

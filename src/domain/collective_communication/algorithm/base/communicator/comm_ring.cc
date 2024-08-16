@@ -20,11 +20,11 @@ CommRing::CommRing(const std::string &collectiveId, const u32 userRank,
                    const void* transportResourceInfoAddr, size_t transportResourceInfoSize,
                    const std::string &tag,
                    const NICDeployment nicDeployInner, const bool useOneDoorbell,
-                   const bool isAicpuModeEn, const bool isHaveCpuRank, const bool useSdidForDeviceId)
+                   const bool isAicpuModeEn, const bool isHaveCpuRank, const bool useSuperPodMode)
     : CommBase(collectiveId, userRank, userRankSize, rank, rankSize, paraVector, topoFlag, dispatcher, notifyPool,
                netDevCtxMap, exchanger, inputMem, outputMem, isUsedRdmaOuter, transportResourceInfoAddr,
                transportResourceInfoSize, tag, nicDeployInner, 0, useOneDoorbell, isAicpuModeEn, INVALID_UINT,
-               isHaveCpuRank, useSdidForDeviceId)
+               isHaveCpuRank, useSuperPodMode)
 {
 }
 
@@ -111,7 +111,7 @@ u32 CommRing::GetSocketsPerLink()
                 paraVector_[rank_].deviceType  == DevType::DEV_TYPE_910_73;
     if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT &&
         GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && multiQpDevType) {
-        return 2; // 2：多QP方式下额外创建一个socket用于同步QP状态迁移完成状态
+        return 2;
     }
     const u32 rdmaTaskNumRatio = 4; // server间ring算法每个link上rdma task数为 4*rank size
     HcclWorkflowMode workFlowMode = GetWorkflowMode();

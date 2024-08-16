@@ -14,6 +14,7 @@ namespace hccl {
 OpBaseStreamManager::OpBaseStreamManager() : master_()
 {
     slaves_.reserve(MAX_SUBSTREAM_NUM);
+    slaveDevices_.reserve(MAX_SUBSTREAM_NUM);
     HCCL_DEBUG("[OpBaseStreamManager]reserve slaves[%llu]", MAX_SUBSTREAM_NUM);
 }
 
@@ -57,7 +58,6 @@ HcclResult OpBaseStreamManager::AllocMaster(const StreamType streamType)
     lock.unlock();
     return HCCL_SUCCESS;
 }
-
 std::vector<Stream> OpBaseStreamManager::AllocSlaves(const StreamType streamType, u32 num)
 {
     HCCL_DEBUG("[OpBaseStreamManager][AllocSlaves]requesting for [%u] slave streams.", num);
@@ -66,30 +66,35 @@ std::vector<Stream> OpBaseStreamManager::AllocSlaves(const StreamType streamType
         HCCL_ERROR("[OpBaseStreamManager][AllocSlaves]master not found, alloc slave stream failed.");
         return std::vector<Stream>();
     }
-    if (slaves_.capacity() < num) {
+    std::vector<Stream> *slavesPtr;
+    slavesPtr = (streamType == StreamType::STREAM_TYPE_ONLINE) ? &slaves_ : &slaveDevices_;
+    if (slavesPtr->capacity() < num) {
         HCCL_ERROR("[OpBaseStreamManager][AllocSlaves]request number exceed max substream num, alloc failed.");
         return std::vector<Stream>();
     }
     std::unique_lock<std::mutex> slaveLock(slavesMutex_);
-    if (slaves_.size() < num) {
+    if (slavesPtr->size() < num) {
         HCCL_INFO("[OpBaseStreamManager][AllocSlaves]expanding slave streams, original size[%u], target size[%u].",
-            slaves_.size(), num);
-        for (u32 i = slaves_.size(); i < num; i++) {
-            slaves_.emplace_back(Stream(streamType));
-            if (!slaves_[i].ptr()) {
+            slavesPtr->size(),
+            num);
+        for (u32 i = slavesPtr->size(); i < num; i++) {
+            slavesPtr->emplace_back(Stream(streamType));
+            if (!(*slavesPtr)[i].ptr()) {
                 // 创建足够数量的slave stream失败，直接返回空vector
                 HCCL_ERROR("[OpBaseStreamManager][AllocSlaves]alloc slave stream[%u] failed.", i);
                 return std::vector<Stream>();
             }
-            HcclResult ret = SetSlaveMode(slaves_[i]);
-            if (ret != HCCL_SUCCESS) {
-                HCCL_ERROR("[OpBaseStreamManager][AllocSlaves]set mode to slave stream[%u] failed.", i);
-                return std::vector<Stream>();
+            if (streamType != StreamType::STREAM_TYPE_DEVICE) {
+                HcclResult ret = SetSlaveMode((*slavesPtr)[i]);
+                if (ret != HCCL_SUCCESS) {
+                    HCCL_ERROR("[OpBaseStreamManager][AllocSlaves]set mode to slave stream[%u] failed.", i);
+                    return std::vector<Stream>();
+                }
             }
         }
     }
     HCCL_INFO("[OpBaseStreamManager][AllocSlaves]find enough slave streams, return size[%u].", num);
-    return std::vector<Stream>(slaves_.begin(), slaves_.begin() + num);
+    return std::vector<Stream>(slavesPtr->begin(), slavesPtr->begin() + num);
 }
 
 HcclResult OpBaseStreamManager::SetSlaveMode(Stream &slave)
@@ -126,6 +131,7 @@ HcclResult OpBaseStreamManager::ClearSlaves()
 {
     std::unique_lock<std::mutex> lock(slavesMutex_);
     slaves_.clear();
+    slaveDevices_.clear();
     HCCL_DEBUG("[OpBaseStreamManager][GetMaster]clear slave streams success.");
     return HCCL_SUCCESS;
 }

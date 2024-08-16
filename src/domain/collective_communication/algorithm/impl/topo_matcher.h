@@ -53,6 +53,7 @@ using HcclTopoInfo = struct HcclTopoInfoDef {
     u32 realUserRank;
     bool isDiffDeviceModule;
     u32 moduleNum;
+    bool useSuperPodMode;
     std::unordered_map<u32, bool> isUsedRdmaMap;
     std::unordered_map<u32, u32> pairLinkCounter; // server内所有device间的链路类型计数
 
@@ -73,7 +74,8 @@ using HcclTopoInfo = struct HcclTopoInfoDef {
         multiModuleDiffDeviceNumMode(0),
         realUserRank(0),
         isDiffDeviceModule(false),
-        moduleNum(0)
+        moduleNum(0),
+        useSuperPodMode(false)
     {}
 };
 
@@ -102,10 +104,10 @@ class TopoMatcher {
 public:
     explicit TopoMatcher(const std::vector<std::vector<std::vector<u32>>> CommPlaneRanks,
                          const std::vector<bool> isBridgeVector,
-                         HcclTopoInfo &topoInfo,
-                         HcclAlgoInfo &algoInfo,
-                         HcclExternalEnable &externalEnable,
-                         std::vector<std::vector<std::vector<u32>>> &serverAndsuperPodToRank);
+                         HcclTopoInfo& topoInfo,
+                         HcclAlgoInfo& algoInfo,
+                         HcclExternalEnable& externalEnable,
+                         std::vector<std::vector<std::vector<u32>>>& serverAndsuperPodToRank);
     HcclResult CalcCommPlaneInfo(const std::string &tag, const CommParaInfo &commParaInfo,
         std::vector<SingleSubCommTransport> &commTransport, TransportMemType inPutMemType,
         TransportMemType outPutMemType);
@@ -118,7 +120,7 @@ public:
     u32 GetExternalInputIntraRoceSwitch();
     u32 GetExternalInputHcclDumpDebug();
     bool CheckSdmaWithRohTopo(const std::vector<u32> &nicList, std::vector<u32> &topoList);
-    u32 GetSubRootForScatter(const u32 root);
+    HcclResult GetSubRootForScatter(const u32 root, u32& subRoot);
     u32 GetSubRootUserRank(const u32 userRank, const u32 rootUserRank);
     u32 GetSubRootUserRankWithSuperPod(const u32 userRank, const u32 rootUserRank);
     HcclResult SetDeterministicConfig(const u8 deterministic);
@@ -144,9 +146,9 @@ private:
 
     std::vector<std::vector<std::vector<u32>>> CommPlaneVector_;
     std::vector<bool> isBridgeVector_;
-    HcclTopoInfo &topoInfo_;
-    HcclAlgoInfo &algoInfo_;
-    HcclExternalEnable &externalEnable_;
+    HcclTopoInfo topoInfo_;
+    HcclAlgoInfo algoInfo_;
+    HcclExternalEnable externalEnable_;
     u32 userRank_;
     std::vector<std::vector<std::map<u32, u32>>> subCommRank2UserRank_;
     std::vector<std::vector<std::map<u32, u32>>> userRank2subCommRank_;

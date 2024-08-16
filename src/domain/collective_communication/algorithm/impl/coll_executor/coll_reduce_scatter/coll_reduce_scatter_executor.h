@@ -22,14 +22,14 @@ public:
     std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollReduceScatterExecutor() = default;
 
-    HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes) override;
+    HcclResult Orchestrate(OpParam& param, AlgResourceResponse& algRes) override;
 protected:
     // ReduceScatter Loop Executor公共接口
     virtual u64 CalcLoopMaxCount(const u32 unitSize);
     virtual bool IsHugeData(const u64 curSize);
     virtual bool IsSmallData(const u64 totalSize, const u64 curSize);
-    virtual u32 CalcDataSplit(const u64 curSize);
-    virtual HcclResult RunLoop(const OpParam &param, const AlgResourceResponse &algRes);
+    virtual u32 IsDataSplit(const u64 curSize);
+    virtual HcclResult RunLoop(OpParam &param, AlgResourceResponse &algRes);
 
     // 工具类
     std::vector<std::vector<Slice>> ReduceScatterRingSlicePrepare(u32 ringNum, u32 sliceNum,
@@ -41,7 +41,7 @@ protected:
     u64 totalSize_{0};           // 总数据量
 
 private:
-    HcclResult RunLoopInner(const OpParam &param, const ReduceType &reduceType, ExecMem &execMem);
+    HcclResult RunLoopInner(OpParam &param, const ReduceType &reduceType, ExecMem &execMem);
 };
 
 } // namespace hccl

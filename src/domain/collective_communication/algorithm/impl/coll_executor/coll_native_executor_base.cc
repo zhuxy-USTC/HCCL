@@ -15,7 +15,7 @@ namespace hccl {
 CollNativeExecutorBase::CollNativeExecutorBase(const HcclDispatcher dispatcher,
     std::unique_ptr<TopoMatcher> &topoMatcher)
     : CollExecutorBase(dispatcher, topoMatcher), topoAttr_(topoMatcher_->GetTopoInfo()),
-      algoAttr_(topoMatcher_->GetAlgoInfo())
+      algoAttr_(topoMatcher_->GetAlgoInfo()), workflowMode_(GetWorkflowMode())
 {
     topoType_ = topoAttr_.topoType;
     is310P3Common_ = topoAttr_.is310P3Common;
@@ -25,11 +25,7 @@ void CollNativeExecutorBase::ParseParam(const OpParam& param)
 {
     tag_ = param.tag;
     root_ = param.root;
-}
-
-bool CollNativeExecutorBase::CheckNeedRecreateComm(u64 lastScratchMemSize)
-{
-    return false;
+    aicpuUnfoldMode_ = param.aicpuUnfoldMode;
 }
 
 // ----------------------资源计算接口----------------------
@@ -129,11 +125,13 @@ HcclResult CollNativeExecutorBase::CalcLevel1CommInfo(TransportMemType inputType
     }
     commParaLevel1.forceRdma = false;
     CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel1, opTransport[COMM_LEVEL1], inputType, outputType));
-    if (topoMatcher_->GetExternalInputEnableRdmaSdmaConcurrent() && UseInterServerRingAlgo(algType_)) {
+    HCCL_INFO("[CollNativeExecutorBase][COMM_LEVEL1]tag[%s] Calc CommInfo Finish", tag_.c_str());
+    if (topoMatcher_->GetExternalInputEnableRdmaSdmaConcurrent()) {
         CommParaInfo commParaLevel1Rdma(COMM_LEVEL1_RDMA, CommType::COMM_TAG_RING_INNER);
         commParaLevel1Rdma.forceRdma = true;
         CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel1Rdma, opTransport[COMM_LEVEL1_RDMA], inputType,
         outputType));
+        HCCL_INFO("[CollNativeExecutorBase][COMM_LEVEL1_RDMA]tag[%s] Calc CommInfo Finish", tag_.c_str());
     }
     HCCL_INFO("[CollNativeExecutorBase][CalcInnerCommInfo]tag[%s] Calc CommInfo Finish", tag_.c_str());
 
@@ -181,34 +179,13 @@ HcclResult CollNativeExecutorBase::KernelRun(const OpParam &param, ExecMem &exec
     return HCCL_SUCCESS;
 }
 
-HcclResult CollNativeExecutorBase::GetStreamInfo(const AlgResourceResponse &algRes)
-{
-    u32 slaveStreamNum = algRes.streams.size();
-    HCCL_INFO("[CollNativeExecutorBase]algRes.streams.size()[%d]", slaveStreamNum);
-    if (slaveStreamNum == 0) {
-        HCCL_INFO("[CollNativeExecutorBase][GetStreamInfo]tag[%s], slave stream is empty.", tag_.c_str());
-    }
-    streamInfo_.ringNum = slaveStreamNum + 1;
-    streamInfo_.ringStreams = algRes.streams;
-    streamInfo_.ringSignal.resize(slaveStreamNum);
-    streamInfo_.ringSignalAux.resize(slaveStreamNum);
-    for (u32 i = 0; i < slaveStreamNum; i++) {
-        streamInfo_.ringSignal[i] = algRes.notifies[2 * i];
-        streamInfo_.ringSignalAux[i] = algRes.notifies[2 * i + 1];
-    }
-    HCCL_DEBUG("[CollNativeExecutorBase][GetStreamInfo]tag[%s], ringNum[%u], ringStream.size()[%u], " \
-        "ringSignal.size()[%u], ringSingalAux.size()[%u]", tag_.c_str(), streamInfo_.ringNum,
-        streamInfo_.ringStreams.size(), streamInfo_.ringSignal.size(), streamInfo_.ringSignalAux.size());
-    return HCCL_SUCCESS;
-}
-
 HcclResult CollNativeExecutorBase::ActiveSlaveStreams(const Stream &stream)
 {
     HcclResult ret = HCCL_SUCCESS;
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) { // offline
-        for (u32 streamIndex = 0; streamIndex < streamInfo_.ringStreams.size(); streamIndex++) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) { // offline
+        for (u32 streamIndex = 0; streamIndex < algResResp_->slaveStreams.size(); streamIndex++) {
             ret = StreamActiveManager::GetInstance(topoAttr_.deviceLogicId).StreamActive(
-                streamInfo_.ringStreams[streamIndex].ptr(), stream.ptr());
+                algResResp_->slaveStreams[streamIndex].ptr(), stream.ptr());
             CHK_PRT_RET(ret != HCCL_SUCCESS,
                 HCCL_ERROR("[CollNativeExecutorBase][ActiveSlaveStreams]tag[%s], stream[%u] active failed,return[%d]",
                 tag_.c_str(), streamIndex, ret), ret);
@@ -219,15 +196,15 @@ HcclResult CollNativeExecutorBase::ActiveSlaveStreams(const Stream &stream)
 
 HcclResult CollNativeExecutorBase::AddSubStreamToProfiling()
 {
-    if (((GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) &&
+    if (((workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) &&
         hccl::ProfilingManagerPub::GetAddtionInfoState() &&
         hccl::ProfilingManagerPub::GetTaskApiState())) {
         return HCCL_SUCCESS;
     }
 
-    for (u32 streamIndex = 0; streamIndex < streamInfo_.ringStreams.size(); streamIndex++) {
+    for (u32 streamIndex = 0; streamIndex < algResResp_->slaveStreams.size(); streamIndex++) {
         // profiling加入从环的stream
-        HCCL_PROFILER_ADD_STREAM(streamInfo_.ringStreams[streamIndex].ptr(), tag_, streamIndex + 1, algType_);
+        HCCL_PROFILER_ADD_STREAM(algResResp_->slaveStreams[streamIndex].id(), tag_, streamIndex + 1, algType_);
     }
     return HCCL_SUCCESS;
 }
@@ -254,61 +231,6 @@ SubCommInfo CollNativeExecutorBase::GetSubCommInfo(const CommPlane levelIndex, c
     info.links = transportInfo.links;
     info.virtualLinks = transportInfo.virtualLinks;
     return info;
-}
-
-// ----------------------工具接口----------------------
-
-AlgTypeLevel0 CollNativeExecutorBase::GetLevel0AlgType(const AlgType algType) const
-{
-    const u32 algLevel0 = static_cast<u32>(algType) & ((1 << HCCL_LEVEL_ALGO_WIDTH) - 1);
-    return static_cast<AlgTypeLevel0>(algLevel0);
-}
-
-AlgTypeLevel1 CollNativeExecutorBase::GetLevel1AlgType(const AlgType algType) const
-{
-    const u32 algLevel1 = static_cast<u32>(algType) >> HCCL_LEVEL_ALGO_WIDTH;
-    return static_cast<AlgTypeLevel1>(algLevel1);
-}
-
-bool CollNativeExecutorBase::UseInterServerRingAlgo(AlgType algType)
-{
-    return GetLevel1AlgType(algType) == AlgTypeLevel1::ALG_LEVEL1_RING;
-}
-
-bool CollNativeExecutorBase::UseInterServerHDAlgo(AlgType algType)
-{
-    return GetLevel1AlgType(algType) == AlgTypeLevel1::ALG_LEVEL1_HD;
-}
-
-bool CollNativeExecutorBase::UseInterServerNHRAlgo(AlgType algType)
-{
-    return GetLevel1AlgType(algType) == AlgTypeLevel1::ALG_LEVEL1_NHR;
-}
-
-bool CollNativeExecutorBase::UseInterServerNHRV1Algo(AlgType algType)
-{
-    return GetLevel1AlgType(algType) == AlgTypeLevel1::ALG_LEVEL1_NHR_V1;
-}
-
-bool CollNativeExecutorBase::UseInterServerNBAlgo(AlgType algType)
-{
-    return GetLevel1AlgType(algType) == AlgTypeLevel1::ALG_LEVEL1_NB;
-}
-
-bool CollNativeExecutorBase::UseLevel2RingAlgo(AlgType algType)
-{
-    return GetLevel2AlgType(algType) == AlgTypeLevel2::ALG_LEVEL2_RING;
-}
-
-bool CollNativeExecutorBase::UseInterServerPipelineAlgo(AlgType algType)
-{
-    return GetLevel1AlgType(algType) == AlgTypeLevel1::ALG_LEVEL1_PIPELINE;
-}
-
-AlgTypeLevel2 CollNativeExecutorBase::GetLevel2AlgType(const AlgType algType) const
-{
-    const u32 algLevel2 = static_cast<u32>(algType) >> (HCCL_LEVEL_ALGO_WIDTH * 2);
-    return static_cast<AlgTypeLevel2>(algLevel2);
 }
 
 HcclResult CollNativeExecutorBase::BuildResourceRequest(u64 scratchMemSize, u32 streamNum, u32 notifyNum,

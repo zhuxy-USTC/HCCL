@@ -23,7 +23,9 @@ enum class ExecutorType {
     REDUCE_SCATTER_RING,
     ALLGATHER_RING,
     REDUCE_SCATTER_RING_DIRECT,
+    REDUCE_SCATTER_RING_DIRECT_RDMA,
     ALLGATHER_RING_DIRECT,
+    ALLGATHER_RING_DIRECT_RDMA,
     TYPE_RESERVED
 };
 
@@ -34,18 +36,6 @@ public:
     ~ThreadManage();
 
     HcclResult Init();
-    HcclResult Prepare(DeviceMem &inputMem, DeviceMem &outputMem, DeviceMem &scratchMem, const u64 count,
-                       const HcclDataType dataType, const Stream &stream, const HcclReduceOp reductionOp,
-                       const u32 root, const std::vector<Slice> &slices, const u64 baseOffset,
-                       std::vector<u32> nicRankList, const std::string &tag,
-                       s32 profStage, void* commRing, std::shared_ptr<LocalNotify> &signalAux,
-                       std::shared_ptr<LocalNotify> &signalMain, u32 ringIndex,
-                       ExecutorType type, u64 reduceAttr = 0, const HcomCollOpInfo *opInfo = nullptr,
-                       std::vector<Stream> subStreamsInOneRing = {},
-                       std::vector<std::shared_ptr<LocalNotify>> mainSignalsInOneRing = {},
-                       std::vector<std::shared_ptr<LocalNotify>> subSignalsInOneRing = {},
-                       std::vector<u32> ringsOrder = {},
-                       std::vector<Slice> userMemInputSlices = {});
     HcclResult Prepare(DeviceMem &inputMem, DeviceMem &outputMem, DeviceMem &scratchMem, const u64 count,
                        const HcclDataType dataType, const Stream &stream, const HcclReduceOp reductionOp,
                        const u32 root, const std::vector<Slice> &slices, const u64 baseOffset,
@@ -98,9 +88,7 @@ private:
     std::vector<u32> nicRankList_;
     std::string tag_;
     s32 profStage_ = 0;
-    bool newExecutorFlag_{false};
     SubCommInfo ringSubCommInfo_;
-    void* commRing_ = nullptr;
     std::shared_ptr<LocalNotify> signalAux_ = nullptr;
     std::shared_ptr<LocalNotify> signalMain_ = nullptr;
     u32 ringIndex_  = 0;

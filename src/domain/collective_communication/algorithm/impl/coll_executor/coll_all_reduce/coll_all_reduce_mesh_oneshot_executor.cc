@@ -23,7 +23,7 @@ CollAllReduceMeshOneshotExecutor::CollAllReduceMeshOneshotExecutor(const HcclDis
 HcclResult CollAllReduceMeshOneshotExecutor::CalcStreamNum(u32& streamNum)
 {
     u32 totalStreamNum = 0U;
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
         totalStreamNum = topoAttr_.deviceNumPerAggregation - 1U;
     } else {
         totalStreamNum = topoAttr_.deviceNumPerAggregation;
@@ -46,7 +46,7 @@ HcclResult CollAllReduceMeshOneshotExecutor::CalcCommInfo(std::vector<LevelNSubC
 HcclResult CollAllReduceMeshOneshotExecutor::CalcTransportMemType(TransportMemType &inputType,
     TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -97,11 +97,11 @@ HcclResult CollAllReduceMeshOneshotExecutor::KernelRun(const OpParam &param, Exe
     std::unique_ptr<ExecutorBase> outer2Executor;
     if (outerCommInfo.localRankSize == DEVICE_TWO) {
         outer2Executor.reset(new (std::nothrow) AllReduceMeshDirectOneshot(dispatcher_,
-            reduceAttr, streamInfo_.ringStreams, streamInfo_.ringSignal, streamInfo_.ringSignalAux,
+            reduceAttr, algResResp_->slaveStreams, algResResp_->notifiesM2S, algResResp_->notifiesS2M,
             outerCommInfo.localRank, outerCommInfo.localRankSize, topoAttr_.userRank, &opInfo));
     } else {
         outer2Executor.reset(new (std::nothrow) AllReduceChunkMesh(dispatcher_,
-            reduceAttr, streamInfo_.ringStreams, streamInfo_.ringSignal, streamInfo_.ringSignalAux,
+            reduceAttr, algResResp_->slaveStreams, algResResp_->notifiesM2S, algResResp_->notifiesS2M,
             outerCommInfo.localRank, outerCommInfo.localRankSize, topoAttr_.userRank, &opInfo));
     }
 

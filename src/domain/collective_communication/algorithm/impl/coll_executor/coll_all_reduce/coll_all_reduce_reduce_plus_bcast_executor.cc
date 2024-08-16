@@ -39,7 +39,7 @@ HcclResult CollAllReduceReducePlusBcastExecutor::CalcCommInfo(std::vector<LevelN
 HcclResult CollAllReduceReducePlusBcastExecutor::CalcTransportMemType(TransportMemType &inputType,
     TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -66,6 +66,9 @@ HcclResult CollAllReduceReducePlusBcastExecutor::CalcLevel0CommInfo(TransportMem
 
 bool CollAllReduceReducePlusBcastExecutor::IsHugeData(const u64 curSize)
 {
+    if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT) {
+        return true;
+    }
     bool hugeData = curSize / topoAttr_.deviceNumPerAggregation / HCCL_INTERNODE_MAX_DATA_RATE > RDMA_SEND_MAX_SIZE ||
         curSize > SDMA_SEND_MAX_SIZE;
     return hugeData;

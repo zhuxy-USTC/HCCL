@@ -63,12 +63,10 @@ HcclResult CollAllReduceMeshOpbaseBigCountAivExecutor::CalcLevel0CommInfo(Transp
     return HCCL_SUCCESS;
 }
 
-HcclResult CollAllReduceMeshOpbaseBigCountAivExecutor::Orchestrate(const OpParam& param,
-    const AlgResourceResponse& algRes)
+HcclResult CollAllReduceMeshOpbaseBigCountAivExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algRes)
 {
     HcclUs startut = TIME_NOW();
     tag_ = param.tag;
-    GetStreamInfo(algRes);
     algResResp_ = &algRes;
 
     HcclResult ret = HCCL_SUCCESS;
@@ -117,7 +115,7 @@ HcclResult CollAllReduceMeshOpbaseBigCountAivExecutor::KernelRun(const OpParam &
         }
     }
 
-    bool isOpbase = (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
+    bool isOpbase = (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
     HcclResult ret = ExecuteKernelLaunch(HcclCMDType::HCCL_CMD_ALLREDUCE, execMem.inputPtr, execMem.outputPtr,
         execMem.count, param.DataDes.dataType, param.reduceType, localRank, localRankSize, 0,
         buffersIn, buffersOut, param.stream.ptr(), isOpbase, execMem.inputMem.size());
