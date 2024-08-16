@@ -74,9 +74,9 @@ using OpCommTransport = std::vector<LevelNSubCommTransport>;
 
 struct AlgResourceRequest {
     u64 scratchMemSize = 0;
-    u32 streamNum;
-    u32 notifyNum;
-    bool needAivBuffer;
+    u32 streamNum = 0;
+    u32 notifyNum = 0;
+    bool needAivBuffer = false;
     DeviceMode mode = DeviceMode::HOST;     // 用于区分是host模式，还是aicpu模式
     OpCommTransport opTransport;
     void Describe()
@@ -94,23 +94,25 @@ struct AlgResourceResponse {
     DeviceMem scratchMem;
     DeviceMem aivInputMem;
     DeviceMem aivOutputMem;
-    std::vector<Stream> streams;
-    std::vector<std::shared_ptr<LocalNotify> > notifies;  // 大小为streams的两倍
+    std::vector<Stream> slaveStreams;
+    std::vector<std::shared_ptr<LocalNotify> > notifiesM2S;  // 大小等同于slaveStreams
+    std::vector<std::shared_ptr<LocalNotify> > notifiesS2M;  // 大小等同于slaveStreams
     OpCommTransport opTransportResponse;
 };
 
 struct OpParam {
-    std::string tag;
+    std::string tag = "";
     Stream stream;
-    void* inputPtr;
-    u64 inputSize;
-    void* outputPtr;
-    u64 outputSize;
+    void* inputPtr = nullptr;
+    u64 inputSize = 0;
+    void* outputPtr = nullptr;
+    u64 outputSize = 0;
     HcclReduceOp reduceType = HcclReduceOp::HCCL_REDUCE_RESERVED;
     SyncMode syncMode = SyncMode::DEFAULT_TIMEWAITSYNCMODE;
     RankId root = INVALID_VALUE_RANKID;
-    RankId dstRank;
-    RankId srcRank;
+    RankId dstRank = 0;
+    RankId srcRank = 0;
+    bool aicpuUnfoldMode = false;
     HcclOpBaseAtraceInfo* opBaseAtraceInfo = nullptr;
     union {
         struct {

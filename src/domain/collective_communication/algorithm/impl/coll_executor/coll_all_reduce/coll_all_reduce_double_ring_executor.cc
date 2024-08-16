@@ -16,7 +16,7 @@ CollAllReduceDoubleRingExecutor::CollAllReduceDoubleRingExecutor(const HcclDispa
                                                                  std::unique_ptr<TopoMatcher> &topoMatcher)
     : CollAllReduceExecutor(dispatcher, topoMatcher)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         DMAReduceFlag_ = true;
     } else {
         DMAReduceFlag_ = false;
@@ -27,7 +27,7 @@ HcclResult CollAllReduceDoubleRingExecutor::CalcStreamNum(u32& streamNum)
 {
     u32 totalStreamNum = 0U;
     // DoubleRing只支持910_73场景
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
         totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_DOUBLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
     } else {
         totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_DOUBLE;
@@ -52,7 +52,7 @@ HcclResult CollAllReduceDoubleRingExecutor::CalcCommInfo(std::vector<LevelNSubCo
 HcclResult CollAllReduceDoubleRingExecutor::CalcTransportMemType(TransportMemType &inputType,
     TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -73,6 +73,21 @@ HcclResult CollAllReduceDoubleRingExecutor::CalcLevel0CommInfo(TransportMemType 
     return HCCL_SUCCESS;
 }
 
+bool CollAllReduceDoubleRingExecutor::IsSmallData(const u64 totalSize, const u64 curSize)
+{
+    return false;
+}
+
+bool CollAllReduceDoubleRingExecutor::IsHugeData(const u64 curSize)
+{
+    if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT && topoAttr_.devNumInLevel2 > 1) {
+        return true;
+    }
+    bool hugeData = curSize / topoAttr_.deviceNumPerAggregation / HCCL_INTERNODE_MAX_DATA_RATE > RDMA_SEND_MAX_SIZE ||
+        curSize > SDMA_SEND_MAX_SIZE;
+    return hugeData;
+}
+
 HcclResult CollAllReduceDoubleRingExecutor::CalcLevel2CommInfo(TransportMemType inputType,
     TransportMemType outputType,
     std::vector<LevelNSubCommTransport>& opTransport)
@@ -87,16 +102,15 @@ HcclResult CollAllReduceDoubleRingExecutor::CalcLevel2CommInfo(TransportMemType 
     return HCCL_SUCCESS;
 }
 
-bool CollAllReduceDoubleRingExecutor::IsHugeData(const u64 curSize)
+HcclResult CollAllReduceDoubleRingExecutor::RunIntraSeverReduceScatter(const std::string &tag, DeviceMem inputMem, DeviceMem outputMem,
+    const u64 count, const HcclDataType dataType, const HcclReduceOp reductionOp,
+    const std::vector<std::vector<Slice> > multRingsSliceZero, Stream stream, s32 profStage,
+    const u64 baseOffset, const HcomCollOpInfo *opInfo,
+    const std::vector<std::vector<Slice>> multRingsUserMemSlice)
 {
-    bool hugeData = curSize / topoAttr_.deviceNumPerAggregation / HCCL_INTERNODE_MAX_DATA_RATE > RDMA_SEND_MAX_SIZE ||
-        curSize > SDMA_SEND_MAX_SIZE;
-    return hugeData;
-}
-
-bool CollAllReduceDoubleRingExecutor::IsSmallData(const u64 totalSize, const u64 curSize)
-{
-    return false;
+    CHK_RET(MultiRingReduceScatter(tag, inputMem, outputMem, count, dataType, reductionOp,
+        multRingsSliceZero, stream, profStage, baseOffset, opInfo, multRingsUserMemSlice));
+    return HCCL_SUCCESS;
 }
 
 HcclResult CollAllReduceDoubleRingExecutor::KernelRun(const OpParam &param, ExecMem &execMem)
@@ -128,7 +142,7 @@ HcclResult CollAllReduceDoubleRingExecutor::KernelRun(const OpParam &param, Exec
     if (DMAReduceFlag_) {
         reduceScatterOpInfoPtr = &reduceScatterOpInfo;
     }
-    CHK_RET(MultiRingReduceScatter(param.tag, execMem.inputMem, execMem.outputMem, execMem.count,
+    CHK_RET(RunIntraSeverReduceScatter(param.tag, execMem.inputMem, execMem.outputMem, execMem.count,
         param.DataDes.dataType, param.reduceType, multRingsSliceZero, param.stream,
         PROF_STAGE_0, 0, reduceScatterOpInfoPtr));
     HCCL_INFO("allreduce double ring stage0 run success.");
@@ -246,11 +260,11 @@ HcclResult CollAllReduceDoubleRingExecutor::KernelRun(const OpParam &param, Exec
             level2ARExecutor.reset(new (std::nothrow) AllReduceRecursiveHalvingDoubling(dispatcher_, reduceAttr));
             HCCL_INFO("reducescatter ring: using halving-doubling algo inter-server.");
         }
+        CHK_SMART_PTR_NULL(level2ARExecutor);
         CHK_RET(level2ARExecutor->Prepare(
             allreduceInput, allreduceOutput, allreduceOutput, arCount,
             param.DataDes.dataType, param.stream, param.reduceType, OUTER_BRIDGE_RANK_ID,
             std::vector<Slice>(0), dataSegsSlice[segmentIdx].offset));
-        CHK_SMART_PTR_NULL(level2ARExecutor);
         CHK_RET(level2ARExecutor->RegisterProfiler(
             (rankSize << PROF_RANKSIZE_OFFSET_OF_PLANEID) + level2CommInfo.localRank,
             PROF_STAGE_1, HCCL_EXEC_STEP_NOT_SET, param.stream));

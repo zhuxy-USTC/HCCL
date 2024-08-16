@@ -56,6 +56,7 @@ private:
 
     Stream master_;
     std::vector<Stream> slaves_;
+    std::vector<Stream> slaveDevices_;
     std::mutex masterMutex_;
     std::mutex slavesMutex_;
 };

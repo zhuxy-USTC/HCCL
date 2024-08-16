@@ -88,11 +88,6 @@ void ThreadManage::WaitDone()
 HcclResult ThreadManage::ExecuteService()
 {
     HcclResult ret = HCCL_SUCCESS;
-    hccl::CommBase* commRing = nullptr;
-    if (newExecutorFlag_ == false) {
-        commRing = static_cast<hccl::CommBase *>(commRing_);
-        CHK_SMART_PTR_NULL(commRing);
-    }
 
     std::unique_ptr<ExecutorBase> executor;
     if (executorType_ == ExecutorType::REDUCE_SCATTER_RING) {
@@ -103,10 +98,18 @@ HcclResult ThreadManage::ExecuteService()
         executor.reset(new (std::nothrow) ReduceScatterRingConcurrentDirect(
             dispatcher_, reduceAttr_, opInfo_, userRank_, subStreamsInOneRing_, mainSignalsInOneRing_,
             subSignalsInOneRing_, ringsOrder_, userMemInputSlices_));
+    } else if (executorType_ == ExecutorType::REDUCE_SCATTER_RING_DIRECT_RDMA) {
+        executor.reset(new (std::nothrow) ReduceScatterRingConcurrentDirect(
+            dispatcher_, reduceAttr_, opInfo_, userRank_, subStreamsInOneRing_, mainSignalsInOneRing_,
+            subSignalsInOneRing_, ringsOrder_, userMemInputSlices_, false));
     } else if (executorType_ == ExecutorType::ALLGATHER_RING_DIRECT) {
         executor.reset(new (std::nothrow) AllGatherRingConcurrentDirect(
             dispatcher_, opInfo_, userRank_, subStreamsInOneRing_, mainSignalsInOneRing_,
             subSignalsInOneRing_, ringsOrder_, userMemInputSlices_));
+    } else if (executorType_ == ExecutorType::ALLGATHER_RING_DIRECT_RDMA) {
+        executor.reset(new (std::nothrow) AllGatherRingConcurrentDirect(
+            dispatcher_, opInfo_, userRank_, subStreamsInOneRing_, mainSignalsInOneRing_,
+            subSignalsInOneRing_, ringsOrder_, userMemInputSlices_, false));
     }
     CHK_SMART_PTR_NULL(executor);
 
@@ -119,23 +122,13 @@ HcclResult ThreadManage::ExecuteService()
     CHK_PRT_RET(ret != HCCL_SUCCESS,
         HCCL_ERROR("[Execute][Service]stream[%u],prepare failed,return[%d]", ringIndex_, ret), ret);
 
-    if (newExecutorFlag_) {
-        ret = executor->RegisterProfiler(((ringIndex_ + 1) << PROF_RINGINDEX_OFFSET_OF_PLANEID) +
-            (ringSubCommInfo_.localRankSize << PROF_RANKSIZE_OFFSET_OF_PLANEID) + ringSubCommInfo_.localRank,
-            profStage_, HCCL_EXEC_STEP_NOT_SET, stream_);
-        CHK_PRT_RET(ret != HCCL_SUCCESS,
-            HCCL_ERROR("[Execute][Service]stream[%u],register Profiler failed,return[%d]", ringIndex_, ret), ret);
+    ret = executor->RegisterProfiler(((ringIndex_ + 1) << PROF_RINGINDEX_OFFSET_OF_PLANEID) +
+        (ringSubCommInfo_.localRankSize << PROF_RANKSIZE_OFFSET_OF_PLANEID) + ringSubCommInfo_.localRank,
+        profStage_, HCCL_EXEC_STEP_NOT_SET, stream_);
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[Execute][Service]stream[%u],register Profiler failed,return[%d]", ringIndex_, ret), ret);
 
-        ret = CollExecutorBase::RunTemplate(executor, ringSubCommInfo_);
-    } else {
-        ret = executor->RegisterProfiler(((ringIndex_ + 1) << PROF_RINGINDEX_OFFSET_OF_PLANEID) +
-            (commRing->RankSize() << PROF_RANKSIZE_OFFSET_OF_PLANEID) + commRing->Rank(),
-            profStage_, HCCL_EXEC_STEP_NOT_SET, stream_);
-        CHK_PRT_RET(ret != HCCL_SUCCESS,
-            HCCL_ERROR("[Execute][Service]stream[%u],register Profiler failed,return[%d]", ringIndex_, ret), ret);
-
-        ret = commRing->RunExecutor(executor);
-    }
+    ret = CollExecutorBase::RunTemplate(executor, ringSubCommInfo_);
 
     CHK_PRT_RET(ret != HCCL_SUCCESS,
         HCCL_ERROR("[Execute][Service]stream[%u],run failed,return[%d]", ringIndex_, ret), ret);
@@ -145,7 +138,6 @@ HcclResult ThreadManage::ExecuteService()
         HCCL_ERROR("[Execute][Service]stream[%u] record failed", ringIndex_), ret);
     return HCCL_SUCCESS;
 }
-
 
 HcclResult ThreadManage::ThreadExecuteFn()
 {
@@ -176,48 +168,6 @@ HcclResult ThreadManage::ThreadExecuteFn()
 HcclResult ThreadManage::Prepare(DeviceMem &inputMem, DeviceMem &outputMem, DeviceMem &scratchMem, const u64 count,
     const HcclDataType dataType, const Stream &stream, const HcclReduceOp reductionOp, const u32 root,
     const std::vector<Slice> &slices, const u64 baseOffset, std::vector<u32> nicRankList,
-    const std::string &tag, s32 profStage, void* commRing,
-    std::shared_ptr<LocalNotify> &signalAux, std::shared_ptr<LocalNotify> &signalMain, u32 ringIndex,
-    ExecutorType type, u64 reduceAttr, const HcomCollOpInfo *opInfo,
-    std::vector<Stream> subStreamsInOneRing, std::vector<std::shared_ptr<LocalNotify>> mainSignalsInOneRing,
-    std::vector<std::shared_ptr<LocalNotify>> subSignalsInOneRing, std::vector<u32> ringsOrder,
-    std::vector<Slice> userMemInputSlices)
-{
-    newExecutorFlag_ = false;
-    /* * 参数保存 */
-    inputMem_ = inputMem;
-    outputMem_ = outputMem;
-    scratchMem_ = scratchMem;
-    count_ = count;
-    dataType_ = dataType;
-    stream_ = stream;
-    reductionOp_ = reductionOp;
-    root_ = root;
-    baseOffset_ = baseOffset;
-    profStage_ = profStage;
-    commRing_ = commRing;
-    signalAux_ = signalAux;
-    signalMain_ = signalMain;
-    ringIndex_ = ringIndex;
-    reduceAttr_ = reduceAttr;
-    opInfo_ = opInfo;
-    subStreamsInOneRing_ = subStreamsInOneRing;
-    mainSignalsInOneRing_ = mainSignalsInOneRing;
-    subSignalsInOneRing_ = subSignalsInOneRing;
-    ringsOrder_ = ringsOrder;
-    userMemInputSlices_ = userMemInputSlices;
-    executorType_ = type;
-
-    tag_.assign(tag.begin(), tag.end());
-    slices_.assign(slices.begin(), slices.end());
-    nicRankList_.assign(nicRankList.begin(), nicRankList.end());
-    HCCL_PROFILER_ADD_STREAM(stream_.ptr(), tag_, 0, AlgType::ALG_RESERVED);
-    return HCCL_SUCCESS;
-}
-
-HcclResult ThreadManage::Prepare(DeviceMem &inputMem, DeviceMem &outputMem, DeviceMem &scratchMem, const u64 count,
-    const HcclDataType dataType, const Stream &stream, const HcclReduceOp reductionOp, const u32 root,
-    const std::vector<Slice> &slices, const u64 baseOffset, std::vector<u32> nicRankList,
     const std::string &tag, s32 profStage, const SubCommInfo &ringSubCommInfo,
     std::shared_ptr<LocalNotify> &signalAux, std::shared_ptr<LocalNotify> &signalMain, u32 ringIndex,
     ExecutorType type, u64 reduceAttr, const HcomCollOpInfo *opInfo,
@@ -225,7 +175,6 @@ HcclResult ThreadManage::Prepare(DeviceMem &inputMem, DeviceMem &outputMem, Devi
     std::vector<std::shared_ptr<LocalNotify>> subSignalsInOneRing, std::vector<u32> ringsOrder,
     std::vector<Slice> userMemInputSlices)
 {
-    newExecutorFlag_ = true;
     /* * 参数保存 */
     inputMem_ = inputMem;
     outputMem_ = outputMem;
@@ -253,9 +202,10 @@ HcclResult ThreadManage::Prepare(DeviceMem &inputMem, DeviceMem &outputMem, Devi
     tag_.assign(tag.begin(), tag.end());
     slices_.assign(slices.begin(), slices.end());
     nicRankList_.assign(nicRankList.begin(), nicRankList.end());
-    HCCL_PROFILER_ADD_STREAM(stream_.ptr(), tag_, 0, AlgType::ALG_RESERVED);
+    HCCL_PROFILER_ADD_STREAM(stream.id(), tag_, 0, AlgType::ALG_RESERVED);
     return HCCL_SUCCESS;
 }
+
 uint32_t ThreadManage::GetTid()
 {
     if (threadId_ == 0) {

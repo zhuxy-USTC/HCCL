@@ -40,7 +40,7 @@ HcclResult CollReduceScatterSingleRankExecutor::KernelRun(const OpParam &param, 
         DeviceMem dstMem(execMem.outputPtr, totalSize);
         HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, const_cast<Stream&>(param.stream));
     }
-    CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));
+    CHK_RET(LaunchTaskExtend(dispatcher_, const_cast<Stream&>(param.stream), algResResp_->slaveStreams));
 
     return HCCL_SUCCESS;
 }

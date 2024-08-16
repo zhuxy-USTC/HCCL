@@ -15,10 +15,10 @@ ReduceScatterRingConcurrentDirect::ReduceScatterRingConcurrentDirect(
     const HcclDispatcher dispatcher, const u64 reduceAttrBitMap, const HcomCollOpInfo *opInfo,
     const u32 userRank, std::vector<Stream> &subStreams, const std::vector<std::shared_ptr<LocalNotify>> &mainSignals,
     const std::vector<std::shared_ptr<LocalNotify>> &subSignals, const std::vector<u32> &ringsOrder,
-    const std::vector<Slice> &userMemInputSlices)
+    const std::vector<Slice> &userMemInputSlices, bool isSdma)
     : ExecutorBase(dispatcher), reduceAttr_(reduceAttrBitMap), opInfo_(opInfo), userRank_(userRank),
       subStreams_(subStreams), mainSignals_(mainSignals), subSignals_(subSignals), ringsOrder_(ringsOrder),
-      userMemInputSlices_(userMemInputSlices)
+      userMemInputSlices_(userMemInputSlices), isSdma_(isSdma)
 {
 }
 
@@ -55,7 +55,7 @@ HcclResult ReduceScatterRingConcurrentDirect::RunAsync(const u32 rank, const u32
         CHK_RET(ExecuteBarrier(leftLink_, rightLink_));
     }
 
-    HCCL_INFO("ReduceScatterRingConcurrentDirect finished: rank[%u] end", rank);
+    HCCL_INFO("ReduceScatterRingConcurrentDirect finished: rank[%u]", rank);
     return HCCL_SUCCESS;
 }
 
@@ -92,7 +92,7 @@ HcclResult ReduceScatterRingConcurrentDirect::CheckParameters(const u32 rank, co
         HCCL_ERROR("[ReduceScatterRingConcurrentDirect] userMemInputSlices size[%u] can not divided by size[%u]",
                    userMemInputSlices_.size(), rankSize),
         HCCL_E_PARA);
-    HCCL_INFO("ReduceScatterRingConcurrentDirect finished to CheckParameters");
+    HCCL_INFO("ReduceScatterRingConcurrentDirect CheckParameters success");
     return HCCL_SUCCESS;
 }
 
@@ -239,7 +239,8 @@ HcclResult ReduceScatterRingConcurrentDirect::RunMainStream(const u32 step, std:
         HCCL_DEBUG("Reduce operation: step[%u] stream[main], src rank[%u] starts to send offset[%llu] size[%llu] "
             "from leftMem_",
             step, leftLink_->GetRemoteRank(), rxSliceVector[sliceIdx].offset, rxSliceVector[sliceIdx].size);
-        if (step == rankSize - DMA_REDUCE_TWO_OFFSET && opInfo_->outputAddr != nullptr) {
+        if (isSdma_ && step == rankSize - DMA_REDUCE_TWO_OFFSET && opInfo_->outputAddr != nullptr) {
+            HCCL_DEBUG("[RunReduceScatter] sdma DMAReduce step");
             HCCL_DEBUG("Reduce operation: step[%u] stream[main], dst rank[%u] starts to rcv offset[%llu], size[%llu] "
                 "at userMemOut_",
                 step, userRank_, lastStepOffset_, rxSliceVector[sliceIdx].size);
@@ -250,6 +251,12 @@ HcclResult ReduceScatterRingConcurrentDirect::RunMainStream(const u32 step, std:
                 "at inputMem_",
                 step, userRank_, rxSliceVector[sliceIdx].offset, rxSliceVector[sliceIdx].size);
             dst = inputMem_.range(rxSliceVector[sliceIdx].offset, rxSliceVector[sliceIdx].size);
+            if (!isSdma_ && step == rankSize - DMA_REDUCE_TWO_OFFSET && opInfo_->outputAddr != nullptr) {
+                HCCL_DEBUG("[RunReduceScatter] rdma DMAReduce step");
+                finalSrc_ = inputMem_.range(rxSliceVector[sliceIdx].offset, rxSliceVector[sliceIdx].size);
+                finalDst_ = DeviceMem::create(static_cast<u8 *>(opInfo_->outputAddr) + lastStepOffset_,
+                rxSliceVector[sliceIdx].size);
+            }
         }
         // 在inline reduce场景, 需要利用scratchMem_暂存
         DeviceMem srcMemTemp = scratchMem_.range(rxSliceVector[sliceIdx].offset, rxSliceVector[sliceIdx].size);
@@ -277,7 +284,7 @@ HcclResult ReduceScatterRingConcurrentDirect::RunSubStream(const u32 step, std::
         DeviceMem dst;
         if (step == rankSize - DMA_REDUCE_TWO_OFFSET) {
             // do nothing
-        } else if (step == rankSize - DMA_REDUCE_THREE_OFFSET && opInfo_->outputAddr != nullptr) {
+        } else if (isSdma_ && step == rankSize - DMA_REDUCE_THREE_OFFSET && opInfo_->outputAddr != nullptr) {
             HCCL_DEBUG("Memcpy operation: step[%u] stream[sub], dst rank[%u] starts to rcv offset[%llu], size[%llu] "
                 "to userMemOut_", step, userRank_, lastStepOffset_, subSliceVector[sliceIdx].size);
             dst = DeviceMem::create(static_cast<u8 *>(opInfo_->outputAddr) + lastStepOffset_,
@@ -341,6 +348,10 @@ HcclResult ReduceScatterRingConcurrentDirect::RunReduceScatter(const u32 rank, c
         subSliceIdx = (subSliceIdx + rankSize - 1) % rankSize;
         txSliceIdx  = (txSliceIdx + rankSize - 1) % rankSize;
         rxSliceIdx  = (rxSliceIdx + rankSize - 1) % rankSize;
+    }
+    if (!isSdma_ && opInfo_->outputAddr != nullptr) {
+        HCCL_DEBUG("[RunReduceScatter] rdma DMAReduce last step");
+        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, finalDst_, finalSrc_, stream_));
     }
     HCCL_INFO("ReduceScatterRingConcurrentDirect finished to RunReduceScatter");
     return HCCL_SUCCESS;

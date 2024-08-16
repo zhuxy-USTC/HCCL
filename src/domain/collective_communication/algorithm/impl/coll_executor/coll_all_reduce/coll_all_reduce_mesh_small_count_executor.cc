@@ -23,11 +23,12 @@ void CollAllReduceMeshSmallCountExecutor::ParseParam(const OpParam& param)
 {
     tag_ = param.tag;
     totalSize_ = param.DataDes.count * SIZE_TABLE[param.DataDes.dataType];
+    aicpuUnfoldMode_ = param.aicpuUnfoldMode;
 }
 
 bool CollAllReduceMeshSmallCountExecutor::CalcScratchMemFlag(const u64 totalSize)
 {
-    return GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB &&
+    return workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB &&
         topoAttr_.deviceType == DevType::DEV_TYPE_910B &&
         topoMatcher_->GetExternalInputHcclDeterministic() &&
         topoAttr_.deviceNumPerAggregation > DEVICE_TWO &&
@@ -50,7 +51,7 @@ HcclResult CollAllReduceMeshSmallCountExecutor::CalcScratchMemSize(u64& scratchM
 HcclResult CollAllReduceMeshSmallCountExecutor::CalcStreamNum(u32& streamNum)
 {
     u32 totalStreamNum = 0U;
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB || aicpuUnfoldMode_) {
         totalStreamNum = topoAttr_.deviceNumPerAggregation - 1U;
     } else {
         totalStreamNum = topoAttr_.deviceNumPerAggregation;
@@ -73,7 +74,7 @@ HcclResult CollAllReduceMeshSmallCountExecutor::CalcCommInfo(std::vector<LevelNS
 HcclResult CollAllReduceMeshSmallCountExecutor::CalcTransportMemType(TransportMemType &inputType,
     TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -100,19 +101,16 @@ HcclResult CollAllReduceMeshSmallCountExecutor::CalcLevel0CommInfo(TransportMemT
     return HCCL_SUCCESS;
 }
 
-HcclResult CollAllReduceMeshSmallCountExecutor::Orchestrate(const OpParam& param,
-    const AlgResourceResponse& algRes)
+HcclResult CollAllReduceMeshSmallCountExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algRes)
 {
     HcclUs startut = TIME_NOW();
     ParseParam(param);
     algResResp_ = &algRes;
-    GetStreamInfo(algRes);
-    auto rtStream = param.stream.ptr();
-    HCCL_PROFILER_ADD_STREAM(rtStream, param.tag, 0, algType_);
+    HCCL_PROFILER_ADD_STREAM(param.stream.id(), param.tag, 0, algType_);
     CHK_RET(AddSubStreamToProfiling());
 
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
-        HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, GetWorkflowMode());
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+        HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, workflowMode_);
         HCCL_PROFILER_ADD_OPDATA(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr, \
             param.DataDes.dataType, param.root, algoAttr_.identifier);
         HCCL_PROFILER_ADD_GROUPRANK(algoAttr_.identifier, topoAttr_.userRankSize, topoAttr_.userRank);
@@ -125,7 +123,7 @@ HcclResult CollAllReduceMeshSmallCountExecutor::Orchestrate(const OpParam& param
     execMem.count = param.DataDes.count;
     execMem.inputPtr = param.inputPtr;
     execMem.outputPtr = param.outputPtr;
-    if (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         execMem.inputMem = algRes.paramInputMem;
         execMem.outputMem = algRes.paramOutputMem;
         execMem.scratchMem = algRes.scratchMem;
@@ -139,9 +137,9 @@ HcclResult CollAllReduceMeshSmallCountExecutor::Orchestrate(const OpParam& param
         HCCL_ERROR("[CollAllReduceMeshSmallCountExecutor][Orchestrate]errNo[0x%016llx]excutor kernel run failed",
             HCCL_ERROR_CODE(ret)), ret);
 
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         CHK_RET(RankConsistent::GetInstance().DelOpPara(param.tag));
-        HCCL_PROFILER_DEL_STREAM(rtStream);
+        HCCL_PROFILER_DEL_STREAM(param.stream.id());
         HCCL_PROFILER_DEL_TAG(param.tag);
         HCCL_PROFILER_DEL_OPDATA(param.tag);
         HCCL_PROFILER_DEL_GROUPRANK(param.tag);
@@ -179,17 +177,17 @@ HcclResult CollAllReduceMeshSmallCountExecutor::KernelRun(const OpParam &param, 
     std::unique_ptr<ExecutorBase> outer2Executor;
     if (!topoMatcher_->GetExternalInputHcclDeterministic()) {
         outer2Executor.reset(new (std::nothrow) AllReduceReduceBcast(dispatcher_,
-            reduceAttr, streamInfo_.ringStreams, streamInfo_.ringSignal, streamInfo_.ringSignalAux,
+            reduceAttr, algResResp_->slaveStreams, algResResp_->notifiesM2S, algResResp_->notifiesS2M,
             outerCommInfo.localRank, outerCommInfo.localRankSize, topoAttr_.userRank, &opInfo));
     } else if (topoAttr_.deviceNumPerAggregation == DEVICE_EIGHT) {
-        if (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+        if (workflowMode_ != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
             outer2Executor.reset(new (std::nothrow) AllReduceDoubling(dispatcher_, reduceAttr));
         } else {
             outer2Executor.reset(new (std::nothrow) AllReduceDoublingDirect(dispatcher_, reduceAttr, &opInfo));
         }
     } else {
         outer2Executor.reset(new (std::nothrow) AllReduceLocalReduceBcast(dispatcher_,
-            reduceAttr, streamInfo_.ringStreams, streamInfo_.ringSignal, streamInfo_.ringSignalAux,
+            reduceAttr, algResResp_->slaveStreams, algResResp_->notifiesM2S, algResResp_->notifiesS2M,
             outerCommInfo.localRank, outerCommInfo.localRankSize, topoAttr_.userRank, &opInfo));
     }
     CHK_SMART_PTR_NULL(outer2Executor);
@@ -201,7 +199,7 @@ HcclResult CollAllReduceMeshSmallCountExecutor::KernelRun(const OpParam &param, 
             (outerCommInfo.localRankSize << PROF_RANKSIZE_OFFSET_OF_PLANEID) + outerCommInfo.localRank,
             PROF_STAGE_2, HCCL_EXEC_STEP_NOT_SET, param.stream));
     CHK_RET(RunTemplate(outer2Executor, outerCommInfo));
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));
     }
     HCCL_INFO("all reduce small count executor run success.");

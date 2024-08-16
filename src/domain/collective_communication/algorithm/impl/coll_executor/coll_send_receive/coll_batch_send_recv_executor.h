@@ -18,7 +18,7 @@ class CollBatchSendRecvExecutor : public CollCommExecutor {
 public:
     CollBatchSendRecvExecutor(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollBatchSendRecvExecutor() = default;
-    HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes) override;
+    HcclResult Orchestrate(OpParam& param, AlgResourceResponse& algRes) override;
     // 增量建链资源计算接口
     HcclResult CalcIncreLinkRequest(const OpParam& param, AlgResourceRequest& resourceRequest) override;
 private:
@@ -31,7 +31,7 @@ private:
     u64 CalcSendLoopMaxCount(DeviceMem& inCCLBuffer, const u32 unitSize);
     u64 CalcRecvLoopMaxCount(DeviceMem& outCCLBuffer, const u32 unitSize);
     HcclResult GetSendRecvInfo(HcclSendRecvItem* itemPtr);
-    HcclResult RunLoop(const OpParam &param, const AlgResourceResponse &algRes, u32 index);
+    HcclResult RunLoop(OpParam &param, AlgResourceResponse &algRes, u32 index);
     HcclResult KernelRun(const OpParam &param, ExecMem &execMem) override;
 
 private:

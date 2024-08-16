@@ -83,8 +83,10 @@ using WorldGroupInfo = struct worldGroupInfo {
     std::unordered_map<std::string, std::map<u32, HcclIpAddress>> phyIdNicInfoMap;
     std::vector<RankInfo> worldRankInfoList;
     std::vector<u32> ranksPort;
+    bool useSuperPodMode;
     worldGroupInfo()
-        :inlineReduceSwitchOn(true), deviceType(DevType::DEV_TYPE_COUNT), deviceLogicId(-1), profilingInitiated(false)
+        :inlineReduceSwitchOn(true), deviceType(DevType::DEV_TYPE_COUNT), deviceLogicId(-1), profilingInitiated(false),
+        useSuperPodMode(false)
     {
     }
 };

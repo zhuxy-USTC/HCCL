@@ -34,7 +34,8 @@ HcclResult OpExeCounter::InitCounter()
         HCCL_RUN_INFO("do not need add counter");
         return HCCL_SUCCESS;
     }
-    if (refCount_ == 0) {
+    if (refCount_ <= 0) {
+        refCount_ = 0;
         int32_t defCount = 0;
         CHK_RET(hrtMalloc(&headCountMem_, sizeof(int32_t)));
         CHK_PTR_NULL(headCountMem_);

@@ -21,22 +21,20 @@ public:
     std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollBroadcastExecutor() = default;
 
-    HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes) override;
+    HcclResult Orchestrate(OpParam& param, AlgResourceResponse& algRes) override;
 protected:
     /* *************** 算法编排 *************** */
     // Broadcast Loop Executor公共接口
-    HcclResult RunLoop(const OpParam &param, const AlgResourceResponse &algRes);
+    HcclResult RunLoop(OpParam &param, AlgResourceResponse &algRes);
     bool IsBroadcastSmallData(u64 size);
     HcclResult CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType);
-    u64 CalcLoopMaxCount(const u32 unitSize);
+    virtual u64 CalcLoopMaxCount(const u64 cclBuffSize, const u32 unitSize);
     HcclResult GetRankSliceSize(HcclDataType dataType, const u64 count, const u32 rankSize,
                 std::vector<Slice> &sliceList);
-    bool IsAlgTypeLevel0Mesh(AlgTypeLevel0 &originalAlgTypeLevel0) const;
-    HcclResult SetInterServerHDAlgo(AlgType &algType) const;
     bool DMAReduceFlag_{false}; // 是否DMA消减
 
 private:
-    HcclResult RunLoopInner(const OpParam &param, ExecMem &execMem);
+    HcclResult RunLoopInner(OpParam &param, ExecMem &execMem);
 };
 } // namespace hccl
 

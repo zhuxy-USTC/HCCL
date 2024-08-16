@@ -29,7 +29,7 @@ HcclResult AllReduceRecursiveHalvingDoubling::RunAsync(const u32 rank, const u32
                                                        const std::vector<LINK> &links)
 {
     CHK_RET(PrepareRunAsync(rank, rankSize, links));
-    CHK_PRT_RET(rankSize == 1, HCCL_INFO("[AllReduceRecursiveHalvingDoubling][RunAsync] "\
+    CHK_PRT_RET(rankSize == 1, HCCL_INFO("[AllReduceRecursiveHalvingDoubling][RunAsync]"\
         "rankSize[%u], do nothing.", rankSize), HCCL_SUCCESS);
 
     CHK_RET(ReduceInPartOne(rank, links));
@@ -139,7 +139,7 @@ HcclResult AllReduceRecursiveHalvingDoubling::ReduceInPartOne(u32 rank, const st
             CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Reduce][InPartOneToEven]TxAsync: tx async size[%llu] "\
                 "failed", 0), ret);
             CHK_RET(reducerInfo_->run(dispatcher_, link, baseOffset_,
-                outputMem_, inputMem_, outputMem_, stream_));
+                inputMem_, inputMem_, outputMem_, stream_));
             ret = link->RxWaitDone(stream_);
             CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Reduce][InPartOne]RxWaitDone failed"), ret);
         }

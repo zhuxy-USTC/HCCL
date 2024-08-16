@@ -18,16 +18,15 @@ CollSendExecutor::CollSendExecutor(const HcclDispatcher dispatcher,
 {
 }
 
-HcclResult CollSendExecutor::Orchestrate(const OpParam& param, const AlgResourceResponse& algRes)
+HcclResult CollSendExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algRes)
 {
     HcclUs startut = TIME_NOW();
     tag_ = param.tag;
     algResResp_ = &algRes;
-    GetStreamInfo(algRes);
 
     HcclResult ret = HCCL_SUCCESS;
     // 图模式场景下不需要Loop
-    if (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         DeviceMem InputMem = algRes.paramInputMem;
         ret = RunTemplate(param, InputMem);
     } else {
@@ -45,7 +44,7 @@ HcclResult CollSendExecutor::Orchestrate(const OpParam& param, const AlgResource
 
 HcclResult CollSendExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_INPUT;
     } else {
@@ -100,7 +99,7 @@ HcclResult CollSendExecutor::CalcResRequest(const OpParam& param, AlgResourceReq
     return HCCL_SUCCESS;
 }
 
-HcclResult CollSendExecutor::RunLoop(const OpParam &param, const AlgResourceResponse &algRes)
+HcclResult CollSendExecutor::RunLoop(OpParam &param, AlgResourceResponse &algRes)
 {
     HcclResult ret;
 
@@ -148,7 +147,7 @@ HcclResult CollSendExecutor::RunLoop(const OpParam &param, const AlgResourceResp
         countLeft -= curCount;
         inputOffset = curSize;
 
-        CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));
+        CHK_RET(LaunchTaskExtend(dispatcher_, param.stream, algResResp_->slaveStreams));
     }
     return HCCL_SUCCESS;
 }

@@ -30,8 +30,6 @@ protected:
         TransportMemType outputType,
         std::vector<LevelNSubCommTransport>& opTransport);
 
-    HcclResult CalcStreamNum(u32& streamNum) override;
-
     /* *************** 算法编排 *************** */
     HcclResult KernelRun(const OpParam &param, ExecMem &execMem) override;
 private:

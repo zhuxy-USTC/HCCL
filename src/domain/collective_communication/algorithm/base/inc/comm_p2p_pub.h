@@ -26,7 +26,7 @@ public:
                       const std::string &tag = "",
                       const u32 dstUserRank = INVALID_VALUE_RANKID,
                       const NICDeployment nicDeployInner = NICDeployment::NIC_DEPLOYMENT_DEVICE,
-                      const bool isHaveCpuRank = false, const bool useSdidForDeviceId = false);
+                      const bool isHaveCpuRank = false, const bool useSuperPodMode = false);
 
     ~CommP2P() override;
 

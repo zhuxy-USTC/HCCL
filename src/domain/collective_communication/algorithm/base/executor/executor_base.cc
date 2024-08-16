@@ -98,6 +98,18 @@ HcclResult ExecutorBase::Prepare(DeviceMem &inputMem, DeviceMem &scratchMem, con
     return HCCL_SUCCESS;
 }
 
+HcclResult ExecutorBase::Prepare(DeviceMem &inputMem, DeviceMem &outputMem, DeviceMem &scratchMem,
+                                 const u64 count,
+                                 const HcclDataType dataType, const Stream &stream,
+                                 const std::vector<std::vector<Slice>> &multRingsSlices,
+                                 const HcclReduceOp reductionOp,
+                                 const u32 root,
+                                 const u64 baseOffset)
+{
+    HCCL_DEBUG("AlignedReduceScatterDoubleRingWithSerialLocalCopy prepare blank");
+    return HCCL_SUCCESS;
+}
+
 HcclResult ExecutorBase::RegisterProfiler(s32 planeId, s32 stage, s32 step, const Stream &stream)
 {
     profilerInput_.streamID = stream.id();

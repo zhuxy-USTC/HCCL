@@ -26,7 +26,7 @@ CommBase::CommBase(const std::string &collectiveId, const u32 userRank, const u3
     const bool isUsedRdmaOuter, const void* transportResourceInfoAddr, size_t transportResourceInfoSize,
     const std::string &tag, const NICDeployment nicDeployInner,
     bool isAlltoAllCommMesh, const bool useOneDoorbell, const bool isAicpuModeEn, const u32 rankRoot,
-    bool isHaveCpuRank, bool useSdidForDeviceId)
+    bool isHaveCpuRank, bool useSuperPodMode)
     : linkDummy_(nullptr), collectiveId_(collectiveId), userRank_(userRank),
       userRankSize_(userRankSize), rank_(rank), rankSize_(rankSize), paraVector_(paraVector),
       transportType_(rankSize, TransportType::TRANS_TYPE_RESERVED),
@@ -41,7 +41,7 @@ CommBase::CommBase(const std::string &collectiveId, const u32 userRank, const u3
       shmDev_(0), isAlltoAllCommMesh_(isAlltoAllCommMesh),
       nicDeployInner_(nicDeployInner), isNeedHeterogP2P_(false),
       useOneDoorbell_(useOneDoorbell), isAicpuModeEn_(isAicpuModeEn), subUserRankRoot_(rankRoot),
-      isHaveCpuRank_(isHaveCpuRank), useSdidForDeviceId_(useSdidForDeviceId)
+      isHaveCpuRank_(isHaveCpuRank), useSuperPodMode_(useSuperPodMode)
 {
 }
 
@@ -210,7 +210,7 @@ u32 CommBase::GetSocketsPerLink()
                 paraVector_[rank_].deviceType  == DevType::DEV_TYPE_910_73;
     if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT &&
         GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && multiQpDevType) {
-        return 2; // 2：多QP方式下额外创建一个socket用于同步QP状态迁移完成状态
+        return 2;
     }
     return 1;
 }
@@ -283,14 +283,6 @@ HcclResult CommBase::RunExecutorStaged(const std::unique_ptr<ExecutorBase> &exec
     return HCCL_SUCCESS;
 }
 
-HcclResult CommBase::RunAlltoAll(const std::unique_ptr<AlltoAllVPairWise> &executor)
-{
-    HcclResult ret = executor->RunAsync(Rank(), RankSize(), transportInfo_);
-    CHK_PRT_RET(ret != HCCL_SUCCESS,
-        HCCL_ERROR("[Run][AlltoAllVPairWise]comm base run executor rank[%u] failed", rank_), ret);
-    return HCCL_SUCCESS;
-}
-
 HcclResult CommBase::SetRankMap()
 {
     // 参数有效性校验
@@ -325,22 +317,6 @@ HcclResult CommBase::CheckLinks() const
         }
     }
 
-    return HCCL_SUCCESS;
-}
-
-HcclResult CommBase::RunAlltoAllVStaged(const std::unique_ptr<AlltoAllVStagedBase> &executor)
-{
-    HcclResult ret = executor->RunAsync(Rank(), RankSize(), transportInfo_);
-    CHK_PRT_RET(ret != HCCL_SUCCESS,
-        HCCL_ERROR("[Run][AlltoAllVStaged]comm base run executor rank[%u] failed", rank_), ret);
-    return HCCL_SUCCESS;
-}
-
-HcclResult CommBase::RunAlltoAllVStagedMesh(const std::unique_ptr<AlltoAllVStagedBase> &executor)
-{
-    HcclResult ret = executor->RunAsync(Rank(), RankSize(), vTransportInfo_);
-    CHK_PRT_RET(ret != HCCL_SUCCESS,
-        HCCL_ERROR("[Run][AlltoAllVStaged]comm base run executor rank[%u] failed", rank_), ret);
     return HCCL_SUCCESS;
 }
 
@@ -706,8 +682,7 @@ HcclResult CommBase::CreateDestLink(const ErrContextPub &error_context, const Ma
             machinePara.tag.c_str());
         return ret;
     }
-    HCCL_INFO(
-        "[creakLink success]:rank[%u]-localUserrank[%u]-localIpAddr[%s], "\
+    HCCL_INFO("[creakLink success]:rank[%u]-localUserrank[%u]-localIpAddr[%s], " \
         "dst_rank[%u]-remoteUserrank[%u]-remote_ip_addr[%s], transportType_[%d], tag[%s]", rank_,
         paraVector_[rank_].worldRank, paraVector_[rank_].serverId.c_str(), dstRank,
         paraVector_[dstRank].worldRank, paraVector_[dstRank].serverId.c_str(), transportType_[dstRank],
@@ -1094,7 +1069,7 @@ HcclResult CommBase::GetIntraRankIPInfo(std::map<u32, HcclSocketRole> &rankRole,
     u32 userRankSize = rankRole.size();
     for (auto rankIter = rankRole.begin(); rankIter != rankRole.end(); rankIter++) {
         u32 dstRank = rankIter->first;
-        s32 dstDeviceId = useSdidForDeviceId_ ?
+        s32 dstDeviceId = useSuperPodMode_ ?
             static_cast<s32>(paraVector_[dstRank].superDeviceId) : paraVector_[dstRank].devicePhyId;
         HcclSocketRole localRole = rankIter->second;
 
@@ -1105,7 +1080,7 @@ HcclResult CommBase::GetIntraRankIPInfo(std::map<u32, HcclSocketRole> &rankRole,
         linkInfo.port = GetNicPort(paraVector_[dstRank].devicePhyId, ranksPort_, linkInfo.userRank, isUseRankPort_);
         HcclIpAddress ipAddress(linkInfo.devicePhyId);
         DeviceIdType deviceidType =
-            useSdidForDeviceId_ ? (DeviceIdType::DEVICE_ID_TYPE_SDID) : (DeviceIdType::DEVICE_ID_TYPE_PHY_ID);
+            useSuperPodMode_ ? (DeviceIdType::DEVICE_ID_TYPE_SDID) : (DeviceIdType::DEVICE_ID_TYPE_PHY_ID);
         // rank个数小于等于1时，没有初始化ra资源，无法调用device侧hccp接口
         if (userRankSize > 1) {
             CHK_RET(hrtRaGetSingleSocketVnicIpInfo(paraVector_[rank_].devicePhyId, deviceidType,

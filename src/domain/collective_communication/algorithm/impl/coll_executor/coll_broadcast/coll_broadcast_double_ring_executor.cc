@@ -16,7 +16,7 @@ CollBroadcastDoubleRingExecutor::CollBroadcastDoubleRingExecutor(const HcclDispa
                                                std::unique_ptr<TopoMatcher> &topoMatcher)
     : CollBroadcastExecutor(dispatcher, topoMatcher)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         DMAReduceFlag_ = true;
     } else {
         DMAReduceFlag_ = false;
@@ -26,10 +26,13 @@ CollBroadcastDoubleRingExecutor::CollBroadcastDoubleRingExecutor(const HcclDispa
 HcclResult CollBroadcastDoubleRingExecutor::CalcStreamNum(u32& streamNum)
 {
     u32 totalStreamNum = 0U;
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
         totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_DOUBLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
     } else {
         totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_DOUBLE;
+    }
+    if (topoMatcher_->GetExternalInputEnableRdmaSdmaConcurrent() && topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
+        totalStreamNum += RDMA_PLANE_NUM_IN_NPRING_DOUBLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
     }
     streamNum = totalStreamNum - 1;
     HCCL_INFO("[CollBroadcastDoubleRingExecutor][CalcStreamNum] tag[%s] streamNum_[%u]",

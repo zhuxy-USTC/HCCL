@@ -13,6 +13,7 @@
 
 #include <hccl/hccl_types.h>
 
+#include <functional>
 #include "hccl_common.h"
 #include "mem_device_pub.h"
 #include "stream_pub.h"
@@ -61,7 +62,12 @@ public:
                    const std::vector<ReducerMemoryInfo> &reducerMems, Stream &stream,
                    DstMemType resultMem = DstMemType::RESULT_INPUT_MEM) const;
 
+    void setPreSyncFunc(std::function<HcclResult()> lambda);
+    void setPostSyncFunc(std::function<HcclResult()> lambda);
+
 protected:
+    std::function<HcclResult()> PreSync_;
+    std::function<HcclResult()> PostSync_;
 
 private:
     HcclDataType dataType_;

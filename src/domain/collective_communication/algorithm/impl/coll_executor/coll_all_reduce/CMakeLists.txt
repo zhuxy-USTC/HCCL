@@ -1,6 +1,7 @@
 set(src_list
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_all_reduce_executor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_all_reduce_single_rank_executor.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/coll_all_reduce_fast_double_ring_for_910_73_executor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_all_reduce_ring_executor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_all_reduce_comm_executor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/coll_all_reduce_double_ring_executor.cc

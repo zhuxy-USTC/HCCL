@@ -11,7 +11,7 @@
 #ifndef ALL_REDUCE_OPERATOR_H
 #define ALL_REDUCE_OPERATOR_H
 
-#include "common_operator.h"
+#include "coll_alg_operator.h"
 
 namespace hccl {
 // 数据规模分类
@@ -22,9 +22,9 @@ enum class HcclDataCountType {
     HCCL_COUNT_RESERVED
 };
 
-class AllReduceOperator : public CommonOperator {
+class AllReduceOperator : public CollAlgOperator {
 public:
-    AllReduceOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
+    AllReduceOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~AllReduceOperator();
     HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName, std::string& newTag);
     HcclResult GetAllReduceScratchSize(const u32 count, const HcclDataType dataType, u64 &scratchSize);

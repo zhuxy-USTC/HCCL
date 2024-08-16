@@ -25,6 +25,7 @@
 #include "hccl_comm_pub.h"
 #include "config.h"
 #include "workflow_pub.h"
+#include "device_capacity.h"
 
 using namespace std;
 using namespace hccl;
@@ -78,6 +79,25 @@ HcclResult TopoinfoRanktableConcise::GetClusterInfo(hccl::HcclCommParams &params
     return HCCL_SUCCESS;
 }
 
+void TopoinfoRanktableConcise::DetectNicDepoly(RankTable_t &rankTable)
+{
+    // 只有当hostIp有效而且deviceIp无效时，才使用HOST侧网卡部署，目前策略要求集群中所有卡的deploy
+    // 形式一致，所以取ranklist[0]的方式即可
+    auto isIpInvalid = [](const std::vector<HcclIpAddress> &deviceIp) -> bool {
+        for (auto &ip : deviceIp) {
+            if (!ip.IsInvalid()) { // 遍历vector中所有的IP，只要有任意一个IP有效就认为是有效的，那么返回false
+                return false;
+            }
+        }
+        return true;
+    };
+
+    rankTable.nicDeploy = (!rankTable.rankList.empty() &&
+        !rankTable.rankList[0].hostIp.IsInvalid() && isIpInvalid(rankTable.rankList[0].deviceInfo.deviceIp)
+        ) ? NICDeployment::NIC_DEPLOYMENT_HOST:
+            NICDeployment::NIC_DEPLOYMENT_DEVICE;
+}
+
 HcclResult TopoinfoRanktableConcise::ParserClusterInfo(hccl::HcclCommParams &params, hccl::RankTable_t &rankTable)
 {
     if (!IsTaskNumCalMode()) {
@@ -95,10 +115,9 @@ HcclResult TopoinfoRanktableConcise::ParserClusterInfo(hccl::HcclCommParams &par
         return HCCL_SUCCESS;
     }
 
-    CHK_RET(CheckNicDeployConsistence(rankTable));
-    rankTable.nicDeploy = (rankTable.rankList.size() != 0 &&
-        !rankTable.rankList.begin()->hostIp.IsInvalid()) ? NICDeployment::NIC_DEPLOYMENT_HOST :
-            NICDeployment::NIC_DEPLOYMENT_DEVICE;
+    DetectNicDepoly(rankTable);
+    CHK_RET(CheckNicDeployConsistence(rankTable, rankTable.nicDeploy));
+
     std::sort(rankTable.rankList.begin(), rankTable.rankList.end(),
         [&](const RankInfo_t &a, const RankInfo_t &b) -> bool {return a.rankId < b.rankId;});
 
@@ -150,16 +169,16 @@ HcclResult TopoinfoRanktableConcise::ParserClusterInfo(hccl::HcclCommParams &par
     return HCCL_SUCCESS;
 }
 
-HcclResult TopoinfoRanktableConcise::CheckNicDeployConsistence(RankTable_t &clusterInfo) const
+HcclResult TopoinfoRanktableConcise::CheckNicDeployConsistence(RankTable_t &clusterInfo, NICDeployment deploy) const
 {
     CHK_PRT_RET(clusterInfo.rankList.size() == 0, HCCL_DEBUG("rank list size is 0, skip nic deply check."),
         HCCL_SUCCESS);
-    NICDeployment tmpNicDeply = clusterInfo.rankList.begin()->hostIp.IsInvalid() ?
-        NICDeployment::NIC_DEPLOYMENT_DEVICE : NICDeployment::NIC_DEPLOYMENT_HOST;
-    for (auto &it:clusterInfo.rankList) {
-        CHK_PRT_RET((tmpNicDeply == NICDeployment::NIC_DEPLOYMENT_DEVICE && !it.hostIp.IsInvalid()) ||
-        (tmpNicDeply == NICDeployment::NIC_DEPLOYMENT_HOST &&
-            it.hostIp.IsInvalid()), HCCL_ERROR("[Get][RanktableInfo]errNo"
+
+    for (auto &it : clusterInfo.rankList) {
+        CHK_PRT_RET(
+        // 因为部分场景下，网卡部署在device侧，但是允许deviceIP无效，所以不检测该场景，只检测使用HOST但是hostIp无效
+            (deploy == NICDeployment::NIC_DEPLOYMENT_HOST && it.hostIp.IsInvalid()),
+            HCCL_ERROR("[Get][RanktableInfo]errNo"
             "[0x%016llx] hostIp config bettewn ranks is different.", HCOM_ERROR_CODE(HCCL_E_PARA)),  HCCL_E_PARA);
     }
     return HCCL_SUCCESS;
@@ -338,9 +357,7 @@ HcclResult TopoinfoRanktableConcise::GetSingleDevice(const nlohmann::json &devic
     rankinfo.hostIp = hostIp;
     rankinfo.deviceInfo.devicePhyId = devicePhyId;
 
-    if (rankinfo.hostIp.IsInvalid()) {
-        CHK_RET(GetSingleDeviceIp(deviceListObj, objIndex, clusterInfo, rankinfo));
-    }
+    CHK_RET(GetSingleDeviceIp(deviceListObj, objIndex, clusterInfo, rankinfo, rankinfo.hostIp.IsInvalid()));
 
     if (SalStrToULong(rankId, HCCL_BASE_DECIMAL, rankinfo.rankId) != HCCL_SUCCESS) {
         RPT_INPUT_ERR(true, "EI0004", std::vector<std::string>({ "error_reason", "ranktable_path" }),
@@ -387,14 +404,15 @@ HcclResult TopoinfoRanktableConcise::SplitString(const std::string& str, const s
 }
 
 HcclResult TopoinfoRanktableConcise::GetSingleDeviceIp(const nlohmann::json &deviceListObj, u32 objIndex,
-    RankTable_t &clusterInfo, RankInfo_t &rankinfo)
+    RankTable_t &clusterInfo, RankInfo_t &rankinfo, bool invalidHostIp)
 {
     // 获取device_ip （可能有多个）
     std::string deviceIp;
     HcclResult ret = GetJsonArrayMemberProperty(deviceListObj, objIndex, "device_ip", deviceIp);
     // 多机和走roce网卡ranktable必须有“device_ip”字段，单机可以没有
     if (clusterInfo.serverNum > 1 || (GetExternalInputIntraRoceSwitch() == 1)) {
-        CHK_PRT_RET(ret != HCCL_SUCCESS,
+        // 如果没有配置HostIp，那么deviceIp必须有效，否则出错
+        CHK_PRT_RET(ret != HCCL_SUCCESS && invalidHostIp,
             HCCL_ERROR("[Get][SingleDeviceIp]'device_ip' is not set correctly,"\
                        "must be set when multi Server or HCCL_INTRA_ROCE_ENABLE enabled"), ret);
     } else if (clusterInfo.serverNum == 1 && ret == HCCL_E_NOT_FOUND) {
@@ -403,7 +421,8 @@ HcclResult TopoinfoRanktableConcise::GetSingleDeviceIp(const nlohmann::json &dev
         HCCL_WARNING("[Get][SingleDeviceIp]'device_ip' in ranktable is not set!");
         return HCCL_SUCCESS;
     } else {
-        CHK_PRT_RET(ret != HCCL_SUCCESS,
+        // 如果没有配置HostIp，那么deviceIp必须有效，否则出错
+        CHK_PRT_RET(ret != HCCL_SUCCESS && invalidHostIp,
             HCCL_ERROR("[Get][SingleDeviceIp]errNo[0x%016llx] 'device_ip' is not set correctly",
                 HCOM_ERROR_CODE(HCCL_E_PARA)), ret);
     }
@@ -464,6 +483,13 @@ HcclResult TopoinfoRanktableConcise::GetSuperPodList(const nlohmann::json &obj, 
     CHK_RET(GetRanktableVersion(version));
     CHK_PRT_RET(version.compare(SUPERPOD_CLUSTER_VERSION) != 0,
         HCCL_INFO("[Get][SuperPodList]ranktable version[%s], do nothing.", version.c_str()), HCCL_SUCCESS);
+
+    if (!IsTaskNumCalMode()) { // taskNum评估阶段，无法判断是否超节点模式
+        // 环境配置非超节点时，不解析超节点信息, ranktable中记录的superPodId, superDeviceId, superPodNum均为默认值
+        bool useSuperPodMode = false;
+        CHK_RET(IsSuperPodMode(useSuperPodMode));
+        CHK_PRT_RET(!useSuperPodMode, HCCL_INFO("[Get][SuperPodList]not super pod, do nothing"), HCCL_SUCCESS);
+    }
 
     HcclResult ret;
     nlohmann::json superPodList;
@@ -576,6 +602,11 @@ HcclResult TopoinfoRanktableConcise::CheckSuperPodInfo(RankTable_t &clusterInfo)
     std::map<std::string, std::set<std::string>> superPodMap; // superPodId -> serverId
     std::map<std::string, std::set<u32>> superPodSdidMap;    // super_pod_id -> superDeviceId
     for (RankInfo_t& rankInfo : clusterInfo.rankList) {
+        // 超节点模式下, 校验superPodId和sdid值有效
+        CHK_PRT_RET(rankInfo.superPodId.empty() || rankInfo.superDeviceId == INVALID_UINT,
+            HCCL_ERROR("[Check][SuperPodInfo]superDeviceId[0x%x] or superPod[%s] in rank[%u] is invalid",
+            rankInfo.superDeviceId, rankInfo.superPodId.c_str(), rankInfo.rankId), HCCL_E_PARA);
+
         auto it  = superPodMap.find(rankInfo.superPodId);
         if (it == superPodMap.end()) {
             std::set<std::string> serverIdSet;

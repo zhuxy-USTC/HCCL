@@ -18,6 +18,7 @@
 #include "heartbeat_pub.h"
 #include "hccl_alg.h"
 #include "hccl_impl.h"
+#include "coll_alg_utils.h"
 
 using namespace std;
 
@@ -27,89 +28,24 @@ std::array<DeviceMem, MAX_MODULE_DEVICE_NUM> hcclImpl::inOutPutTempMem_;
 std::array<std::mutex, MAX_MODULE_DEVICE_NUM> hcclImpl::inOutPutTempMemMutex_;
 std::array<Referenced, MAX_MODULE_DEVICE_NUM> hcclImpl::instanceRef_;
 
-const std::map<AlgTypeLevel2, std::string> HCCL_ALGO_LEVEL2_NAME_MAP = {
-    {AlgTypeLevel2::ALG_LEVEL2_HD, "H-D"},
-    {AlgTypeLevel2::ALG_LEVEL2_RING, "ring"},
-    {AlgTypeLevel2::ALG_LEVEL2_RESERVED, "null"},
-};
 
 constexpr u32 TINY_MEMORY_SIZE = 32; // sendBuff或recvBuff为空时, 使用的DeviceMem大小
 
-const std::set<AlgType> HCCL_ALGO_TYPE_MAP = {
-    AlgType::ALG_DEFAULT,
-    AlgType::ALG_8P_RING_PLUS_HD,
-    AlgType::ALG_4P_MESH_PLUS_HD,
-    AlgType::ALG_2P_MESH_PLUS_HD,
-    AlgType::ALG_1P_MESH_PLUS_HD,
-    AlgType::ALG_4P_RING_PLUS_HD,
-    AlgType::ALG_NP_SINGLE_RING_PLUS_HD,
-    AlgType::ALG_8P_RING_PLUS_RING,
-    AlgType::ALG_4P_MESH_PLUS_RING,
-    AlgType::ALG_2P_MESH_PLUS_RING,
-    AlgType::ALG_1P_MESH_PLUS_RING,
-    AlgType::ALG_4P_RING_PLUS_RING,
-    AlgType::ALG_NP_SINGLE_RING_PLUS_RING,
-    AlgType::ALG_NP_MESH_PLUS_RING,
-    AlgType::ALG_NP_MESH_PLUS_HD,
-    AlgType::ALG_8P_RING_PLUS_NHR,
-    AlgType::ALG_4P_MESH_PLUS_NHR,
-    AlgType::ALG_2P_MESH_PLUS_NHR,
-    AlgType::ALG_1P_MESH_PLUS_NHR,
-    AlgType::ALG_4P_RING_PLUS_NHR,
-    AlgType::ALG_NP_SINGLE_RING_PLUS_NHR,
-    AlgType::ALG_NP_MESH_PLUS_NHR,
-    AlgType::ALG_WHOLE_NHR,
-    AlgType::ALG_8P_RING_PLUS_NHR_V1,
-    AlgType::ALG_4P_MESH_PLUS_NHR_V1,
-    AlgType::ALG_2P_MESH_PLUS_NHR_V1,
-    AlgType::ALG_1P_MESH_PLUS_NHR_V1,
-    AlgType::ALG_4P_RING_PLUS_NHR_V1,
-    AlgType::ALG_NP_SINGLE_RING_PLUS_NHR_V1,
-    AlgType::ALG_NP_MESH_PLUS_NHR_V1,
-    AlgType::ALG_WHOLE_NHR_V1,
-    AlgType::ALG_8P_RING_PLUS_NB,
-    AlgType::ALG_4P_MESH_PLUS_NB,
-    AlgType::ALG_2P_MESH_PLUS_NB,
-    AlgType::ALG_1P_MESH_PLUS_NB,
-    AlgType::ALG_4P_RING_PLUS_NB,
-    AlgType::ALG_NP_SINGLE_RING_PLUS_NB,
-    AlgType::ALG_NP_DOUBLE_RING_PLUS_NB,
-    AlgType::ALG_NP_MESH_PLUS_NB,
-    AlgType::ALG_WHOLE_NB,
-    AlgType::ALG_NP_STAR,
-    AlgType::ALG_NP_HD,
-    AlgType::ALG_DOUBLE_RING_PLUS_RING,
-    AlgType::ALG_DOUBLE_RING_PLUS_HD,
-    AlgType::ALG_DOUBLE_RING_PLUS_NHR,
-    AlgType::ALG_WHOLE_RING_PLUS_PIPELINE,
-    AlgType::ALG_8P_RING_PLUS_PIPELINE,
-    AlgType::ALG_4P_MESH_PLUS_PIPELINE,
-    AlgType::ALG_2P_MESH_PLUS_PIPELINE,
-    AlgType::ALG_1P_MESH_PLUS_PIPELINE,
-    AlgType::ALG_4P_RING_PLUS_PIPELINE,
-    AlgType::ALG_NP_SINGLE_RING_PLUS_PIPELINE,
-    AlgType::ALG_NP_DOUBLE_RING_PLUS_PIPELINE,
-    AlgType::ALG_NP_MESH_PLUS_PIPELINE,
-    AlgType::ALG_NP_STAR_PLUS_PIPELINE,
-};
 
 hcclImpl::hcclImpl(const HcclDispatcher dispatcher, const HcclDispatcher vDispatcher,
     const std::unique_ptr<NotifyPool> &notifyPool, std::map<HcclIpAddress, HcclNetDevCtx> &netDevCtxMap,
     const std::unique_ptr<QueueNotifyManager> &queueNotifyManager,
     std::unique_ptr<WorkspaceResource> &workSpaceRes, CCLBufferManager &cclBufferManager,
     const void *transportResourceInfoAddr, size_t transportResourceInfoSize, HcclAlgoAttr &algoAttr,
-    HcclTopoAttr &topoAttr)
-    : topoType_(TopoType::TOPO_TYPE_COMMON), dispatcher_(dispatcher),
-      vDispatcher_(vDispatcher), notifyPool_(notifyPool), netDevCtxMap_(netDevCtxMap),
+    HcclTopoAttr &topoAttr, std::shared_ptr<AlgConfigurator> algConfigurator,
+    std::shared_ptr<TopoInfoExtractor> topoInfoEx)
+    : dispatcher_(dispatcher), vDispatcher_(vDispatcher), notifyPool_(notifyPool), netDevCtxMap_(netDevCtxMap),
       queueNotifyManager_(queueNotifyManager), workSpaceRes_(workSpaceRes), cclBufferManager_(cclBufferManager),
       transportResourceInfoAddr_(transportResourceInfoAddr), transportResourceInfoSize_(transportResourceInfoSize),
-      deterministic_(static_cast<u8>(GetExternalInputHcclDeterministic()))
+      algConfigurator_(algConfigurator), topoInfoEx_(topoInfoEx), topoAttr_(topoAttr), algoAttr_(algoAttr)
 {
     SetAlgoAttr(algoAttr);
     SetTopoAttr(topoAttr);
-
-    topoAttr_ = std::move(topoAttr);
-    algoAttr_ = std::move(algoAttr);
 
     s32 deviceLogicId = 0;
     if (hrtGetDevice(&deviceLogicId) != HCCL_SUCCESS) {
@@ -214,7 +150,7 @@ void hcclImpl::SetTopoAttr(HcclTopoAttr &topoAttr)
 
     devicePhyId_ = topoAttr.devicePhyId;
     deviceLogicId_ = topoAttr.deviceLogicId;
-    useSdidForDeviceId_ = topoAttr.useSdidForDeviceId;
+    useSuperPodMode_ = topoAttr.useSuperPodMode;
     deviceType_ = topoAttr.deviceType;
     isStandardCard_ = topoAttr.isStandardCard;
     is310PDuoCard_ = topoAttr.is310PDuoCard;
@@ -237,370 +173,17 @@ HcclResult hcclImpl::Init(bool isHeterogComm)
         CHK_PTR_NULL(tinySendRecvMem_.ptr());
     }
 
-    if (!isHeterogComm && commWorkMode_ != WorkMode::HCCL_MODE_AI_CPU) {
-        // 获取算法类型
-        CHK_RET(SelectAlgType(moduleNum_, deviceType_, algType_));
-        // 获取拓扑类型，根据算法类型转化
-        CHK_RET(GetTopoTypeByAlgType(algType_[HcclCMDType::HCCL_CMD_ALL], deviceType_, topoType_));
-    } else {
-        topoType_ = TopoType::TOPO_TYPE_HETEROG;
-    }
+    algConfigurator_->GetTopoType(topoType_);
 
     commFactory_.reset(new (std::nothrow) CommFactory(identifier_, userRank_, userRankSize_, dispatcher_, notifyPool_,
-        netDevCtxMap_, isUsedRdmaOuter_, topoType_, deviceType_, rankInfoList_, nicDeployment_, isHeterogComm,
+        netDevCtxMap_, topoInfoEx_, isUsedRdmaOuter_, topoType_, deviceType_, rankInfoList_, nicDeployment_, isHeterogComm,
         isDiffDeviceModule_,
         transportResourceInfoAddr_, transportResourceInfoSize_,
-        meshAggregationRankSize_, isHaveCpuRank_, isUsedInterHccsMode_, useSdidForDeviceId_));
+        meshAggregationRankSize_, isHaveCpuRank_, isUsedInterHccsMode_, useSuperPodMode_));
     CHK_SMART_PTR_NULL(commFactory_);
     CHK_RET(commFactory_->Init());
 
     HCCL_INFO("hcclImpl init success.");
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::CheckAlgType(const AlgType algType)
-{
-    if (HCCL_ALGO_TYPE_MAP.count(algType) == 0) {
-        HCCL_ERROR("[Check][AlgType]errNo[0x%016llx] algType[%s] is not supported", HCCL_ERROR_CODE(HCCL_E_PARA),
-            HcclAlg::AlgTypeToStr(algType).c_str());
-        return HCCL_E_PARA;
-    }
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::GetTopoTypeByAlgType(const AlgType &algType, const DevType deviceType,
-    TopoType &topoType)
-{
-    CHK_RET(CheckAlgType(algType));
-
-    CHK_RET(CheckDeviceType(deviceType));
-
-    const AlgTypeLevel0 algLevel0 = GetLevel0AlgType(algType);
-    switch (algLevel0) {
-        case AlgTypeLevel0::ALG_LEVEL0_NP_DOUBLE_RING:
-            topoType = TopoType::TOPO_TYPE_NP_DOUBLE_RING;
-            break;
-        case AlgTypeLevel0::ALG_LEVEL0_8P_RING:
-            topoType = TopoType::TOPO_TYPE_8P_RING;
-            break;
-        case AlgTypeLevel0::ALG_LEVEL0_4P_MESH:
-            topoType = TopoType::TOPO_TYPE_4P_MESH;
-            break;
-        case AlgTypeLevel0::ALG_LEVEL0_2P_MESH:
-            topoType = TopoType::TOPO_TYPE_2P_MESH;
-            break;
-        case AlgTypeLevel0::ALG_LEVEL0_NP_SINGLE_RING:
-            topoType = TopoType::TOPO_TYPE_NP_SINGLE_RING;
-            break;
-        case AlgTypeLevel0::ALG_LEVEL0_1P_MESH:
-            topoType = TopoType::TOPO_TYPE_1P_MESH;
-            break;
-        case AlgTypeLevel0::ALG_LEVEL0_4P_RING:
-            topoType = TopoType::TOPO_TYPE_4P_RING;
-            break;
-        case AlgTypeLevel0::ALG_LEVEL0_NP_MESH:
-            topoType = TopoType::TOPO_TYPE_NP_MESH;
-            break;
-        case AlgTypeLevel0::ALG_LEVEL0_WHOLE_RING:
-        case AlgTypeLevel0::ALG_LEVEL0_RESERVED:
-            topoType = TopoType::TOPO_TYPE_COMMON;
-            break;
-        case AlgTypeLevel0::ALG_LEVEL0_NP_STAR:
-            topoType = TopoType::TOPO_TYPE_ES_MESH;
-            break;
-        default:
-            HCCL_ERROR("[hcclImpl][GetTopoTypeByAlgType]errNo[0x%016llx] case: device type[%d](0~1:V910),"
-                " algorithm[%s] is not support",
-                HCCL_ERROR_CODE(HCCL_E_PARA), deviceType, HcclAlg::AlgTypeToStr(algType).c_str());
-            return HCCL_E_PARA;
-    }
-
-    HCCL_INFO("[hcclImpl][GetTopoTypeByAlgType]algtype[%s], devicetype[%d],topotype[%d] is selected",
-        HcclAlg::AlgTypeToStr(algType).c_str(), deviceType, topoType);
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::SelectCurrOpAlgType(
-    u32 moduleNum, const DevType deviceType, HcclCMDType opType, std::map<HcclCMDType, AlgType>& algType)
-{
-    AlgTypeLevel0 algType0 = AlgTypeLevel0::ALG_LEVEL0_RESERVED;
-    AlgTypeLevel1 algType1 = AlgTypeLevel1::ALG_LEVEL1_RESERVED;
-    AlgTypeLevel2 algType2 = AlgTypeLevel2::ALG_LEVEL2_RESERVED; // 第2层拓扑算法, 待梳理后考虑是否和第0层、第1层算法归一
-
-    if (Is310P3Common()) {
-        algType[opType] = AlgType::ALG_DEFAULT;
-    } else if (multiModuleDiffDeviceNumMode_) { // 多server不同卡模式，设置为单层拓扑类型
-        algType[opType] = AlgType::ALG_DEFAULT;
-        isAlgoLevel1Default_[opType] = false;
-        if (GetExternalInputHcclAlgoConfig(opType)[HCCL_ALGO_LEVEL_0] != HcclAlgoType::HCCL_ALGO_TYPE_DEFAULT ||
-            GetExternalInputHcclAlgoConfig(opType)[HCCL_ALGO_LEVEL_1] != HcclAlgoType::HCCL_ALGO_TYPE_DEFAULT) {
-            HCCL_WARNING("multiModuleDiffDeviceNumMode_ is [%d], algorithm type [%d] is selected by force.", \
-                         multiModuleDiffDeviceNumMode_, algType[opType]);
-        }
-    } else if (isHaveCpuRank_) {
-        algType[opType] = AlgType::ALG_NP_STAR;
-    } else {
-        CHK_RET(SetAlgoLevel0(GetExternalInputHcclAlgoConfig(opType)[HCCL_ALGO_LEVEL_0], algType0));
-        CHK_RET(SetAlgoLevel1(GetExternalInputHcclAlgoConfig(opType)[HCCL_ALGO_LEVEL_1], moduleNum, algType1, opType));
-        CHK_RET(SetAlgoLevel2(GetExternalInputHcclAlgoConfig(opType)[HCCL_ALGO_LEVEL_2], algType2));
-
-        algType[opType] = AlgType((static_cast<u32>(algType1) << HCCL_LEVEL_ALGO_WIDTH) + static_cast<u32>(algType0));
-
-        if (!isStandardCard_ && deviceType != DevType::DEV_TYPE_910B) {
-            if (nicList_.size() != DEVICE_EIGHT && deviceNumPerAggregation_ == DEVICE_EIGHT &&
-                algType0 != AlgTypeLevel0::ALG_LEVEL0_8P_RING) {
-                HCCL_ERROR("[Set][AlgType]nicSize[%zu] error, algType is not 8P ring.", nicList_.size());
-                return HCCL_E_PARA;
-            }
-        }
-    }
-
-    auto level0Iter = HCCL_ALGO_LEVEL0_NAME_MAP.find(algType0);
-    CHK_PRT_RET(level0Iter == HCCL_ALGO_LEVEL0_NAME_MAP.end(), HCCL_ERROR("level0: algType0[%u] is invalid.",
-        algType0), HCCL_E_INTERNAL);
-    auto level1Iter = HCCL_ALGO_LEVEL1_NAME_MAP.find(algType1);
-    CHK_PRT_RET(level1Iter == HCCL_ALGO_LEVEL1_NAME_MAP.end(), HCCL_ERROR("level1: algType1[%u] is invalid.",
-        algType1), HCCL_E_INTERNAL);
-    auto level2Iter = HCCL_ALGO_LEVEL2_NAME_MAP.find(algType2);
-    CHK_PRT_RET(level2Iter == HCCL_ALGO_LEVEL2_NAME_MAP.end(),
-        HCCL_ERROR("level2: algType2[%u] is invalid.", algType2), HCCL_E_INTERNAL);
-    HCCL_RUN_INFO("Device Type[%d], average device count[%u], HccsNum[%d], SIONum[%d], HCCS_SW_NUM[%d], " \
-        "optype[%u] algorithm type[%d] is selected:level0: using[%s], level1: using[%s], level2: using[%s]",
-        deviceType, deviceNumPerAggregation_, pairLinkInfo_[static_cast<u32>(LinkTypeInServer::HCCS_TYPE)].size(),
-        pairLinkInfo_[static_cast<u32>(LinkTypeInServer::SIO_TYPE)].size(),
-        pairLinkInfo_[static_cast<u32>(LinkTypeInServer::HCCS_SW_TYPE)].size(),
-        opType, algType[opType], level0Iter->second.c_str(), level1Iter->second.c_str(), level2Iter->second.c_str());
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::SelectAlgType(u32 moduleNum, const DevType deviceType, std::map<HcclCMDType, AlgType>& algType)
-{
-    for (u32 opType = 0; opType < static_cast<u32>(HcclCMDType::HCCL_CMD_MAX); opType++) {
-        CHK_RET(SelectCurrOpAlgType(moduleNum, deviceType, static_cast<HcclCMDType>(opType), algType));
-    }
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::SetAlgoLevel0(HcclAlgoType algoConfig, AlgTypeLevel0 &algType)
-{
-    if (isStandardCard_) {
-        CHK_RET(SetAlgoLevel0StandardCard(algoConfig, algType));
-    } else {
-        CHK_RET(SetAlgoLevel0Module(algoConfig, algType));
-    }
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::SetAlgoLevel1(HcclAlgoType algoConfig, u32 moduleNum, AlgTypeLevel1 &algType, HcclCMDType opType)
-{
-    HcclAlgoType algoConfigShadow = algoConfig;
-    switch (algoConfig) {
-        case HcclAlgoType::HCCL_ALGO_TYPE_HDR:
-            algType = AlgTypeLevel1::ALG_LEVEL1_HD;
-            break;
-        case HcclAlgoType::HCCL_ALGO_TYPE_RING:
-            algType = AlgTypeLevel1::ALG_LEVEL1_RING;
-            HCCL_INFO("server num[%u]: level1:ring algo is set.", moduleNum);
-            break;
-        case HcclAlgoType::HCCL_ALGO_TYPE_NHR:
-            algType = AlgTypeLevel1::ALG_LEVEL1_NHR;
-            HCCL_INFO("server num[%u]: level1:nhr algo is set.", moduleNum);
-            break;
-        case HcclAlgoType::HCCL_ALGO_TYPE_NHR_V1:
-            algType = AlgTypeLevel1::ALG_LEVEL1_NHR_V1;
-            HCCL_INFO("server num[%u]: level1:nhr_v1 algo is set.", moduleNum);
-            break;
-        case HcclAlgoType::HCCL_ALGO_TYPE_NB:
-            algType = AlgTypeLevel1::ALG_LEVEL1_NB;
-            HCCL_INFO("server num[%u]: level1:nb algo is set.", moduleNum);
-            break;
-        case HcclAlgoType::HCCL_ALGO_TYPE_PIPELINE:
-            algType = AlgTypeLevel1::ALG_LEVEL1_PIPELINE;
-            HCCL_INFO("server num[%u]: level1:pipeline algo is set.", moduleNum);
-            break;
-        case HcclAlgoType::HCCL_ALGO_TYPE_FULLMESH:
-        case HcclAlgoType::HCCL_ALGO_TYPE_PAIRWISE:
-            HCCL_WARNING("level1:fullmesh algo is not suported. the config is ignored.");
-        default:
-            algoConfigShadow = HcclAlgoType::HCCL_ALGO_TYPE_DEFAULT;
-            break;
-    }
-
-    HCCL_DEBUG("[hcclImpl][SetAlgoLevel1] algType[%u], deviceType_[%u], workflowmode[%u]", algType, deviceType_,
-        GetWorkflowMode());
-    if (algType == AlgTypeLevel1::ALG_LEVEL1_PIPELINE && (deviceType_ != DevType::DEV_TYPE_910B ||
-            GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE)) {
-        algoConfigShadow = HcclAlgoType::HCCL_ALGO_TYPE_DEFAULT;
-        HCCL_WARNING("hccl algorithm: there are %u server in level1, config pipeline algo failed.", moduleNum);
-    }
-
-    if (algoConfigShadow == HcclAlgoType::HCCL_ALGO_TYPE_DEFAULT) {
-        if (deviceType_ == DevType::DEV_TYPE_910B) {
-            isAlgoLevel1Default_[opType] = true;
-        }
-        CHK_RET(GetDefaultAlgoLevel1V1(moduleNum, algType));
-    }
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::SetAlgoLevel2(HcclAlgoType algoConfig, AlgTypeLevel2 &algType)
-{
-    switch (algoConfig) {
-        case HcclAlgoType::HCCL_ALGO_TYPE_HDR:
-            algType = AlgTypeLevel2::ALG_LEVEL2_HD;
-            break;
-        case HcclAlgoType::HCCL_ALGO_TYPE_RING:
-            algType = AlgTypeLevel2::ALG_LEVEL2_RING;
-            break;
-        default: {
-            if (devNumInLevel2_ >=  HCCL_INTER_SERVER_RING_ALGO_MAX_SUPPORT_SERVER_NUM) {
-                // server 数为 8 以上：使用 HD 算法
-                algType = AlgTypeLevel2::ALG_LEVEL2_HD;
-            } else {
-                // server 数为 2 的非整数次幂：使用 RING 算法
-                // server 数为 2 的整数次幂：使用 HD 算法
-                algType = (((devNumInLevel2_ & (devNumInLevel2_ - 1)) != 0) || (devNumInLevel2_ == 1)) ?
-                    AlgTypeLevel2::ALG_LEVEL2_RING :
-                    AlgTypeLevel2::ALG_LEVEL2_HD;
-            }
-            break;
-        }
-    }
-    HCCL_DEBUG("[hcclImpl][SetAlgoLevel2]algType[%u], deviceType_[%u], devNumInLevel2[%u]",
-        algType, deviceType_, devNumInLevel2_);
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::SetAlgoLevel0StandardCard(HcclAlgoType algoConfig, AlgTypeLevel0 &algType)
-{
-    if (algoConfig == HcclAlgoType::HCCL_ALGO_TYPE_NULL) {
-        algType = AlgTypeLevel0::ALG_LEVEL0_RESERVED;
-        return HCCL_SUCCESS;
-    }
-
-    if (algoConfig != HcclAlgoType::HCCL_ALGO_TYPE_DEFAULT && algoConfig != HcclAlgoType::HCCL_ALGO_TYPE_NA) {
-        HCCL_WARNING("level0:%d algo is not suported. the config is ignored.", algoConfig);
-    }
-
-    CHK_RET(GetDefaultAlgoLevel0StandardCard(algType));
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::SetAlgoLevel0Module(HcclAlgoType algoConfig, AlgTypeLevel0 &algType)
-{
-    if (algoConfig == HcclAlgoType::HCCL_ALGO_TYPE_NULL) {
-        algType = AlgTypeLevel0::ALG_LEVEL0_RESERVED;
-        return HCCL_SUCCESS;
-    }
-
-    if (algoConfig != HcclAlgoType::HCCL_ALGO_TYPE_DEFAULT && algoConfig != HcclAlgoType::HCCL_ALGO_TYPE_NA) {
-        HCCL_WARNING("level0:%d algo is not suported. the config is ignored.", algoConfig);
-    }
-
-    CHK_RET(GetDefaultAlgoLevel0Module(algType));
-    return HCCL_SUCCESS;
-}
-
-bool hcclImpl::IsHCCSSWNumEqualToTwiceSIONum()
-{
-    u32 hccsSWNum = pairLinkCounter_[static_cast<u32>(LinkTypeInServer::HCCS_SW_TYPE)];
-    u32 sioNum = pairLinkCounter_[static_cast<u32>(LinkTypeInServer::SIO_TYPE)];
-    HCCL_DEBUG(
-        "In pairLinkCounter_, the hccsSWNum is [%lu], the sioNum is [%lu], the deviceNumPerAggregation_ is [%lu]",
-        hccsSWNum, sioNum, deviceNumPerAggregation_);
-    if (hccsSWNum == 0) {
-        return false;
-    }
-    if (sioNum == 0) {
-        return false;
-    }
-    // The following 2 means that the device has no HCCS_SW link with itself and its companion linked by same SIO link.
-    return (hccsSWNum == ((deviceNumPerAggregation_ - 2) * deviceNumPerAggregation_)) &&
-           (sioNum == deviceNumPerAggregation_);
-}
-
-HcclResult hcclImpl::GetDefaultAlgoLevel0Module(AlgTypeLevel0 &algType)
-{
-    if (deviceNumPerAggregation_ == DEVICE_EIGHT) {
-        algType = AlgTypeLevel0::ALG_LEVEL0_8P_RING;
-    } else if (deviceNumPerAggregation_ == DEVICE_FOUR) {
-        algType = AlgTypeLevel0::ALG_LEVEL0_4P_MESH;
-    } else if (deviceNumPerAggregation_ == DEVICE_TWO) {
-        algType = AlgTypeLevel0::ALG_LEVEL0_NP_SINGLE_RING;
-    } else if (deviceNumPerAggregation_ == DEVICE_ONE) {
-        algType = AlgTypeLevel0::ALG_LEVEL0_NP_SINGLE_RING;
-    } else {
-        algType = AlgTypeLevel0::ALG_LEVEL0_WHOLE_RING;
-    }
-
-    if ((pairLinkCounter_[static_cast<u32>(LinkTypeInServer::HCCS_TYPE)] ==
-        deviceNumPerAggregation_ * (deviceNumPerAggregation_ - 1) ||
-        pairLinkCounter_[static_cast<u32>(LinkTypeInServer::HCCS_TYPE)] ==
-        FACTOR_NUM_TWO * deviceNumPerAggregation_ * (deviceNumPerAggregation_ - 1)) &&
-        deviceType_ == DevType::DEV_TYPE_910B) {
-        algType = AlgTypeLevel0::ALG_LEVEL0_NP_MESH;
-        HCCL_DEBUG("[GetDefaultAlgoLevel0Module] AlgTypeLevel0 is set to ALG_LEVEL0_NP_MESH (HCCS links is enabled).");
-    }
-
-    if (deviceType_ == DevType::DEV_TYPE_910_73) {
-        algType = IsHCCSSWNumEqualToTwiceSIONum() ? AlgTypeLevel0::ALG_LEVEL0_NP_DOUBLE_RING :
-                                                    AlgTypeLevel0::ALG_LEVEL0_NP_SINGLE_RING;
-        if ((algType == AlgTypeLevel0::ALG_LEVEL0_NP_SINGLE_RING) && GetExternalInputEnableRdmaSdmaConcurrent()) {
-            SetRdmaSdmaConcurrentDisable();
-        }
-    }
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::GetDefaultAlgoLevel0StandardCard(AlgTypeLevel0 &algType) const
-{
-    if (deviceNumPerAggregation_ == DEVICE_TWO) {
-        if ((deviceType_ == DevType::DEV_TYPE_910B)) {
-            algType = AlgTypeLevel0::ALG_LEVEL0_NP_SINGLE_RING;
-        } else {
-            algType = AlgTypeLevel0::ALG_LEVEL0_2P_MESH;
-        }
-    } else if (deviceNumPerAggregation_ > DEVICE_TWO && deviceNumPerAggregation_ <= DEVICE_EIGHT) {
-        // 随标卡支持rank数变更
-        algType = AlgTypeLevel0::ALG_LEVEL0_NP_SINGLE_RING;
-    } else if (deviceNumPerAggregation_ == DEVICE_ONE) {
-        algType = AlgTypeLevel0::ALG_LEVEL0_NP_SINGLE_RING;
-    } else {
-        HCCL_ERROR("in standaed card[num %u] there is no supported algo.", deviceNumPerAggregation_);
-        return HCCL_E_PARA;
-    }
-    HCCL_DEBUG("[GetDefaultAlgoLevel0StandardCard] AlgTypeLevel0 is set to [%u].", algType);
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::GetAlgType(AlgType &algType, HcclCMDType opType)
-{
-    opType = (algType_.find(opType) == algType_.end() ? HcclCMDType::HCCL_CMD_INVALID : opType);
-    algType = algType_[opType];
-    CHK_RET(CheckAlgType(algType));
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::GetAlgTypeDirect(AlgType &algType, HcclCMDType opType)
-{
-    opType = (algType_.find(opType) == algType_.end() ? HcclCMDType::HCCL_CMD_INVALID : opType);
-    algType = algType_[opType];
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::GetDefaultAlgoLevel1V1(u32 moduleNum, AlgTypeLevel1 &algType) const
-{
-    if (moduleNum >=  HCCL_INTER_SERVER_RING_ALGO_MAX_SUPPORT_SERVER_NUM) {
-        // server 数为 8 以上：使用 HD 算法
-        algType = AlgTypeLevel1::ALG_LEVEL1_HD;
-    } else {
-        // server 数为 2 的非整数次幂：使用 RING 算法
-        // server 数为 2 的整数次幂：使用 HD 算法
-        algType = (((moduleNum & (moduleNum - 1)) != 0) || (moduleNum == 1)) ?
-            AlgTypeLevel1::ALG_LEVEL1_RING :
-            AlgTypeLevel1::ALG_LEVEL1_HD;
-    }
-    HCCL_INFO("[hcclImpl][GetDefaultAlgoLevel1V1] algType[%u], moduleNum[%u]", algType, moduleNum);
     return HCCL_SUCCESS;
 }
 
@@ -638,16 +221,6 @@ HcclResult hcclImpl::ActiveRingStreams(const std::string& tag, Stream &stream)
         }
     }
     return HCCL_SUCCESS;
-}
-
-bool hcclImpl::SupportDeterministicOptim() const
-{
-    bool support = isSingleMeshAggregation_ &&
-                   deviceNumPerAggregation_ > DEVICE_TWO &&
-                   deviceType_ == DevType::DEV_TYPE_910B &&
-                   deterministic_ == DETERMINISTIC_CONFIG_ENABLE &&
-                   GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB;
-    return support;
 }
 
 HcclResult hcclImpl::CreateAlltoAllVCommMem(DeviceMem& inputMem, DeviceMem& outputMem) const
@@ -996,7 +569,7 @@ HcclResult hcclImpl::PrepareCommRes(const std::string &tag, DeviceMem &inputMem,
     HCCL_INFO("[HcclImpl][PrepareCommRes] tag[%s], inputMem ptr[%p] size[%llu], outputMem ptr[%p] size[%llu], "
               "algType[%s], root[%u], isP2p[%d], isHaveCpuRank[%d], meshSinglePlane[%d], aivMode[%d]",
               tag.c_str(), inputMem.ptr(), inputMem.size(), outputMem.ptr(), outputMem.size(),
-              HcclAlg::AlgTypeToStr(algType).c_str(), root, isP2p, isHaveCpuRank, meshSinglePlane, aivMode);
+              AlgTypeToStr(algType).c_str(), root, isP2p, isHaveCpuRank, meshSinglePlane, aivMode);
     CHK_RET(notifyPool_->RegisterOp(tag));
 
     HcclResult ret = HCCL_SUCCESS;
@@ -1040,7 +613,7 @@ HcclResult hcclImpl::PrepareCommRes(const std::string &tag, DeviceMem &inputMem,
         HCCL_ERROR("[HcclImpl][PrepareCommRes] failed, tag[%s], inputMem ptr[%p] size[%llu], outputMem ptr[%p] "\
             "size[%llu], algType[%s], streamId[%d], root[%u], isP2p[%d], isHaveCpuRank[%d], return[0x%016llx]",
             tag.c_str(), inputMem.ptr(), inputMem.size(), outputMem.ptr(), outputMem.size(),
-            HcclAlg::AlgTypeToStr(algType).c_str(), streamId, root, isP2p, isHaveCpuRank, HCCL_ERROR_CODE(ret));
+            AlgTypeToStr(algType).c_str(), streamId, root, isP2p, isHaveCpuRank, HCCL_ERROR_CODE(ret));
         (void)notifyPool_->UnregisterOp(tag);
         if (!isBatchSendRecv) {
             UnRegisterToHeartBeat();
@@ -1158,7 +731,7 @@ HcclResult hcclImpl::GetCommTypeInLevel0(const AlgType algType, const TopoType t
             commType = CommType::COMM_TAG_RING_INNER;
         }
         HCCL_DEBUG("[Get][CommTypeForLevel0]The algType is %s, topoType is %d, while commType is %d",
-            HcclAlg::AlgTypeToStr(algType).c_str(), topoType, commType);
+            AlgTypeToStr(algType).c_str(), topoType, commType);
         return HCCL_SUCCESS;
     }
 
@@ -1174,7 +747,7 @@ HcclResult hcclImpl::GetCommTypeInLevel0(const AlgType algType, const TopoType t
         commType = CommType::COMM_TAG_RING_INNER;
     }
     HCCL_DEBUG("[Get][CommTypeForLevel0]The algType is %s, topoType is %d, while commType is %d",
-        HcclAlg::AlgTypeToStr(algType).c_str(), topoType, commType);
+        AlgTypeToStr(algType).c_str(), topoType, commType);
     return HCCL_SUCCESS;
 }
 
@@ -1277,11 +850,11 @@ HcclResult hcclImpl::GetCommTypeInLevel1(const AlgType algType, CommType &commTy
         }
 
         default:
-            HCCL_ERROR("[Get][CommTypeInLevel1]algType[%s] is not support", HcclAlg::AlgTypeToStr(algType).c_str());
+            HCCL_ERROR("[Get][CommTypeInLevel1]algType[%s] is not support", AlgTypeToStr(algType).c_str());
             return HCCL_E_PARA;
     }
     HCCL_DEBUG("[Get][CommTypeInLevel1]The algType is %s, while commType is %d",
-        HcclAlg::AlgTypeToStr(algType).c_str(), commType);
+        AlgTypeToStr(algType).c_str(), commType);
     return HCCL_SUCCESS;
 }
 
@@ -1314,7 +887,7 @@ CommPlane hcclImpl::GetCommPlaneInLevel1(CommType &commType)
 HcclResult hcclImpl::CreateCommByAlg(const std::string &tag, const AlgType algType, CommInfo &commInfo,
     DeviceMem &inputMem, DeviceMem &outputMem, u32 root, bool isAicpuModeEn, bool meshSinglePlane)
 {
-    CHK_RET(CheckAlgType(algType));
+    CHK_RET(algConfigurator_->CheckAlgType(algType));
     CHK_RET(commFactory_->SetHDCModeInfo(rankDevicePhyIdNicInfoMap_, ranksPort_, isSetHDCModeInfo_, isUseRankPort_));
 
     HcclResult commThreadWaitResultLevel0       = HCCL_SUCCESS;
@@ -1387,7 +960,7 @@ HcclResult hcclImpl::CreateCommByAlg(const std::string &tag, const AlgType algTy
         CHK_PRT_RET(!commThreadPtrLevel1_, HCCL_ERROR("[Create][CommByAlg]commTypeInLevel1[%d] threads reset failed.",
             commInfoLevel1.commType), HCCL_E_INTERNAL);
         commThreadWaitResultLevel1 = WaitCommThread(commThreadPtrLevel1_);
- 
+
         if (isUsedRdma) {
             commInfoLevel1.forceRdma = isUsedRdma;
             commThreadPtrLevel1Rdma_.reset(new (std::nothrow) std::thread(&hcclImpl::CreateCommThread, this,
@@ -1697,37 +1270,11 @@ HcclResult hcclImpl::AddSubStreamToProfiling(const std::string &tag, HcclCMDType
     innerStreamInfo_t &streamInfo = tagStreamInfo_[tag];
     for (u32 streamIndex = 0; streamIndex < streamInfo.ringStreams.size(); streamIndex++) {
         // profiling加入从环的stream
-        HCCL_PROFILER_ADD_STREAM(streamInfo.ringStreams[streamIndex].ptr(), tag, streamIndex + 1, algType_[opType]);
+        AlgType algType = AlgType::ALG_DEFAULT;
+        CHK_RET(algConfigurator_->GetAlgType(algType, opType));
+        HCCL_PROFILER_ADD_STREAM(streamInfo.ringStreams[streamIndex].id(), tag, streamIndex + 1, algType);
     }
     return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::SetAlgType(AlgType algType, HcclCMDType opType)
-{
-    CHK_RET(CheckAlgType(algType));
-    algType_[opType] = algType;
-    return HCCL_SUCCESS;
-}
-
-AlgTypeLevel0 hcclImpl::GetLevel0AlgType(const AlgType algType) const
-{
-    if (algType != AlgType::ALG_NP_STAR) {
-        const u32 algLevel0 = static_cast<u32>(algType) & ((1 << HCCL_LEVEL_ALGO_WIDTH) - 1);
-        return static_cast<AlgTypeLevel0>(algLevel0);
-    }
-
-    return AlgTypeLevel0::ALG_LEVEL0_NP_STAR;
-}
-
-AlgTypeLevel1 hcclImpl::GetLevel1AlgType(const AlgType algType) const
-{
-    const u32 algLevel1 = (static_cast<u32>(algType) >> HCCL_LEVEL_ALGO_WIDTH) & ((1 << HCCL_LEVEL_ALGO_WIDTH) - 1);
-    return static_cast<AlgTypeLevel1>(algLevel1);
-}
-
-bool hcclImpl::UseInterServerPipelineAlgo(AlgType algType)
-{
-    return GetLevel1AlgType(algType) == AlgTypeLevel1::ALG_LEVEL1_PIPELINE;
 }
 
 HcclResult hcclImpl::RegisterToHeartBeat()
@@ -1750,18 +1297,6 @@ void hcclImpl::UnRegisterToHeartBeat()
 void hcclImpl::UnRegisterToHeartBeat(const std::string& tag)
 {
     HeartbeatPub::UnRegisterToHeartBeat(deviceLogicId_, deviceType_, tag);
-}
-
-HcclResult hcclImpl::GetTopoType(TopoType &topoType)
-{
-    topoType = topoType_;
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::GetAlgoLevel1DefaultSwitch(bool &isAlgoLevel1Default, HcclCMDType opType)
-{
-    isAlgoLevel1Default = isAlgoLevel1Default_[opType];
-    return HCCL_SUCCESS;
 }
 
 u32 hcclImpl::GetSubRootForScatter(const u32 root)
@@ -1878,12 +1413,6 @@ innerStreamInfo_t* hcclImpl::GetStreamInfoWithoutCheck(const std::string &tag)
 {
     std::unique_lock<std::mutex> mutiStreamLock(tagStreamInfoLock_);
     return &tagStreamInfo_[tag];
-}
-
-HcclResult hcclImpl::SetPipelineSliceNum(u64 piplineSliceNum)
-{
-    piplineSliceNum_ = piplineSliceNum;
-    return HCCL_SUCCESS;
 }
 
 HcclResult hcclImpl::CreateOpBasedResources(const HcclCMDType &opType, const std::string &tag,
@@ -2088,23 +1617,6 @@ u64 hcclImpl::GetInCCLbufferSize() const
     return cclBufferManager_.GetInCCLbufferSize();
 }
 
-HcclResult hcclImpl::GetCommPlaneRanks(std::vector<std::vector<std::vector<u32>>> &CommPlaneRanks)
-{
-    CHK_RET(commFactory_->GetCommPlaneRanks(CommPlaneRanks));
-    return HCCL_SUCCESS;
-}
-HcclResult hcclImpl::GetIsBridgeVector(std::vector<bool> &isBridgeVector)
-{
-    CHK_RET(commFactory_->GetIsBridgeVector(isBridgeVector));
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::GetIsUsedRdmaMap(std::unordered_map<u32, bool> &isUsedRdmaMap)
-{
-    CHK_RET(commFactory_->GetIsUsedRdmaMap(isUsedRdmaMap));
-    return HCCL_SUCCESS;
-}
-
 HcclResult hcclImpl::GetDispatcher(HcclDispatcher &dispatcher)
 {
     dispatcher = dispatcher_;
@@ -2119,12 +1631,6 @@ HcclResult hcclImpl::GetVirtualDispatcher(HcclDispatcher &vdispatcher)
 HcclResult hcclImpl::GetParallelTaskLoader(ParallelTaskLoader* &parallelTaskLoader)
 {
     parallelTaskLoader = parallelTaskLoader_.get();
-    return HCCL_SUCCESS;
-}
-
-HcclResult hcclImpl::GetRankVecInfo(std::vector<std::vector<std::vector<u32>>> &serverAndsuperPodToRank)
-{
-    CHK_RET(commFactory_->GetRankVecInfo(serverAndsuperPodToRank));
     return HCCL_SUCCESS;
 }
 

@@ -25,6 +25,9 @@
 #include "op_base_stream_manager_pub.h"
 #include "resource_manager/queue_notify_manager.h"
 #include "device_capacity.h"
+#include "coll_alg_utils.h"
+#include "alg_configurator.h"
+#include "topo_info_extractor.h"
 
 namespace hccl {
 constexpr s32 COMM_INDEX_0 = 0;
@@ -73,19 +76,20 @@ public:
         const void* transportResourceInfoAddr,
         size_t transportResourceInfoSize,
         HcclAlgoAttr &algoAttr,
-        HcclTopoAttr &topoAttr);
+        HcclTopoAttr &topoAttr,
+        std::shared_ptr<AlgConfigurator> algConfigurator,
+        std::shared_ptr<TopoInfoExtractor> topoInfoEx);
     ~hcclImpl();
     HcclResult Init(bool isHeterogComm = false);
-    HcclResult SetAlgType(AlgType algType, HcclCMDType opType);
-    HcclResult GetAlgType(AlgType &algType, HcclCMDType opType);
-    HcclResult GetAlgTypeDirect(AlgType &algType, HcclCMDType opType);
     HcclResult AddSubStreamToProfiling(const std::string &tag, HcclCMDType opType);
     HcclResult PrepareCommRes(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem, AlgType algType,
         Stream stream, u32 root = INVALID_VALUE_RANKID, bool isP2p = false, bool isHaveCpuRank = false,
         bool isBatchSendRecv = false, bool meshSinglePlane = false, bool aivMode = false,
         std::set<u32> batchSendRecvtargetRanks = std::set<u32>());
+
     HcclResult GetRingNics(const std::string &tag, std::vector<std::vector<u32>> &ringNics);
     HcclResult SetRingNics(const std::string &tag, const std::vector<std::vector<u32>> &ringNics);
+
     HcclResult PrepareInnerCommInfo(u32 &segmentIdx, u32 &commIndex, u64 &hdSize,
                                     const SubCommInfo &commInfo,
                                     const std::vector<std::vector<Slice> > &multRingsSliceZero,
@@ -94,7 +98,6 @@ public:
                                     std::vector<std::unique_ptr<CommBase> > &commOuter,
                                     const std::vector<std::vector<Slice> > &multRingsSliceZero,
                                     const std::string &tag);
-    HcclResult GetDefaultAlgoLevel1V1(u32 moduleNum, AlgTypeLevel1 &algType) const;
     HcclResult ActiveRingStreams(const std::string& tag, Stream &stream);
     HcclResult CreateMutiStreamRes(const std::string &tag, Stream &stream, AlgType algType,
         bool isBatchSendRecv = false, u32 ringNum = 0);
@@ -109,8 +112,6 @@ public:
     HcclResult ParallelTaskLoaderProcess(const std::string &tag, Stream &stream, SubCommInfo &outerCommInfo,
     std::vector<Stream> &ringStreams);
 
-    HcclResult GetTopoType(TopoType &topoType);
-    HcclResult GetAlgoLevel1DefaultSwitch(bool &isAlgoLevel1Default, HcclCMDType opType);
     u32 GetSubRootForScatter(const u32 root);
     u32 GetSubRootUserRank(const u32 userRank, const u32 rootUserRank);
     u32 GetSubRootUserRankWithSuperPod(const u32 userRank, const u32 rootUserRank);
@@ -122,7 +123,6 @@ public:
     HcclResult GetStreamThreadManage(const std::string &tag, u32 streamNum,
         std::vector<std::shared_ptr<ThreadManage>>& threadManager);
     innerStreamInfo_t* GetStreamInfoWithoutCheck(const std::string &tag);
-    HcclResult SetPipelineSliceNum(u64 piplineSliceNum);
     HcclResult GetAlltoAllStatus(DeviceMem &tinySendRecvMem, bool &isAlltoAllZCopyMode);
     HcclResult UpdateAlltoAllStatus(bool &isAlltoAllZCopyMode, bool &needRecreateAlltoallComm,
         std::map<std::string, bool> &isAlltoAllZCopyModeMap);
@@ -150,16 +150,12 @@ public:
     HcclResult CreateComm(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem, AlgType algType,
         u32 root = INVALID_VALUE_RANKID, bool isP2p = false, bool isBatchSendRecv = false, bool meshSinglePlane = false,
         bool aivMode = false, std::set<u32> batchSendRecvtargetRanks = std::set<u32>());
-    HcclResult GetCommPlaneRanks(std::vector<std::vector<std::vector<u32>>> &CommPlaneRanks);
-    HcclResult GetIsBridgeVector(std::vector<bool> &isBridgeVector);
     HcclResult ClearOpResource(const std::string &tag);
     HcclResult GetTopoAttr(HcclTopoAttr &topoAttr);
     HcclResult GetAlgoAttr(HcclAlgoAttr &algoAttr);
     HcclResult GetDispatcher(HcclDispatcher &dispatcher);
     HcclResult GetVirtualDispatcher(HcclDispatcher &vdispatcher);
     HcclResult GetParallelTaskLoader(ParallelTaskLoader* &parallelTaskLoader);
-    HcclResult GetIsUsedRdmaMap(std::unordered_map<u32, bool> &isUsedRdmaMap);
-    HcclResult GetRankVecInfo(std::vector<std::vector<std::vector<u32>>> &serverAndsuperPodToRank);
     void Break()
     {
         if (Is310P3Common()) {
@@ -206,7 +202,6 @@ public:
     }
     HcclResult CreateP2PCommQuerry(const std::string &tag, u32& status);
     HcclResult CreateP2PCommAsync(const std::string &tag, DeviceMem &mem, u32 peerRank, u32& status);
-    bool SupportDeterministicOptim() const;
     void SetHDCModeInfo(
         std::unordered_map<std::string, std::map<u32, HcclIpAddress>> &rankDevicePhyIdNicInfoMap,
         std::vector<u32> &ranksPort, bool isSetHDCModeInfo, bool isUseRankPort);
@@ -238,76 +233,21 @@ private:
     void DestroyOuterComm(const std::string &tag);
     HcclResult ReleaseSignal(innerStreamInfo_t &innerStream);
     HcclResult RunExecutor(std::unique_ptr<CommBase> &commCombine, std::unique_ptr<ExecutorBase> &executor,
-                              DeviceMem &inputMem, DeviceMem &outputMem, u64 count, HcclDataType dataType,
+                              DeviceMem &inputMem, DeviceMem &outputMem, u64 count, HcclDataType GetLevel0AlgTypedataType,
                               HcclReduceOp op, u32 root, Stream &stream) const;
 
     HcclResult InitMultiStreamResource(const std::string &tag, innerStreamInfo_t &streamInfo, AlgType algType,
         bool isAicpuModeEn = false, bool isBatchSendRecv = false, u32 ringNum = 0);
 
     HcclResult WaitCommThread(std::unique_ptr<std::thread> &ThreadPtr) const;
-    /**
-     * @brief 获取算法类型的Level0算法
-     *
-     * @param algType : 算法类型
-     * @return AlgTypeLevel0
-     */
-    AlgTypeLevel0 GetLevel0AlgType(const AlgType algType)const;
-
-    /**
-     * @brief 获取算法类型的Level1算法
-     *
-     * @param algType : 算法类型
-     * @return AlgTypeLevel1
-     */
-    AlgTypeLevel1 GetLevel1AlgType(const AlgType algType) const;
-    /**
-     * @brief 根据server数量设定server间算法类型
-     *
-     * @param algType ：算法类型
-     * @return HcclResult
-     */
-    bool UseInterServerPipelineAlgo(AlgType algType);
-    bool IsHCCSSWNumEqualToTwiceSIONum();
-    HcclResult CheckAlgType(const AlgType algType);
-    HcclResult GetDefaultAlgoLevel0StandardCard(AlgTypeLevel0 &algType) const;
-    HcclResult SetAlgoLevel0StandardCard(HcclAlgoType algoConfig, AlgTypeLevel0 &algType);
-    HcclResult GetDefaultAlgoLevel0Module(AlgTypeLevel0 &algType);
-    HcclResult SetAlgoLevel0Module(HcclAlgoType algoConfig, AlgTypeLevel0 &algType);
-    HcclResult SetAlgoLevel0(HcclAlgoType algoConfig, AlgTypeLevel0 &algType);
-    HcclResult SetAlgoLevel1(HcclAlgoType algoConfig, u32 moduleNum, AlgTypeLevel1 &algType, HcclCMDType opType);
-    HcclResult SetAlgoLevel2(HcclAlgoType algoConfig, AlgTypeLevel2 &algType);
-    HcclResult SelectCurrOpAlgType(
-        u32 moduleNum, const DevType deviceType, HcclCMDType opType, std::map<HcclCMDType, AlgType>& algType);
-    HcclResult SelectAlgType(u32 moduleNum, const DevType deviceType, std::map<HcclCMDType, AlgType>& algType);
-    HcclResult GetTopoTypeByAlgType(const AlgType &algType, const DevType deviceType, TopoType &topoType);
     HcclResult RegisterToHeartBeat(u32 peerRankId, const std::string& tag);
     void UnRegisterToHeartBeatP2P();
     void UnRegisterToHeartBeat();
     void UnRegisterToHeartBeat(const std::string& tag);
 
     /* ---------------以下为私有成员变量定义领域-------------------------- */
-    HcclTopoAttr topoAttr_;
-    HcclAlgoAttr algoAttr_;
-    TopoType topoType_;
+    TopoType topoType_ = TopoType::TOPO_TYPE_COMMON;
     std::mutex commLock_;
-    std::map<HcclCMDType, AlgType> algType_ = {
-        {HcclCMDType::HCCL_CMD_INVALID, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_BROADCAST, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_ALLREDUCE, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_REDUCE, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_SEND, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_RECEIVE, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_ALLGATHER, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_REDUCE_SCATTER, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_ALLTOALLV, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_ALLTOALLVC, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_ALLTOALL, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_GATHER, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_SCATTER, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_BATCH_SEND_RECV, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_MAX, AlgType::ALG_DEFAULT},
-        {HcclCMDType::HCCL_CMD_ALL, AlgType::ALG_DEFAULT},
-    };      // 算法类型
 
     tagCommInfo_t tagCommInfo_;    // 以tag为粒度分配comm实例和资源
     DeviceMem tinySendRecvMem_; // 在sendCount/recvCount全0时, 使用tinySendRecvMem_, 避免使用空deviceMem
@@ -348,24 +288,6 @@ private:
     bool isSingleMeshAggregation_ = false;
     bool meshSinglePlane_ = false;
     bool isAllRankSamePlane_ = false;
-    std::map<HcclCMDType, bool> isAlgoLevel1Default_ = {
-        {HcclCMDType::HCCL_CMD_INVALID, false},
-        {HcclCMDType::HCCL_CMD_BROADCAST, false},
-        {HcclCMDType::HCCL_CMD_ALLREDUCE, false},
-        {HcclCMDType::HCCL_CMD_REDUCE, false},
-        {HcclCMDType::HCCL_CMD_SEND, false},
-        {HcclCMDType::HCCL_CMD_RECEIVE, false},
-        {HcclCMDType::HCCL_CMD_ALLGATHER, false},
-        {HcclCMDType::HCCL_CMD_REDUCE_SCATTER, false},
-        {HcclCMDType::HCCL_CMD_ALLTOALLV, false},
-        {HcclCMDType::HCCL_CMD_ALLTOALLVC, false},
-        {HcclCMDType::HCCL_CMD_ALLTOALL, false},
-        {HcclCMDType::HCCL_CMD_GATHER, false},
-        {HcclCMDType::HCCL_CMD_SCATTER, false},
-        {HcclCMDType::HCCL_CMD_BATCH_SEND_RECV, false},
-        {HcclCMDType::HCCL_CMD_MAX, false},
-        {HcclCMDType::HCCL_CMD_ALL, false},
-    };
 
     u64 piplineSliceNum_ = 0; // Server间pipline切分数量 0: 不支持; 1: 当前数据量下切1份; 其他: 走pipline模式
     const HcclDispatcher dispatcher_; // dispatcher放到最后析构
@@ -403,14 +325,18 @@ private:
     bool is310PDuoCard_;
     bool multiModuleDiffDeviceNumMode_;
     bool isUsedInterHccsMode_ = false;
-    bool useSdidForDeviceId_ = false;
+    bool useSuperPodMode_ = false;
     u32 pid_ = 0;
     std::unordered_map<std::string, std::map<u32, HcclIpAddress>> rankDevicePhyIdNicInfoMap_{};
     std::vector<u32> ranksPort_;
     bool isSetHDCModeInfo_{ false };
     bool isUseRankPort_{ false };
     bool isSupportRdmaLite_{ false };      // 是否支持rdma lite
-    u8 deterministic_;      // 确定性计算配置：0-关闭，1-开启，其他数字暂时保留
+
+    std::shared_ptr<AlgConfigurator> algConfigurator_;
+    std::shared_ptr<TopoInfoExtractor> topoInfoEx_;
+    HcclTopoAttr& topoAttr_;
+    HcclAlgoAttr& algoAttr_;
 };
 }  // namespace hccl
 

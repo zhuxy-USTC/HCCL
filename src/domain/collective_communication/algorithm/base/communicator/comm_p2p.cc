@@ -19,11 +19,11 @@ CommP2P::CommP2P(const std::string &collectiveId, const u32 userRank,
     const DeviceMem& inputMem, const DeviceMem& outputMem, const bool isUsedRdmaOuter,
     const void* transportResourceInfoAddr, size_t transportResourceInfoSize,
     const std::string &tag, const u32 dstUserRank, const NICDeployment nicDeployInner,
-    const bool isHaveCpuRank, const bool useSdidForDeviceId)
+    const bool isHaveCpuRank, const bool useSuperPodMode)
     : CommBase(collectiveId, userRank, userRankSize, rank, rankSize, paraVector, topoFlag, dispatcher, notifyPool,
       netDevCtxMap, exchanger, inputMem, outputMem, isUsedRdmaOuter, transportResourceInfoAddr,
       transportResourceInfoSize, tag, nicDeployInner, false, false, false, INVALID_UINT, isHaveCpuRank,
-      useSdidForDeviceId),
+      useSuperPodMode),
       dstUserRank_(dstUserRank)
 {
 }

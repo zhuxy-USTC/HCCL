@@ -18,17 +18,14 @@ CollReduceScatterExecutor::CollReduceScatterExecutor(const HcclDispatcher dispat
 {
 }
 
-HcclResult CollReduceScatterExecutor::Orchestrate(const OpParam& param,
-    const AlgResourceResponse& algRes)
+HcclResult CollReduceScatterExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algRes)
 {
     HcclUs startut = TIME_NOW();
     ParseParam(param);
     tag_ = param.tag;
-    GetStreamInfo(algRes);
     algResResp_ = &algRes;
-    auto rtStream = param.stream.ptr();
-    HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, GetWorkflowMode());
-    HCCL_PROFILER_ADD_STREAM(rtStream, param.tag, 0, algType_);
+    HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, workflowMode_);
+    HCCL_PROFILER_ADD_STREAM(param.stream.id(), param.tag, 0, algType_);
     HCCL_PROFILER_ADD_OPDATA(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr, param.DataDes.dataType, \
         INVALID_VALUE_RANKID, algoAttr_.identifier);
     HCCL_PROFILER_ADD_GROUPRANK(algoAttr_.identifier, topoAttr_.userRankSize, topoAttr_.userRank);
@@ -36,7 +33,7 @@ HcclResult CollReduceScatterExecutor::Orchestrate(const OpParam& param,
 
     HcclResult ret = HCCL_SUCCESS;
     // 图模式和单卡场景下不需要Loop
-    if (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         ExecMem execMem;
         execMem.count = param.DataDes.count;
         execMem.inputPtr = param.inputPtr;
@@ -61,8 +58,8 @@ HcclResult CollReduceScatterExecutor::Orchestrate(const OpParam& param,
         HCCL_ERROR("[CollReduceScatterExecutor][Orchestrate]errNo[0x%016llx]excutor kernel run failed",
             HCCL_ERROR_CODE(ret)), ret);
 
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
-        HCCL_PROFILER_DEL_STREAM(rtStream);
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
+        HCCL_PROFILER_DEL_STREAM(param.stream.id());
         HCCL_PROFILER_DEL_TAG(param.tag);
         HCCL_PROFILER_DEL_OPDATA(param.tag);
         HCCL_PROFILER_DEL_GROUPRANK(param.tag);
@@ -83,6 +80,9 @@ u64 CollReduceScatterExecutor::CalcLoopMaxCount(const u32 unitSize)
 
 bool CollReduceScatterExecutor::IsHugeData(const u64 curSize)
 {
+    if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT) {
+        return true;
+    }
     bool hugeData = (curSize * topoAttr_.userRankSize / HCCL_INTERNODE_MAX_DATA_RATE > RDMA_SEND_MAX_SIZE) ||
                             (curSize > SDMA_SEND_MAX_SIZE);
     return hugeData;
@@ -94,13 +94,13 @@ bool CollReduceScatterExecutor::IsSmallData(const u64 totalSize, const u64 curSi
     return false;
 }
 
-u32 CollReduceScatterExecutor::CalcDataSplit(const u64 curSize)
+u32 CollReduceScatterExecutor::IsDataSplit(const u64 curSize)
 {
-    HCCL_INFO("[CollReduceScatterExecutor][CalcDataSplit]opMeta is using the default option: not data split.");
+    HCCL_INFO("[CollReduceScatterExecutor][IsDataSplit]opMeta is using the default option: not data split.");
     return 0;
 }
 
-HcclResult CollReduceScatterExecutor::RunLoop(const OpParam &param, const AlgResourceResponse &algRes)
+HcclResult CollReduceScatterExecutor::RunLoop(OpParam &param, AlgResourceResponse &algRes)
 {
     u32 unitSize = SIZE_TABLE[param.DataDes.dataType];
     ReduceType reduceType = ((param.reduceType != HCCL_REDUCE_PROD) &&
@@ -113,6 +113,9 @@ HcclResult CollReduceScatterExecutor::RunLoop(const OpParam &param, const AlgRes
     CHK_PTR_NULL(curOutputPtr);
 
     u64 maxCountPerLoop = CalcLoopMaxCount(unitSize);
+    CHK_PRT_RET(maxCountPerLoop == 0,
+        HCCL_ERROR("[CollReduceScatterExecutor][RunLoop]maxCountPerLoop is zero."),
+        HCCL_E_INTERNAL);
     HCCL_DEBUG("[CollReduceScatterExecutor][RunLoop]tag[%s], userRankSize is [%llu], maxCountPerLoop is [%llu].",
         param.tag.c_str(), topoAttr_.userRankSize, maxCountPerLoop);
 
@@ -155,7 +158,7 @@ HcclResult CollReduceScatterExecutor::RunLoop(const OpParam &param, const AlgRes
     return HCCL_SUCCESS;
 }
 
-HcclResult CollReduceScatterExecutor::RunLoopInner(const OpParam &param, const ReduceType &reduceType, ExecMem &execMem)
+HcclResult CollReduceScatterExecutor::RunLoopInner(OpParam &param, const ReduceType &reduceType, ExecMem &execMem)
 {
     u32 unitSize = SIZE_TABLE[param.DataDes.dataType];
     u64 curSize = execMem.count * unitSize; // 单位：字节
@@ -169,8 +172,8 @@ HcclResult CollReduceScatterExecutor::RunLoopInner(const OpParam &param, const R
         bool smallData = IsSmallData(param.DataDes.count * unitSize, curSize);
         auto opMeta = HcclOpMetaInfo::GetOneForReduceScatter(autoSelectedAlgTypeLevel1,
             param.DataDes.dataType, reduceType, hugeData, smallData);
-        opMeta.dataSplit = CalcDataSplit(curSize);
-        CHK_RET(InitTask(dispatcher_, const_cast<Stream&>(param.stream), opMeta.isEnableCache, opMeta.GetCacheKey()));
+        opMeta.dataSplit = IsDataSplit(curSize);
+        CHK_RET(InitTask(dispatcher_, param.stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
         CHK_RET(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_REDUCE_SCATTER, param.tag,
             execMem.count, param.DataDes.dataType, param.reduceType, execMem.inputMem.size(),
             execMem.outputMem.size()));
@@ -194,7 +197,7 @@ HcclResult CollReduceScatterExecutor::RunLoopInner(const OpParam &param, const R
             dstMem = execMem.inputMem.range(curSize * i, curSize);
             srcMem = DeviceMem::create(static_cast<u8 *>(execMem.inputPtr) + param.DataDes.count * unitSize * i,
                 curSize);
-            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, const_cast<Stream&>(param.stream)));
+            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, param.stream));
         }
         HCCL_DEBUG("[CollReduceScatterExecutor][RunLoopInner]copy from user in to ccl in.");
     }
@@ -211,12 +214,12 @@ HcclResult CollReduceScatterExecutor::RunLoopInner(const OpParam &param, const R
         // 如果使用CCL buffer，需要将CCL buffer out中的结果拷贝到user buffer out
         DeviceMem srcMem = execMem.outputMem.range(0, curSize);
         DeviceMem dstMem = DeviceMem::create(execMem.outputPtr, curSize);
-        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, const_cast<Stream&>(param.stream)));
+        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, param.stream));
     }
 
     if (!is310P3Common_) {
         CHK_RET(RankConsistent::GetInstance().DelOpPara(param.tag));
-        CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));
+        CHK_RET(LaunchTaskExtend(dispatcher_, param.stream, algResResp_->slaveStreams));
     }
     return ret;
 }

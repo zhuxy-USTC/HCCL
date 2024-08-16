@@ -1,4 +1,5 @@
 set(src_list_pub
+    ${CMAKE_CURRENT_SOURCE_DIR}/aligned_reduce_scatter_double_ring_with_serial_local_copy.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/all_gather_ring_concurrent_direct.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/reduce_scatter_ring_concurrent_direct.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/scatter_ring_concurrent_direct.cc

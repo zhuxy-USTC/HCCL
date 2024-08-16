@@ -37,6 +37,7 @@ void CollBatchSendRecvExecutor::ParseParam(const OpParam& param)
         HCCL_INFO("[CollBatchSendRecvExecutor][ParseParam] insert remoteUserRank[%u] to Set",
             (*(itemPtr + i))->remoteRank);
     }
+    aicpuUnfoldMode_ = param.aicpuUnfoldMode;
 }
 
 HcclResult CollBatchSendRecvExecutor::CalcIncreLinkRequest(const OpParam& param, AlgResourceRequest& resourceRequest)
@@ -55,17 +56,15 @@ HcclResult CollBatchSendRecvExecutor::CalcIncreLinkRequest(const OpParam& param,
     return HCCL_SUCCESS;
 }
 
-HcclResult CollBatchSendRecvExecutor::Orchestrate(const OpParam& param, const AlgResourceResponse& algResource)
+HcclResult CollBatchSendRecvExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algResource)
 {
     HcclUs startut = TIME_NOW();
     HcclResult ret = HCCL_SUCCESS;
 
     algResResp_ = &algResource;
-    auto rtStream = param.stream.ptr();
-    CHK_RET(GetStreamInfo(algResource));
 
-    HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, GetWorkflowMode());
-    HCCL_PROFILER_ADD_STREAM(rtStream, param.tag, 0, algType_);
+    HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, workflowMode_);
+    HCCL_PROFILER_ADD_STREAM(param.stream.id(), param.tag, 0, algType_);
     CHK_RET(AddSubStreamToProfiling());
 
     if (topoMatcher_->GetExternalInputHcclEnableFfts()) {
@@ -77,12 +76,12 @@ HcclResult CollBatchSendRecvExecutor::Orchestrate(const OpParam& param, const Al
     }
 
     HCCL_INFO("[BatchSendRecv] Stream sync: main stream record, subStream wait.");
-    ret = LocalNotify::Post(const_cast<Stream&>(param.stream), dispatcher_, streamInfo_.ringSignalAux[STREAM_INDEX_0],
+    ret = LocalNotify::Post(const_cast<Stream&>(param.stream), dispatcher_, algResResp_->notifiesS2M[STREAM_INDEX_0],
         PROF_STAGE_0);
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[BatchSendRecv]substream ringSignalAux record failed"), ret);
 
-    ret = LocalNotify::Wait(streamInfo_.ringStreams[STREAM_INDEX_0], dispatcher_,
-        streamInfo_.ringSignalAux[STREAM_INDEX_0], PROF_STAGE_0);
+    ret = LocalNotify::Wait(algResResp_->slaveStreams[STREAM_INDEX_0], dispatcher_,
+        algResResp_->notifiesS2M[STREAM_INDEX_0], PROF_STAGE_0);
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[BatchSendRecv]substream wait failed"), ret);
 
     HcclSendRecvItem** itemPtr = param.BatchSendRecvDataDes.orderedList;
@@ -95,11 +94,11 @@ HcclResult CollBatchSendRecvExecutor::Orchestrate(const OpParam& param, const Al
     }
 
     HCCL_INFO("[BatchSendRecv] Stream sync: subStream record, main stream wait.");
-    ret = LocalNotify::Post(streamInfo_.ringStreams[STREAM_INDEX_0], dispatcher_,
-        streamInfo_.ringSignal[STREAM_INDEX_0], PROF_STAGE_0);
+    ret = LocalNotify::Post(algResResp_->slaveStreams[STREAM_INDEX_0], dispatcher_,
+        algResResp_->notifiesM2S[STREAM_INDEX_0], PROF_STAGE_0);
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[BatchSendRecv] substream ringSignal record failed"), ret);
 
-    ret = LocalNotify::Wait(const_cast<Stream&>(param.stream), dispatcher_, streamInfo_.ringSignal[STREAM_INDEX_0],
+    ret = LocalNotify::Wait(const_cast<Stream&>(param.stream), dispatcher_, algResResp_->notifiesM2S[STREAM_INDEX_0],
         PROF_STAGE_0);
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[BatchSendRecv] stream wait failed"), ret);
 
@@ -109,14 +108,14 @@ HcclResult CollBatchSendRecvExecutor::Orchestrate(const OpParam& param, const Al
             const_cast<DeviceMem &>(algResource.cclOutputMem), const_cast<Stream&>(param.stream), dispatcher_));
         CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));
     }
-    HCCL_PROFILER_DEL_STREAM(rtStream);
+    HCCL_PROFILER_DEL_STREAM(param.stream.id());
     HCCL_PROFILER_DEL_TAG(param.tag);
     HCCL_INFO("tag[%s] BatchSendRecv Excutor orchestrate success, take time [%lld]us.",
         param.tag.c_str(), DURATION_US(TIME_NOW() - startut));
     return HCCL_SUCCESS;
 }
 
-HcclResult CollBatchSendRecvExecutor::RunLoop(const OpParam &param, const AlgResourceResponse &algRes, u32 index)
+HcclResult CollBatchSendRecvExecutor::RunLoop(OpParam &param, AlgResourceResponse &algRes, u32 index)
 {
     HcclResult ret = HCCL_SUCCESS;
     HcclSendRecvItem** sendRecvItem = param.BatchSendRecvDataDes.orderedList + index;
@@ -164,7 +163,7 @@ HcclResult CollBatchSendRecvExecutor::RunLoop(const OpParam &param, const AlgRes
         if ((*sendRecvItem)->sendRecvType == HcclSendRecvType::HCCL_RECV) {
             DeviceMem outMem(curOutputPtr, curSize);
             DeviceMem outCommMem = algRes.cclOutputMem.range(0, curSize);
-            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, outMem, outCommMem, streamInfo_.ringStreams[STREAM_INDEX_0]));
+            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, outMem, outCommMem, algResResp_->slaveStreams[STREAM_INDEX_0]));
         }
 
         CHK_PRT_RET((curCount == 0), HCCL_ERROR("[Loop][BatchSendRecv] In OP_BASE curCount is zero."), HCCL_E_PARA);
@@ -218,9 +217,9 @@ HcclResult CollBatchSendRecvExecutor::KernelRun(const OpParam &param, ExecMem &e
         CHK_RET(executor.RegisterProfiler(0, PROF_STAGE_0, HCCL_EXEC_STEP_NOT_SET, param.stream));
         CHK_RET(executor.BatchSendRunAsync());
     } else if (sendRecvType_ == HcclSendRecvType::HCCL_RECV) {
-        CHK_RET(executor.ReceivePrepare(execMem.outputMem, remoteUserRank_, streamInfo_.ringStreams[STREAM_INDEX_0]));
+        CHK_RET(executor.ReceivePrepare(execMem.outputMem, remoteUserRank_, algResResp_->slaveStreams[STREAM_INDEX_0]));
         CHK_RET(executor.RegisterProfiler(0, PROF_STAGE_0, HCCL_EXEC_STEP_NOT_SET,
-            streamInfo_.ringStreams[STREAM_INDEX_0]));
+            algResResp_->slaveStreams[STREAM_INDEX_0]));
         CHK_RET(executor.BatchReceiveRunAsync());
     } else {
         HCCL_ERROR("[CollBatchSendRecvExecutor][KernelRun] SendRecvType doesn't match. RemoteRank is [%u]",

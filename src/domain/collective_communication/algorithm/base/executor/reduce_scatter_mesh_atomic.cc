@@ -204,7 +204,7 @@ HcclResult ReduceScatterMeshAtomic::RunAsync(const u32 rank, const u32 rankSize,
             ret);
     }
 
-    HCCL_INFO("ReduceScatterMeshAtomic finished: rank[%u", rank);
+    HCCL_INFO("ReduceScatterMeshAtomic finished: rank[%u]", rank);
     return HCCL_SUCCESS;
 }
 

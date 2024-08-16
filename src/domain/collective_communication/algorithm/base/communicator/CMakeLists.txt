@@ -1,4 +1,5 @@
 set(src_list
+    ${CMAKE_CURRENT_SOURCE_DIR}/topo_info_extractor.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/comm_base.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/comm_factory.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/comm_ring.cc

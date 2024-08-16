@@ -31,7 +31,7 @@ public:
                                  const u32 subUserRankRoot = INVALID_VALUE_RANKID,
                                  HalvingDoublingType halvingDoublingType =
                                     HalvingDoublingType::RECURSIVE_HALVING_DOUBLING,
-                                 const bool isHaveCpuRank = false, const bool useSdidForDeviceId = false);
+                                 const bool isHaveCpuRank = false, const bool useSuperPodMode = false);
 
     ~CommHalvingDoubling() override;
 

@@ -30,7 +30,7 @@ HcclResult CollReduceCommExecutor::CalcCommInfo(std::vector<LevelNSubCommTranspo
 
 HcclResult CollReduceCommExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {// aicpu normal
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -55,6 +55,7 @@ HcclResult CollReduceCommExecutor::CalcCombinedCommInfo(TransportMemType inputTy
 
 HcclResult CollReduceCommExecutor::KernelRun(const OpParam &param, ExecMem &execMem)
 {
+    HCCL_INFO("[CollReduceCommExecutor][KernelRun]ReduceCommExecutor starts.");
     CHK_RET(CheckCommSize(COMM_COMBINE, 1));
     SubCommInfo combinedCommInfo = GetSubCommInfo(COMM_COMBINE, 0);
 
@@ -65,16 +66,21 @@ HcclResult CollReduceCommExecutor::KernelRun(const OpParam &param, ExecMem &exec
     HCCL_INFO("Reduce comm: using ring algo inter-server.");
     CHK_SMART_PTR_NULL(executor);
 
+    // 获取root
+    u32 root = 0;
+    CHK_RET(GetRankByUserRank(COMM_COMBINE, COMM_INDEX_0, param.root, root));
+
     u32 rankSize = combinedCommInfo.localRankSize;
     CHK_RET(executor->Prepare(execMem.inputMem, execMem.outputMem, execMem.outputMem, execMem.count,
         param.DataDes.dataType, param.stream, param.reduceType,
-        OUTER_BRIDGE_RANK_ID, std::vector<Slice>(0), 0));
+        root, std::vector<Slice>(0), 0));
 
     CHK_RET(executor->RegisterProfiler(
         (rankSize << PROF_RANKSIZE_OFFSET_OF_PLANEID) +
         combinedCommInfo.localRank, PROF_STAGE_0, HCCL_EXEC_STEP_NOT_SET, param.stream));
 
     CHK_RET(RunTemplate(executor, combinedCommInfo));
+    HCCL_INFO("[CollReduceCommExecutor] ReduceCommExecutor run success");
     return HCCL_SUCCESS;
 }
 

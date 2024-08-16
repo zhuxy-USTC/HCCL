@@ -13,8 +13,8 @@
 constexpr s32 NORMAL_QP_MODE = 0;
 constexpr s32 OFFLINE_QP_MODE = 1;
 constexpr s32 OPBASE_QP_MODE = 2;
-constexpr s32 OFFLINE_QP_MODE_EXT = 3;  // 下沉模式(910B/91073)QP
-constexpr s32 OPBASE_QP_MODE_EXT = 4;  // 单算子模式(910B/91073)的QP
+constexpr s32 OFFLINE_QP_MODE_EXT = 3;  // 下沉模式(910B/C)QP
+constexpr s32 OPBASE_QP_MODE_EXT = 4;  // 单算子模式(910B/C)的QP
 
 namespace hccl {
 constexpr s32 MODULE_TYPE_SYSTEM = 0;

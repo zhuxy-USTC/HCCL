@@ -15,6 +15,7 @@
 #include "adapter_error_manager_pub.h"
 #include "config.h"
 #include "sal_pub.h"
+#include "device_capacity.h"
 namespace hccl {
 constexpr s32 DEVICE_LOGIC_ID_LENGTH = 4;
 
@@ -275,7 +276,7 @@ HcclResult TopoInfoExchangeAgent::ConstructRankTableMsg(RankTable_t &clusterInfo
     myRankInfo.deviceInfo.deviceIp = localRankInfo_.deviceIP;
     myRankInfo.superPodId = localRankInfo_.superPodId;
     myRankInfo.superDeviceId = localRankInfo_.superDeviceId;
-    myRankInfo.serverId = localRankInfo_.hostIP.GetReadableIP();
+    ConstructRankTableServerId(myRankInfo.serverId);
 
     ServerInfo_t myServerInfo;
     myServerInfo.serverId = myRankInfo.serverId;
@@ -284,6 +285,16 @@ HcclResult TopoInfoExchangeAgent::ConstructRankTableMsg(RankTable_t &clusterInfo
     clusterInfo.rankList.push_back(myRankInfo);
     clusterInfo.serverList.push_back(myServerInfo);
     return HCCL_SUCCESS;
+}
+
+void TopoInfoExchangeAgent::ConstructRankTableServerId(std::string &serverId)
+{
+    serverId = localRankInfo_.hostIP.GetReadableIP();
+    // 配置逻辑超节点时, serverId要根据逻辑超节点划分
+    if (localRankInfo_.deviceType == DevType::DEV_TYPE_910_73 && GetExternalInputLogicSuperPodId().empty() == false) {
+        serverId += "_" + GetExternalInputLogicSuperPodId();
+    }
+    HCCL_INFO("ConstructRankTableServerId serverId %s", serverId.c_str());
 }
 
 HcclResult TopoInfoExchangeAgent::SetTransportInfo(RankTable_t &clusterInfo)
@@ -385,7 +396,9 @@ HcclResult TopoInfoExchangeAgent::VerifyClusterDeviceIP(const RankTable_t &clust
         // 单机场景对 device ip不做要求
         return HCCL_SUCCESS;
     }
-    if (clusterInfo.superPodNum == 1 && GetExternalInputInterHccsDisable() == false) {
+    bool useSuperPodMode = false;
+    CHK_RET(IsSuperPodMode(useSuperPodMode));
+    if (clusterInfo.superPodNum == 1 && GetExternalInputInterHccsDisable() == false && useSuperPodMode) {
         // 单超节点，并且节点间走HCCS场景，device ip不做要求
         return HCCL_SUCCESS;
     }
@@ -447,16 +460,20 @@ HcclResult TopoInfoExchangeAgent::VerifyServerDevicePhysicID(const std::vector<R
 
 HcclResult TopoInfoExchangeAgent::VerifyClusterSuperPodInfo(const std::vector<RankInfo_t> &rankInfo) const
 {
-    DevType deviceType;
-    CHK_RET(hrtGetDeviceType(deviceType));
-    CHK_PRT_RET(deviceType != DevType::DEV_TYPE_910_73,
-        HCCL_DEBUG("[Verify][SuperPodInfo]deviceType[%d] does not need verify superPod info", deviceType),
-        HCCL_SUCCESS);
+    bool useSuperPodMode = false;
+    CHK_RET(IsSuperPodMode(useSuperPodMode));
+    CHK_PRT_RET(useSuperPodMode == false,
+        HCCL_DEBUG("[Verify][SuperPodInfo] does not need verify superPod info"), HCCL_SUCCESS);
 
     // 获取每个超节点内的serverId
     std::map<std::string, std::set<std::string>> superPodSrvIdMap; // super_pod_id -> serverId
     std::map<std::string, std::set<u32>> superPodSdidMap; // super_pod_id -> superDeviceId
     for (u32 i = 0; i < rankInfo.size(); i++) {
+        // 超节点模式下, 校验superPodId和sdid值有效
+        CHK_PRT_RET(rankInfo[i].superPodId.empty() || rankInfo[i].superDeviceId == INVALID_UINT,
+            HCCL_ERROR("[Verify][SuperPodInfo]superDeviceId[0x%x] or superPod[%s] in rank[%u] is invalid",
+            rankInfo[i].superDeviceId, rankInfo[i].superPodId.c_str(), rankInfo[i].rankId), HCCL_E_PARA);
+
         auto iter = superPodSrvIdMap.find(rankInfo[i].superPodId);
         if (iter == superPodSrvIdMap.end()) {
             std::set<std::string> serverIdSet;

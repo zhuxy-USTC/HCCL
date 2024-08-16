@@ -16,7 +16,7 @@ CollReduceScatterRingExecutor::CollReduceScatterRingExecutor(const HcclDispatche
     std::unique_ptr<TopoMatcher> &topoMatcher)
     : CollReduceScatterExecutor(dispatcher, topoMatcher)
 {
-    DMAReduceFlag_ = (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
+    DMAReduceFlag_ = (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
         topoAttr_.deviceType == DevType::DEV_TYPE_910_73);
 }
 
@@ -25,7 +25,7 @@ void CollReduceScatterRingExecutor::ParseParam(const OpParam& param)
     tag_ = param.tag;
 
     // 是否需要scratch memory
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
         (topoAttr_.deviceType == DevType::DEV_TYPE_910B || topoAttr_.deviceType == DevType::DEV_TYPE_910_73) &&
         IsSupportSDMAReduce(param.inputPtr, param.outputPtr, param.DataDes.dataType, param.reduceType) &&
         IsSupportRDMAReduce(param.DataDes.dataType, param.reduceType)) {
@@ -36,12 +36,13 @@ void CollReduceScatterRingExecutor::ParseParam(const OpParam& param)
 
     // 记录图模式总数据量
     totalSize_ = topoAttr_.userRankSize * param.DataDes.count * SIZE_TABLE[param.DataDes.dataType];
+    aicpuUnfoldMode_ = param.aicpuUnfoldMode;
 }
 
 HcclResult CollReduceScatterRingExecutor::CalcScratchMemSize(u64& scratchMemSize)
 {
     if (scratchMemFlag_) {
-        if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+        if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
             scratchMemSize = inCCLbufferSize_ + CCE_REDUCE_ALIGN_FACTOR * CCE_REDUCE_ALIGN_SIZE;
         } else {
             scratchMemSize = totalSize_ + CCE_REDUCE_ALIGN_FACTOR * CCE_REDUCE_ALIGN_SIZE;
@@ -69,7 +70,7 @@ HcclResult CollReduceScatterRingExecutor::CalcStreamNum(u32& streamNum)
         case AlgType::ALG_NP_SINGLE_RING_PLUS_RING:
         case AlgType::ALG_NP_SINGLE_RING_PLUS_HD:
             if (topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
-                if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+                if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
                     totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
                 } else {
                     totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE;
@@ -97,7 +98,7 @@ HcclResult CollReduceScatterRingExecutor::CalcCommInfo(std::vector<LevelNSubComm
 HcclResult CollReduceScatterRingExecutor::CalcTransportMemType(TransportMemType &inputType,
     TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         if (scratchMemFlag_) {
             outputType = TransportMemType::SCRATCH;
@@ -137,6 +138,10 @@ u64 CollReduceScatterRingExecutor::CalcLoopMaxCount(const u32 unitSize)
 
 bool CollReduceScatterRingExecutor::IsHugeData(const u64 curSize)
 {
+    if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT) {
+        return true;
+    }
+
     bool hugeData;
     if (DMAReduceFlag_) {
         hugeData = curSize > SDMA_SEND_MAX_SIZE;
