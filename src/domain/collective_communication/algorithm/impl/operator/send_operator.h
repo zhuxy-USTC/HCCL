@@ -10,14 +10,14 @@
 #ifndef SEND_OPERATOR_H
 #define SEND_OPERATOR_H
 
-#include "common_operator.h"
-#include "coll_alg_op_registry.h"
 #include <set>
+#include "coll_alg_operator.h"
+#include "coll_alg_op_registry.h"
 
 namespace hccl {
 class SendOperator : public CollAlgOperator {
 public:
-    SendOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
+    SendOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~SendOperator();
 
     HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName, std::string& newTag);

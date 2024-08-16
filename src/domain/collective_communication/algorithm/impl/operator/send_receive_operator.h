@@ -11,13 +11,13 @@
 #ifndef SEND_RECEIVE_OPERATOR_H
 #define SEND_RECEIVE_OPERATOR_H
 
-#include "coll_alg_operator.h"
 #include <set>
+#include "coll_alg_operator.h"
 
 namespace hccl {
 class SendReceiveOperator : public CollAlgOperator {
 public:
-    SendReceiveOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
+    SendReceiveOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~SendReceiveOperator();
     HcclResult SendRun(const std::string &tag, DeviceMem& inputPtr, u64 count, HcclDataType dataType,
         u32 destUserRank, Stream stream);

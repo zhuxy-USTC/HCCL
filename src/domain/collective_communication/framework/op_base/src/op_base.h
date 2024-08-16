@@ -79,4 +79,5 @@ HcclResult HcclCreateComResourceByComm(HcclComm comm, u32 streamMode, bool isOpb
 HcclResult HcclDeviceRefresh(void);
 
 HcclResult HcclSetIfProfile(void);
+
 #endif  // OP_BASE_H

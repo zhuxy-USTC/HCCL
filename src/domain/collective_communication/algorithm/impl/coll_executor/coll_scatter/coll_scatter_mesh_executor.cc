@@ -59,7 +59,8 @@ HcclResult CollScatterMeshExecutor::KernelRun(const OpParam &param, ExecMem &exe
         HCCL_E_INTERNAL);
 
     /* ***********第一步: 节点间scatter ****************************/
-    u32 subRoot = topoMatcher_->GetSubRootForScatter(param.root);
+    u32 subRoot = INVALID_VALUE_RANKID;
+    CHK_RET(topoMatcher_->GetSubRootForScatter(param.root, subRoot));
     CHK_PRT_RET(subRoot == INVALID_VALUE_RANKID,
         HCCL_ERROR("[CollScatterMeshExecutor][KernelRun]GetSubRootForScatter failed, ",
         "userRank[%u], root[%u], subRoot[%u]", topoAttr_.userRank, param.root, subRoot), HCCL_E_INTERNAL);

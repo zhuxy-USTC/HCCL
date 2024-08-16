@@ -19,7 +19,7 @@ public:
     CollAllReduceMeshSmallCountExecutor(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollAllReduceMeshSmallCountExecutor() = default;
 
-    HcclResult Orchestrate(const OpParam& param, const AlgResourceResponse& algRes);
+    HcclResult Orchestrate(OpParam& param, AlgResourceResponse& algRes);
 private:
     bool CalcScratchMemFlag(const u64 totalSize);
     void ParseParam(const OpParam& param) override;

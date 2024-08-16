@@ -52,6 +52,7 @@ private:
     HcclResult AddSocketWhiteList(u32 port,
         const std::vector<HcclIpAddress> &whitelist) const;
     HcclResult GenerateLocalRankInfo(u32 rankSize, u32 rankID, HcclBasicRankInfo &localRankInfo);
+    HcclResult GetSuperPodInfo(s32 deviceLogicId, std::string &superPodId, u32 &superDeviceId);
     HcclResult ReadHostSocketWhitelist(std::vector<HcclIpAddress> &whitelist) const;
     HcclResult GetAllHostIfInfos(std::vector<std::pair<std::string, HcclIpAddress>> &ifInfos, u32 devPhyId) const;
     HcclResult GetAllValidHostIfInfos(const std::vector<HcclIpAddress> &whitelist,

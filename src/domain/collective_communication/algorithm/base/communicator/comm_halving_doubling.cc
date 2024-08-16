@@ -24,11 +24,11 @@ CommHalvingDoubling::CommHalvingDoubling(const std::string &collectiveId,
                                          const void* transportResourceInfoAddr, size_t transportResourceInfoSize,
                                          const std::string &tag, const NICDeployment nicDeployInner,
                                          const u32 subUserRankRoot, HalvingDoublingType halvingDoublingType,
-                                         const bool isHaveCpuRank, const bool useSdidForDeviceId)
+                                         const bool isHaveCpuRank, const bool useSuperPodMode)
     : CommBase(collectiveId, userRank, userRankSize, rank, rankSize, paraVector, topoFlag,
                dispatcher, notifyPool, netDevCtxMap, exchanger, inputMem, outputMem, isUsedRdmaOuter,
                transportResourceInfoAddr, transportResourceInfoSize, tag, nicDeployInner, false, false, false,
-               INVALID_UINT, isHaveCpuRank, useSdidForDeviceId),
+               INVALID_UINT, isHaveCpuRank, useSuperPodMode),
       subUserRankRoot_(subUserRankRoot), halvingDoublingType_(halvingDoublingType)
 {
 }

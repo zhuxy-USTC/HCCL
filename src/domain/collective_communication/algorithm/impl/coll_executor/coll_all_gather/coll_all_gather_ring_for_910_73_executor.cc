@@ -14,14 +14,14 @@ CollAllGatherRingFor91073Executor::CollAllGatherRingFor91073Executor(const HcclD
                                                                    std::unique_ptr<TopoMatcher> &topoMatcher)
     : CollAllGatherExecutor(dispatcher, topoMatcher)
 {
-    DMAReduceFlag_ = GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE;
+    DMAReduceFlag_ = workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE;
 }
 
 HcclResult CollAllGatherRingFor91073Executor::CalcStreamNum(u32& streamNum)
 {
     u32 totalStreamNum = (topoType_ == TopoType::TOPO_TYPE_NP_DOUBLE_RING ? OUTER_PLANE_NUM_IN_NPRING_DOUBLE :
         OUTER_PLANE_NUM_IN_NPRING_SINGLE);
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) { // aicpu normal
         totalStreamNum *= STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
     }
     streamNum = totalStreamNum - 1;
@@ -44,7 +44,7 @@ HcclResult CollAllGatherRingFor91073Executor::CalcCommInfo(std::vector<LevelNSub
 HcclResult CollAllGatherRingFor91073Executor::CalcTransportMemType(TransportMemType &inputType,
     TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) { // aicpu normal
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -158,6 +158,7 @@ HcclResult CollAllGatherRingFor91073Executor::KernelRun(const OpParam &param, Ex
                 level1AGExecutor.reset(new (std::nothrow) AllGatherNHR(dispatcher_));
                 HCCL_INFO("allgather ring: using nonuniform-hierarchical-ring algo inter-server.");
             }
+            CHK_SMART_PTR_NULL(level1AGExecutor);
 
             // 计算slice, 不同超节点相同slice
             std::vector<Slice> level1DataSegsSlice;
@@ -197,6 +198,9 @@ HcclResult CollAllGatherRingFor91073Executor::KernelRun(const OpParam &param, Ex
         if (!DMAReduceFlag_) {
             multRingsUserMemSlice = multRingsSlice;
         } else {
+            CHK_PRT_RET(inputMemSize == 0,
+                HCCL_ERROR("[CollAllGatherRingFor91073Executor][KernelRun]inputMemSize size is zero."),
+                HCCL_E_PARA);
             for (u32 ringIndex = 0; ringIndex < multRingsSlice.size(); ringIndex++) {
                 std::vector<Slice> level1UserMemSlice;
                 for (auto &cclSlice : multRingsSlice[ringIndex]) {

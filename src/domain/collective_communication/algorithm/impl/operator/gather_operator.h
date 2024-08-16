@@ -16,7 +16,7 @@
 namespace hccl {
 class GatherOperator : public CollAlgOperator {
 public:
-    GatherOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
+    GatherOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~GatherOperator();
     HcclResult Gather(const std::string &tag, void *inputPtr, void *outputPtr, u32 rootRank, u64 inputCount,
         HcclDataType dataType, Stream stream);

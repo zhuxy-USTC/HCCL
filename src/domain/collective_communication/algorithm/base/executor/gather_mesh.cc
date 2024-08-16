@@ -169,7 +169,7 @@ HcclResult GatherMesh::RunAsync(const u32 rank, const u32 rankSize,
             }
         }
         CHK_RET(AddMainSteamSubStreamSyncPost(rank, rankSize));
-        // 添加空task,保证子图执行时不乱序
+
         CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
     } else {
         // 非root rank向root rank发送数据

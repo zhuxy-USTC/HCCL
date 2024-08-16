@@ -26,7 +26,8 @@ void CollAllReduceMeshExecutor::ParseParam(const OpParam& param)
         param.DataDes.dataType, param.reduceType);
     meshSinglePlane_ = (topoAttr_.deviceType == DevType::DEV_TYPE_910B) &&
         !topoMatcher_->GetExternalInputHcclDeterministic() &&
-        isInlineReduce && (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
+        isInlineReduce && (workflowMode_ != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
+    aicpuUnfoldMode_ = param.aicpuUnfoldMode;
 }
 
 HcclResult CollAllReduceMeshExecutor::CalcStreamNum(u32& streamNum)
@@ -50,7 +51,7 @@ HcclResult CollAllReduceMeshExecutor::CalcCommInfo(std::vector<LevelNSubCommTran
 
 HcclResult CollAllReduceMeshExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -74,6 +75,9 @@ HcclResult CollAllReduceMeshExecutor::CalcLevel0CommInfo(TransportMemType inputT
 
 bool CollAllReduceMeshExecutor::IsHugeData(const u64 curSize)
 {
+    if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT) {
+        return true;
+    }
     bool hugeData = curSize / topoAttr_.deviceNumPerAggregation / HCCL_INTERNODE_MAX_DATA_RATE > RDMA_SEND_MAX_SIZE ||
         curSize > SDMA_SEND_MAX_SIZE;
     return hugeData;
@@ -180,13 +184,13 @@ HcclResult CollAllReduceMeshExecutor::KernelRun(const OpParam &param, ExecMem &e
 
     if (topoAttr_.deviceType == DevType::DEV_TYPE_910B) {
         outer2Executor.reset(
-            new (std::nothrow) AllGatherMeshAtomic(dispatcher_, streamInfo_.ringStreams,
-            streamInfo_.ringSignal, streamInfo_.ringSignalAux, outerCommInfo.localRank, outerCommInfo.localRankSize,
+            new (std::nothrow) AllGatherMeshAtomic(dispatcher_, algResResp_->slaveStreams,
+            algResResp_->notifiesM2S, algResResp_->notifiesS2M, outerCommInfo.localRank, outerCommInfo.localRankSize,
             topoAttr_.userRank));
     } else {
         outer2Executor.reset(
-            new (std::nothrow) AllGatherMesh(dispatcher_, streamInfo_.ringStreams,
-            streamInfo_.ringSignal, streamInfo_.ringSignalAux, outerCommInfo.localRank, outerCommInfo.localRankSize,
+            new (std::nothrow) AllGatherMesh(dispatcher_, algResResp_->slaveStreams,
+            algResResp_->notifiesM2S, algResResp_->notifiesS2M, outerCommInfo.localRank, outerCommInfo.localRankSize,
             topoAttr_.userRank));
     }
 
@@ -213,7 +217,7 @@ HcclResult CollAllReduceMeshExecutor::KernelRun(const OpParam &param, ExecMem &e
 bool CollAllReduceMeshExecutor::IsSupportHighPerf()
 {
     return ((topoMatcher_->GetExternalInputHcclHighPerfEnable() != 0) &&
-            (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB));
+            (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB));
 }
 
 REGISTER_EXEC("AllReduceMeshExecutor", AllReduceMesh, CollAllReduceMeshExecutor);

@@ -176,7 +176,7 @@ HcclResult ReduceScatterHalvingDoubling::RunAsync(const u32 rank, const u32 rank
 
     CHK_RET(RunReduceScatter(rank, stepNum, dispatcher_, links));
 
-    HCCL_INFO("ReduceScatterHalvingDoubling finished: rank[%u] finished", rank);
+    HCCL_INFO("ReduceScatterHalvingDoubling rank[%u] finished", rank);
     return HCCL_SUCCESS;
 }
 

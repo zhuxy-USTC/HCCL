@@ -10,6 +10,7 @@
 
 
 #include "coll_all_to_all_executor.h"
+#include "device_capacity.h"
 
 namespace hccl {
 
@@ -19,18 +20,15 @@ CollAlltoAllExecutor::CollAlltoAllExecutor(const HcclDispatcher dispatcher,
 {
 }
 
-HcclResult CollAlltoAllExecutor::Orchestrate(const OpParam& param,
-    const AlgResourceResponse& algRes)
+HcclResult CollAlltoAllExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algRes)
 {
     HcclUs startut = TIME_NOW();
     tag_ = param.tag;
     algRes_ = algRes;
     algResResp_ = &algRes;
     AlltoAllVParam_ = param;
-    GetStreamInfo(algRes);
-    auto rtStream = param.stream.ptr();
 
-    HCCL_PROFILER_ADD_STREAM(rtStream, param.tag, 0, algType_);
+    HCCL_PROFILER_ADD_STREAM(param.stream.id(), param.tag, 0, algType_);
 
     ExecMem execMem;
     execMem.count = 0;
@@ -38,18 +36,20 @@ HcclResult CollAlltoAllExecutor::Orchestrate(const OpParam& param,
     execMem.outputPtr = param.outputPtr;
 
     HcclResult ret = HCCL_SUCCESS;
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (topoAttr_.userRankSize == 1 && (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE)){
+        ret = KernelRun(param, execMem);
+    }else if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         execMem.inputMem = algRes.cclInputMem;
         execMem.outputMem = algRes.cclOutputMem;
         execMem.scratchMem = algRes.scratchMem;
         auto opMeta = GetOpMeta(param.opType, algRes.paramInputMem.size());   // override
-        CHK_RET(InitTask(dispatcher_, const_cast<Stream&>(param.stream), opMeta.isEnableCache, opMeta.GetCacheKey()));
+        CHK_RET(InitTask(dispatcher_, param.stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
         bool massTasks = HasMassTasks(allMeshAggregationSendRecvInfo_);
         if (massTasks) {
             CHK_RET(SetNormalMode(dispatcher_));
         }
         ret = KernelRun(param, execMem);
-        CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));
+        CHK_RET(LaunchTask(dispatcher_, param.stream));
     } else {
         execMem.inputMem = algRes.paramInputMem;
         execMem.outputMem = algRes.paramOutputMem;
@@ -60,7 +60,7 @@ HcclResult CollAlltoAllExecutor::Orchestrate(const OpParam& param,
         HCCL_ERROR("[CollRunAlltoAllVFullMesh][Orchestrate]errNo[0x%016llx]excutor run failed",
             HCCL_ERROR_CODE(ret)), ret);
 
-    HCCL_PROFILER_DEL_STREAM(rtStream);
+    HCCL_PROFILER_DEL_STREAM(param.stream.id());
 
     HCCL_INFO("tag[%s], AlltoAll executor orchestrate success, take time [%lld]us.",
         param.tag.c_str(), DURATION_US(TIME_NOW() - startut));
@@ -128,7 +128,7 @@ HcclResult CollAlltoAllExecutor::SetExcutorExtraInfo(const std::vector<SendRecvI
 
 void CollAlltoAllExecutor::UpdateAlltoAllZCopyMode(std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         u64 maxSendSize = 0;
         u64 maxRecvSize = 0;
         for (auto &sendRecvInfo : allMeshAggregationSendRecvInfo) {
@@ -144,7 +144,7 @@ void CollAlltoAllExecutor::UpdateAlltoAllZCopyMode(std::vector<SendRecvInfo> &al
         if (isAlltoAllZCopyMode) {
            isAlltoAllZCopyMode_ = true;
         }
-        HCCL_INFO("[CollAlltoAllExecutor][UpdateAlltoAllCopyMode] maxSendSize[%llu], maxRecvSize[%llu], "\
+        HCCL_INFO("[CollAlltoAllExecutor][UpdateAlltoAllZCopyMode] maxSendSize[%llu], maxRecvSize[%llu], "\
             "cclBufferSize[%llu]", maxSendSize, maxRecvSize, GetExternalInputCCLBuffSize());
     } else {
         // 图模式走ZCopy实现
@@ -158,7 +158,6 @@ void CollAlltoAllExecutor::CalcIntraMeshAggregationSendInfo(const AlltoAllUserRa
     u32 rankInMeshAggregation, u32 infoIndex, OneSendRecvAddrInfo &curSendInfo, u32 meshAggregationRankSize,
     const bool &isSingleMesh)
 {
-    (void)userRankInfo;
     if (infoIndex >= mySendRecvInfo.sendOffset.size() || infoIndex >= mySendRecvInfo.sendLength.size()) {
         HCCL_ERROR("[CalcIntraMeshAggregationSendInfo] Invalid infoIndex[%u]", infoIndex);
         return;
@@ -190,8 +189,8 @@ void CollAlltoAllExecutor::CalcIntraMeshAggregationSendInfo(const AlltoAllUserRa
     curSendInfo.remoteOffset = remoteOffset;
     curSendInfo.remoteLength = curSendInfo.localLength;
     HCCL_DEBUG("[CalcIntraMeshAggregationSendInfo] localOffset[%llu], localLength[%llu], "\
-        "remoteOffset[%llu], remoteLength[%llu]", curSendInfo.localOffset, curSendInfo.localLength,
-        curSendInfo.remoteOffset, curSendInfo.remoteLength);
+        "remoteOffset[%llu], remoteLength[%llu]", curSendInfo.localOffset,
+        curSendInfo.localLength, curSendInfo.remoteOffset, curSendInfo.remoteLength);
 }
 
 void CollAlltoAllExecutor::CalcIntraMeshAggregationRecvInfoInMeshAggregation(u32 rankIndex, u32 infoIndex,
@@ -318,7 +317,7 @@ HcclOpMetaInfo CollAlltoAllExecutor::GetOpMeta(HcclCMDType opType, const u64 siz
     } else {
         /* bcopy每次重新生成子图 */
         if (opType == HcclCMDType::HCCL_CMD_ALLTOALLV) {
-            opMeta = HcclOpMetaInfo::GetOneForAllToAllV(CopyPattern::BCOPY, size, hugeData);
+            opMeta = HcclOpMetaInfo::GetOneForAllToAllV(CopyPattern::BCOPY, size, false);
         } else {
             opMeta = HcclOpMetaInfo::GetOneForAllToAllVC(CopyPattern::BCOPY, size, false);
         }
@@ -327,57 +326,19 @@ HcclOpMetaInfo CollAlltoAllExecutor::GetOpMeta(HcclCMDType opType, const u64 siz
     return opMeta;
 }
 
-u64 CollAlltoAllExecutor::CalAlltoAllVScratchMemSize(u64 &workSpaceMemSize) // 再对齐一下 zlj
+u64 CollAlltoAllExecutor::CalAlltoAllVScratchMemSize(u64 &workSpaceMemSize)
 {
     u64 scratchMemSize = 0U;
     if (workSpaceMemSize == 0) {
         scratchMemSize = TINY_MEM_SIZE;
     } else {
-        if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
-            scratchMemSize = std::max(std::max(workSpaceMemSize, GetExternalInputCCLBuffSize()), TINY_MEM_SIZE);
+        if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+            scratchMemSize = std::max(std::max(workSpaceMemSize, inCCLbufferSize_), TINY_MEM_SIZE);
         } else {
             scratchMemSize = workSpaceMemSize;
         }
     }
     return scratchMemSize;
-}
-
-bool CollAlltoAllExecutor::NAFullmeshSatisfyHighPerfAlltoallMeshCondition(DevType deviceType, u32 rankSize)
-{
-    bool rankSizeSupport = (rankSize <= MAX_ALLTOALL_MESH_ALGO_RANK_INTRA_MESH);
-    bool isDevice91073 = (deviceType == DevType::DEV_TYPE_910_73);
-    bool oneLevelUseMesh =
-        (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[0] == HcclAlgoType::HCCL_ALGO_TYPE_NA &&
-        GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[1] == HcclAlgoType::HCCL_ALGO_TYPE_FULLMESH);
-    bool isHCCS = !GetExternalInputInterHccsDisable();
-    HCCL_DEBUG("[CollAlltoAllExecutor][AlltoAllVCOutPlace]isDevice91073 %u oneLevelUseMesh %u isHCCS %u",
-        isDevice91073, oneLevelUseMesh, isHCCS);
-    CHK_PRT_CONT(!(oneLevelUseMesh && !isDevice91073),
-        HCCL_WARNING("[CollAlltoAllExecutor][NAFullmeshSatisfyHighPerfAlltoallMeshCondition] alltoall read only algorithm only "
-            "support 91073 device type, use default algorithm type"));
-    CHK_PRT_CONT(!(oneLevelUseMesh && !isHCCS),
-        HCCL_WARNING("[CollAlltoAllExecutor][NAFullmeshSatisfyHighPerfAlltoallMeshCondition] alltoall read only algorithm depends "
-            "on HCCS, use default algorithm type"));
-    return (isDevice91073 && oneLevelUseMesh && rankSizeSupport && isHCCS);
-}
-
-bool CollAlltoAllExecutor::FullmeshPairwiseSatisfyHighPerfAlltoallMeshCondition(DevType deviceType, u32 rankSize)
-{
-    bool rankSizeSupport = (rankSize <= MAX_ALLTOALL_MESH_ALGO_RANK_INTRA_MESH);
-    bool isDevice91073 = (deviceType == DevType::DEV_TYPE_910_73);
-    bool twoLevelIntraUseMesh =
-        (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[0] == HcclAlgoType::HCCL_ALGO_TYPE_FULLMESH &&
-        GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[1] == HcclAlgoType::HCCL_ALGO_TYPE_PAIRWISE);
-    bool isHCCS = !GetExternalInputInterHccsDisable();
-    HCCL_DEBUG("[CollAlltoAllExecutor][AlltoAllVCOutPlace]isDevice91073 %u twoLevelIntraUseMesh %u isHCCS %u",
-        isDevice91073, twoLevelIntraUseMesh, isHCCS);
-    CHK_PRT_CONT(!(twoLevelIntraUseMesh && !isDevice91073),
-        HCCL_WARNING("[CollAlltoAllExecutor][FullmeshPairwiseSatisfyHighPerfAlltoallMeshCondition] alltoall read only algorithm only "
-            "support 91073 device type, use default algorithm type"));
-    CHK_PRT_CONT(!(twoLevelIntraUseMesh && !isHCCS),
-        HCCL_WARNING("[CollAlltoAllExecutor][FullmeshPairwiseSatisfyHighPerfAlltoallMeshCondition] alltoall read only algorithm depends "
-            "on HCCS, use default algorithm type"));
-    return (isDevice91073 && twoLevelIntraUseMesh && rankSizeSupport && isHCCS);
 }
 
 bool CollAlltoAllExecutor::HasMassTasks(std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo)
@@ -406,6 +367,61 @@ bool CollAlltoAllExecutor::HasMassTasks(std::vector<SendRecvInfo> &allMeshAggreg
     HCCL_DEBUG("[AlltoAllV] bcopy maxSendTimes[%lu], maxRecvTimes[%lu], maxTasks[%lu], hasMassTask[%u]", maxSendTimes,
         maxRecvTimes, maxTasks, (maxTasks > massThreshold));
     return (maxTasks > massThreshold);
+}
+
+HcclResult CollAlltoAllExecutor::SetVirtualDispatcher(const HcclDispatcher vDispatcher)
+{
+    vDispatcher_ = vDispatcher;
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollAlltoAllExecutor::SetParallelTaskLoader(ParallelTaskLoader* parallelTaskLoader)
+{
+    parallelTaskLoader_ = parallelTaskLoader;
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollAlltoAllExecutor::CheckNeedRecreateComm(u64 lastScratchMemSize, bool& needRecreateAlltoallComm)
+{
+    needRecreateAlltoallComm = false;
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollAlltoAllExecutor::RunAlltoAllTemplate(const std::unique_ptr<AlltoAllVPairWise> &executor,
+    const SubCommInfo &commInfo)
+{
+    HcclResult ret = executor->RunAsync(commInfo.localRank, commInfo.localRankSize, commInfo.links);
+    CHK_PRT_RET(ret == HCCL_E_AGAIN, HCCL_WARNING("[CollAlltoAllExecutor][RunAlltoAllTemplate]" \
+        "group has been destroyed. Break!"), ret);
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[CollAlltoAllExecutor][RunAlltoAllTemplate]run executor rank[%u] rank size[%u] failed",
+        commInfo.localRank, commInfo.localRankSize), ret);
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollAlltoAllExecutor::RunAlltoAllVTemplateStaged(const std::unique_ptr<AlltoAllVStagedBase> &executor,
+    const SubCommInfo &commInfo)
+{
+    HcclResult ret = executor->RunAsync(commInfo.localRank, commInfo.localRankSize, commInfo.links);
+    CHK_PRT_RET(ret == HCCL_E_AGAIN, HCCL_WARNING("[CollAlltoAllExecutor][RunAlltoAllVTemplateStaged]" \
+        "group has been destroyed. Break!"), ret);
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[CollAlltoAllExecutor][RunAlltoAllVTemplateStaged]run executor rank[%u] rank size[%u] failed",
+        commInfo.localRank, commInfo.localRankSize), ret);
+    return HCCL_SUCCESS;
+}
+
+// deprecated
+HcclResult CollAlltoAllExecutor::RunTemplateWithVirtualLink(const std::unique_ptr<AlltoAllVStagedBase> &executor,
+    const SubCommInfo &commInfo)
+{
+    HcclResult ret = executor->RunAsync(commInfo.localRank, commInfo.localRankSize, commInfo.virtualLinks);
+    CHK_PRT_RET(ret == HCCL_E_AGAIN, HCCL_WARNING("[CollAlltoAllExecutor][RunTemplateWithVirtualLink]" \
+        "group has been destroyed. Break!"), ret);
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[CollAlltoAllExecutor][RunTemplateWithVirtualLink]run executor rank[%u] rank size[%u] failed",
+        commInfo.localRank, commInfo.localRankSize), ret);
+    return HCCL_SUCCESS;
 }
 
 } // namespace hccl

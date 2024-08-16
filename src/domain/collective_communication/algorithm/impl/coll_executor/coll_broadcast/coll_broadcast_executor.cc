@@ -18,8 +18,7 @@ CollBroadcastExecutor::CollBroadcastExecutor(const HcclDispatcher dispatcher,
 {
 }
 
-HcclResult CollBroadcastExecutor::Orchestrate(const OpParam& param,
-    const AlgResourceResponse& algRes)
+HcclResult CollBroadcastExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algRes)
 {
     HcclResult ret = HCCL_SUCCESS;
 
@@ -34,9 +33,11 @@ HcclResult CollBroadcastExecutor::Orchestrate(const OpParam& param,
 
     tag_ = param.tag;
     algResResp_ = &algRes;
-    GetStreamInfo(algRes);
-    auto rtStream = param.stream.ptr();
-    HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, GetWorkflowMode());
+    HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, workflowMode_);
+    HCCL_PROFILER_ADD_STREAM(param.stream.id(), param.tag, 0, algType_);
+    HCCL_PROFILER_ADD_OPDATA(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr, param.DataDes.dataType, \
+        param.root, algoAttr_.identifier);
+    HCCL_PROFILER_ADD_GROUPRANK(algoAttr_.identifier, topoAttr_.userRankSize, topoAttr_.userRank);
 
     // 添加从流profiling, 用于维护planID
     CHK_RET(AddSubStreamToProfiling());
@@ -49,13 +50,15 @@ HcclResult CollBroadcastExecutor::Orchestrate(const OpParam& param,
     execMem.count = param.DataDes.count;
     execMem.inputPtr = param.inputPtr;
     execMem.outputPtr = param.inputPtr;
-    HCCL_INFO("Orchestrate UserRank[%u], devicePhyId[%u], inputPtr_[%p], outputPtr[%p]", topoAttr_.userRank,
-                topoAttr_.devicePhyId, param.inputPtr, param.outputPtr);
-    if (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) { // 图模式直接调KernelRun接口
+    HCCL_INFO("Orchestrate UserRank[%u], devicePhyId[%u], inputPtr[%p], outputPtr[%p], root[%u]",
+        topoAttr_.userRank, topoAttr_.devicePhyId, param.inputPtr, param.outputPtr, param.root);
+    if (workflowMode_ != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) { // 图模式直接调KernelRun接口
+        HCCL_DEBUG("[CollBroadcastExecutor][Orchestrate]ops kernel broadcast");
         execMem.inputMem = algRes.paramInputMem;
         execMem.outputMem = algRes.paramOutputMem;
         ret = KernelRun(param, execMem);
     } else if (topoAttr_.userRankSize == 1) { // 单卡
+        HCCL_DEBUG("[CollBroadcastExecutor][Orchestrate]1 rank broadcast");
         return HCCL_SUCCESS;
     } else {
         ret = RunLoop(param, algRes);
@@ -64,16 +67,16 @@ HcclResult CollBroadcastExecutor::Orchestrate(const OpParam& param,
     CHK_PRT_RET(ret != HCCL_SUCCESS,
         HCCL_ERROR("[CollBroadcastExecutor][Orchestrate]errNo[0x%016llx]broadcast excutor kernel run failed",
             HCCL_ERROR_CODE(ret)), ret);
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
         HCCL_PROFILER_DEL_TAG(param.tag);
-        HCCL_PROFILER_DEL_STREAM(rtStream);
+        HCCL_PROFILER_DEL_STREAM(param.stream.id());
     }
     HCCL_INFO("tag[%s], Broadcast executor orchestrate success, take time [%lld]us.",
         param.tag.c_str(), DURATION_US(TIME_NOW() - startut));
     return HCCL_SUCCESS;
 }
 
-HcclResult CollBroadcastExecutor::RunLoop(const OpParam &param, const AlgResourceResponse &algRes)
+HcclResult CollBroadcastExecutor::RunLoop(OpParam &param, AlgResourceResponse &algRes)
 {
     u32 unitSize = SIZE_TABLE[param.DataDes.dataType];
 
@@ -81,7 +84,7 @@ HcclResult CollBroadcastExecutor::RunLoop(const OpParam &param, const AlgResourc
     u8 *curOutputPtr = static_cast<u8 *>(param.outputPtr);
     CHK_PTR_NULL(curInputPtr);
     CHK_PTR_NULL(curOutputPtr);
-    u64 maxCountPerLoop = CalcLoopMaxCount(unitSize);
+    u64 maxCountPerLoop = CalcLoopMaxCount(algRes.cclInputMem.size(), unitSize);
 
     HCCL_DEBUG("[CollBroadcastExecutor][RunLoop]tag[%s], userRankSize is [%u], maxCountPerLoop is [%llu].",
         param.tag.c_str(), topoAttr_.userRankSize, maxCountPerLoop);
@@ -106,14 +109,14 @@ HcclResult CollBroadcastExecutor::RunLoop(const OpParam &param, const AlgResourc
                 param.tag.c_str(), inputOffset, curInputPtr, curCount, curSize,
                 GetDataTypeEnumStr(param.DataDes.dataType).c_str(), topoAttr_.realUserRank);
 
-        RunLoopInner(param, execMem);
+        CHK_RET(RunLoopInner(param, execMem));
 
         inputOffset = curSize;
     }
     return HCCL_SUCCESS;
 }
 
-HcclResult CollBroadcastExecutor::RunLoopInner(const OpParam &param, ExecMem &execMem)
+HcclResult CollBroadcastExecutor::RunLoopInner(OpParam &param, ExecMem &execMem)
 {
     u32 unitSize = SIZE_TABLE[param.DataDes.dataType];
     bool isRootRank = param.root == topoAttr_.realUserRank ? true : false;
@@ -122,7 +125,7 @@ HcclResult CollBroadcastExecutor::RunLoopInner(const OpParam &param, ExecMem &ex
     u8 *curPtr = static_cast<u8 *>(execMem.inputPtr);
     auto originalAlgTypeLevel0 = GetLevel0AlgType(algType_);
     bool isMeshTopo = IsAlgTypeLevel0Mesh(originalAlgTypeLevel0);
-    bool isDMAreduceOn91073 = (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE
+    bool isDMAreduceOn91073 = (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE
                               && (topoAttr_.deviceType == DevType::DEV_TYPE_910_73) && !isMeshTopo);
     HCCL_DEBUG("[CollBroadcastExecutor][RunLoopInner]inputMem[%p], outputMem[%p]" \
         "intputPtr[%p], curCount[%llu], curSize[%llu]",
@@ -134,8 +137,8 @@ HcclResult CollBroadcastExecutor::RunLoopInner(const OpParam &param, ExecMem &ex
             (curSize > SDMA_SEND_MAX_SIZE);
     bool isSmallData = IsBroadcastSmallData(curSize);
     auto meta = HcclOpMetaInfo::GetOneForBroadcast(isRootRank, param.root, hugeData, isSmallData);
-    CHK_RET(InitTask(dispatcher_, const_cast<Stream&>(param.stream), meta.isEnableCache, meta.GetCacheKey()));
-    HCCL_INFO("RunLoopInner:curPtr[%p], curCount[%llu], curSize[%llu], isSmallData[%u], "
+    CHK_RET(InitTask(dispatcher_, param.stream, meta.isEnableCache, meta.GetCacheKey()));
+    HCCL_INFO("RunLoopInner:curPtr[%p], curCount[%llu], curSize[%llu], isSmallData[%u]," \
               "deviceNumPerAggregation[%u]", curPtr, execMem.count, curSize, isSmallData,
               topoAttr_.deviceNumPerAggregation);
     /* 记录指令信息用于一致性校验 */
@@ -157,13 +160,13 @@ HcclResult CollBroadcastExecutor::RunLoopInner(const OpParam &param, ExecMem &ex
         DeviceMem inCommMem = execMem.inputMem.range(0, curSize);
         DeviceMem inMem(execMem.inputPtr, curSize);
         if (topoAttr_.userRank == param.root) {
-            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, inCommMem, inMem, const_cast<Stream&>(param.stream)));
+            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, inCommMem, inMem, param.stream));
         }
         HCCL_DEBUG("[CollBroadcastExecutor][RunLoop]copy from user in to ccl in.");
 
         ret = KernelRun(param, execMem);
         if (topoAttr_.realUserRank != param.root) {
-            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, inMem, inCommMem, const_cast<Stream&>(param.stream)));
+            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, inMem, inCommMem, param.stream));
         }
 
         CHK_PRT_RET(ret != HCCL_SUCCESS,
@@ -174,14 +177,14 @@ HcclResult CollBroadcastExecutor::RunLoopInner(const OpParam &param, ExecMem &ex
     }
 
     CHK_RET(RankConsistent::GetInstance().DelOpPara(param.tag));
-    CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));
+    CHK_RET(LaunchTaskExtend(dispatcher_, param.stream, algResResp_->slaveStreams));
     return ret;
 }
 
-u64 CollBroadcastExecutor::CalcLoopMaxCount(const u32 unitSize)
+u64 CollBroadcastExecutor::CalcLoopMaxCount(const u64 cclBuffSize, const u32 unitSize)
 {
     // 中转内存单次最多能够接受的output count
-    u64 maxCountPerLoop = GetExternalInputCCLBuffSize() / unitSize;
+    u64 maxCountPerLoop = cclBuffSize / unitSize;
     HCCL_WARNING("[CollBroadcastExecutor][CalcLoopMaxCount]" \
         "using default maxCountPerLoop[%llu] as CCLBuffSize / unitSize.", maxCountPerLoop);
     return maxCountPerLoop;
@@ -215,14 +218,14 @@ bool CollBroadcastExecutor::IsBroadcastSmallData(u64 size)
 
 HcclResult CollBroadcastExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_INPUT;
     } else {
         inputType = TransportMemType::PARAM_INPUT;
         outputType = TransportMemType::PARAM_INPUT;
     }
-    HCCL_INFO("[CollBroadcastRingExecutor][CalcTransportMemType] tag[%s] inputType[%d] outputType[%d]",
+    HCCL_INFO("[CollBroadcastExecutor][CalcTransportMemType] tag[%s] inputType[%d] outputType[%d]",
         tag_.c_str(), inputType, outputType);
     return HCCL_SUCCESS;
 }
@@ -257,83 +260,6 @@ HcclResult CollBroadcastExecutor::GetRankSliceSize(HcclDataType dataType, const 
         sliceList.push_back(slice);
     }
 
-    return HCCL_SUCCESS;
-}
-
-bool CollBroadcastExecutor::IsAlgTypeLevel0Mesh(AlgTypeLevel0 &originalAlgTypeLevel0) const
-{
-    return originalAlgTypeLevel0 == AlgTypeLevel0::ALG_LEVEL0_NP_MESH ||
-           originalAlgTypeLevel0 == AlgTypeLevel0::ALG_LEVEL0_4P_MESH ||
-           originalAlgTypeLevel0 == AlgTypeLevel0::ALG_LEVEL0_2P_MESH ||
-           originalAlgTypeLevel0 == AlgTypeLevel0::ALG_LEVEL0_1P_MESH;
-}
-
-HcclResult CollBroadcastExecutor::SetInterServerHDAlgo(AlgType &algType) const
-{
-    switch (algType) {
-        case AlgType::ALG_8P_RING_PLUS_PIPELINE:
-        case AlgType::ALG_8P_RING_PLUS_RING:
-        case AlgType::ALG_8P_RING_PLUS_NHR:
-        case AlgType::ALG_8P_RING_PLUS_NHR_V1:
-        case AlgType::ALG_8P_RING_PLUS_NB:
-            algType = AlgType::ALG_8P_RING_PLUS_HD;
-            break;
-
-        case AlgType::ALG_4P_MESH_PLUS_PIPELINE:
-        case AlgType::ALG_4P_MESH_PLUS_RING:
-        case AlgType::ALG_4P_MESH_PLUS_NHR:
-        case AlgType::ALG_4P_MESH_PLUS_NHR_V1:
-        case AlgType::ALG_4P_MESH_PLUS_NB:
-            algType = AlgType::ALG_4P_MESH_PLUS_HD;
-            break;
-
-        case AlgType::ALG_2P_MESH_PLUS_PIPELINE:
-        case AlgType::ALG_2P_MESH_PLUS_RING:
-        case AlgType::ALG_2P_MESH_PLUS_NHR:
-        case AlgType::ALG_2P_MESH_PLUS_NHR_V1:
-        case AlgType::ALG_2P_MESH_PLUS_NB:
-            algType = AlgType::ALG_2P_MESH_PLUS_HD;
-            break;
-
-        case AlgType::ALG_1P_MESH_PLUS_PIPELINE:
-        case AlgType::ALG_1P_MESH_PLUS_RING:
-        case AlgType::ALG_1P_MESH_PLUS_NHR:
-        case AlgType::ALG_1P_MESH_PLUS_NHR_V1:
-        case AlgType::ALG_1P_MESH_PLUS_NB:
-            algType = AlgType::ALG_1P_MESH_PLUS_HD;
-            break;
-
-        case AlgType::ALG_4P_RING_PLUS_PIPELINE:
-        case AlgType::ALG_4P_RING_PLUS_RING:
-        case AlgType::ALG_4P_RING_PLUS_NHR:
-        case AlgType::ALG_4P_RING_PLUS_NHR_V1:
-        case AlgType::ALG_4P_RING_PLUS_NB:
-            algType = AlgType::ALG_4P_RING_PLUS_HD;
-            break;
-
-        case AlgType::ALG_NP_SINGLE_RING_PLUS_PIPELINE:
-        case AlgType::ALG_NP_SINGLE_RING_PLUS_RING:
-        case AlgType::ALG_NP_SINGLE_RING_PLUS_NHR:
-        case AlgType::ALG_NP_SINGLE_RING_PLUS_NHR_V1:
-        case AlgType::ALG_NP_SINGLE_RING_PLUS_NB:
-            algType = AlgType::ALG_NP_SINGLE_RING_PLUS_HD;
-            break;
-
-        case AlgType::ALG_NP_MESH_PLUS_PIPELINE:
-        case AlgType::ALG_NP_MESH_PLUS_RING:
-        case AlgType::ALG_NP_MESH_PLUS_NHR:
-        case AlgType::ALG_NP_MESH_PLUS_NHR_V1:
-        case AlgType::ALG_NP_MESH_PLUS_NB:
-            algType = AlgType::ALG_NP_MESH_PLUS_HD;
-            break;
-
-        case AlgType::ALG_NP_DOUBLE_RING_PLUS_PIPELINE:
-        case AlgType::ALG_DOUBLE_RING_PLUS_RING:
-            algType = AlgType::ALG_DOUBLE_RING_PLUS_HD;
-            break;
-        default:
-            break;
-    }
     return HCCL_SUCCESS;
 }
 

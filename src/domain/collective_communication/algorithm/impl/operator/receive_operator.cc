@@ -7,21 +7,21 @@
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
- 
+
 #include "receive_operator.h"
 #include "rank_consistent.h"
 #include "executor_impl.h"
- 
+
 namespace hccl {
-ReceiveOperator::ReceiveOperator(std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher)
-    : CollAlgOperator(pImpl, topoMatcher, HcclCMDType::HCCL_CMD_RECEIVE)
+ReceiveOperator::ReceiveOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAlgOperator(algConfigurator, pImpl, topoMatcher, HcclCMDType::HCCL_CMD_RECEIVE)
 {
 }
- 
+
 ReceiveOperator::~ReceiveOperator()
 {
 }
- 
+
 HcclResult ReceiveOperator::SelectAlg(const std::string& tag, const OpParam& param, std::string& algName,
     std::string& newTag)
 {
@@ -34,6 +34,6 @@ HcclResult ReceiveOperator::SelectAlg(const std::string& tag, const OpParam& par
     HCCL_INFO("[SelectAlg] receive newTag is [%s]", newTag.c_str());
     return HCCL_SUCCESS;
 }
- 
+
 REGISTER_OP(HcclCMDType::HCCL_CMD_RECEIVE, Receive, ReceiveOperator);
 }

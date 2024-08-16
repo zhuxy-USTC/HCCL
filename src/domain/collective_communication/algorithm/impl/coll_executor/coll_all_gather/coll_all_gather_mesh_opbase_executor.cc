@@ -39,7 +39,7 @@ HcclResult CollAllGatherMeshOpbaseExecutor::CalcCommInfo(std::vector<LevelNSubCo
 HcclResult CollAllGatherMeshOpbaseExecutor::CalcTransportMemType(TransportMemType &inputType,
     TransportMemType &outputType)
 {
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -100,8 +100,8 @@ HcclResult CollAllGatherMeshOpbaseExecutor::KernelRun(const OpParam &param, Exec
 
     std::unique_ptr<ExecutorBase> outerExecutor;
     outerExecutor.reset(
-        new (std::nothrow) AllgatherMeshDirect(dispatcher_, streamInfo_.ringStreams,
-        streamInfo_.ringSignal, streamInfo_.ringSignalAux, outerCommInfo.localRank, outerCommInfo.localRankSize,
+        new (std::nothrow) AllgatherMeshDirect(dispatcher_, algResResp_->slaveStreams,
+        algResResp_->notifiesM2S, algResResp_->notifiesS2M, outerCommInfo.localRank, outerCommInfo.localRankSize,
         topoAttr_.userRank, &opInfo));
     CHK_SMART_PTR_NULL(outerExecutor);
     CHK_RET(outerExecutor->Prepare(currentOutputMem, currentOutputMem, execMem.inputMem, execMem.count,

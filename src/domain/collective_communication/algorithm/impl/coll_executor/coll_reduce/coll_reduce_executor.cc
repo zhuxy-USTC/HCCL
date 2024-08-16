@@ -19,7 +19,7 @@ CollReduceExecutor::CollReduceExecutor(const HcclDispatcher dispatcher,
 {
 }
 
-HcclResult CollReduceExecutor::Orchestrate(const OpParam& param, const AlgResourceResponse& algRes)
+HcclResult CollReduceExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algRes)
 {
     HcclUs startut = TIME_NOW();
 
@@ -35,10 +35,8 @@ HcclResult CollReduceExecutor::Orchestrate(const OpParam& param, const AlgResour
     }
 
     algResResp_ = &algRes;
-    GetStreamInfo(algRes);
-    auto rtStream = param.stream.ptr();
-    HCCL_PROFILER_ADD_TAG(tag_, algoAttr_.identifier, GetWorkflowMode());
-    HCCL_PROFILER_ADD_STREAM(rtStream, tag_, 0, algType_);
+    HCCL_PROFILER_ADD_TAG(tag_, algoAttr_.identifier, workflowMode_);
+    HCCL_PROFILER_ADD_STREAM(param.stream.id(), tag_, 0, algType_);
     HCCL_PROFILER_ADD_OPDATA(tag_, param.DataDes.count, param.inputPtr, param.outputPtr, param.DataDes.dataType, \
         param.root, algoAttr_.identifier);
     HCCL_PROFILER_ADD_GROUPRANK(algoAttr_.identifier, topoAttr_.userRankSize, topoAttr_.userRank);
@@ -50,7 +48,7 @@ HcclResult CollReduceExecutor::Orchestrate(const OpParam& param, const AlgResour
     execMem.count = param.DataDes.count;
     execMem.inputPtr = param.inputPtr;
     execMem.outputPtr = param.outputPtr;
-    if (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         execMem.inputMem = algRes.paramInputMem;
         execMem.outputMem = algRes.paramOutputMem;
         execMem.scratchMem = algRes.scratchMem;
@@ -67,8 +65,8 @@ HcclResult CollReduceExecutor::Orchestrate(const OpParam& param, const AlgResour
         HCCL_ERROR("[CollReduceExecutor][Orchestrate]errNo[0x%016llx]reudce excutor kernel run failed",
             HCCL_ERROR_CODE(ret)), ret);
 
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
-        HCCL_PROFILER_DEL_STREAM(rtStream);
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
+        HCCL_PROFILER_DEL_STREAM(param.stream.id());
         HCCL_PROFILER_DEL_TAG(tag_);
         HCCL_PROFILER_DEL_OPDATA(tag_);
         HCCL_PROFILER_DEL_GROUPRANK(tag_);
@@ -80,7 +78,7 @@ HcclResult CollReduceExecutor::Orchestrate(const OpParam& param, const AlgResour
     return HCCL_SUCCESS;
 }
 
-HcclResult CollReduceExecutor::RunLoop(const OpParam &param, const AlgResourceResponse &algRes)
+HcclResult CollReduceExecutor::RunLoop(OpParam &param, AlgResourceResponse &algRes)
 {
     u32 unitSize = SIZE_TABLE[param.DataDes.dataType];
     ReduceType reduceType = ((param.reduceType != HCCL_REDUCE_PROD) &&
@@ -94,7 +92,7 @@ HcclResult CollReduceExecutor::RunLoop(const OpParam &param, const AlgResourceRe
 
     u64 maxCountPerLoop = CalcLoopMaxCount(unitSize, algRes);   // override
 
-    HCCL_DEBUG("[CollReduceExecutor][RunLoop]tag[%s], userRankSize is [%llu], maxCountPerLoop is [%llu].",
+    HCCL_DEBUG("[CollReduceExecutor][RunLoop]tag[%s], userRankSize is [%u], maxCountPerLoop is [%llu].",
         tag_.c_str(), topoAttr_.userRankSize, maxCountPerLoop);
 
     u64 inputOffset = 0;
@@ -129,7 +127,7 @@ HcclResult CollReduceExecutor::RunLoop(const OpParam &param, const AlgResourceRe
     return HCCL_SUCCESS;
 }
 
-HcclResult CollReduceExecutor::RunLoopInner(const OpParam &param, const ReduceType &reduceType, ExecMem &execMem)
+HcclResult CollReduceExecutor::RunLoopInner(OpParam &param, const ReduceType &reduceType, ExecMem &execMem)
 {
     u32 unitSize = SIZE_TABLE[param.DataDes.dataType];
     u64 curSize = execMem.count * unitSize; // 单位：字节
@@ -146,7 +144,7 @@ HcclResult CollReduceExecutor::RunLoopInner(const OpParam &param, const ReduceTy
     bool hugeData = IsHugeData(curSize);    // override
     auto opMeta =
         HcclOpMetaInfo::GetOneForReduce(isRootRank, param.root, autoSelectedAlgTypeLevel1, param.DataDes.dataType, reduceType, hugeData);
-    CHK_RET(InitTask(dispatcher_, const_cast<Stream&>(param.stream), opMeta.isEnableCache, opMeta.GetCacheKey()));
+    CHK_RET(InitTask(dispatcher_, param.stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
     /* 记录指令信息用于一致性校验 */
     CHK_RET(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_REDUCE,
         tag_, execMem.count, param.DataDes.dataType, param.reduceType, param.root, execMem.inputMem.size(),
@@ -159,7 +157,7 @@ HcclResult CollReduceExecutor::RunLoopInner(const OpParam &param, const ReduceTy
     // 如果使用in CCL buffer，需要将user buffer in中的结果拷贝到CCL buffer in
     DeviceMem inMem(execMem.inputPtr, curSize);
     DeviceMem inCommMem = execMem.inputMem.range(0, curSize);
-    CHK_RET(HcclD2DMemcpyAsync(dispatcher_, inCommMem, inMem, const_cast<Stream&>(param.stream)));
+    CHK_RET(HcclD2DMemcpyAsync(dispatcher_, inCommMem, inMem, param.stream));
     HCCL_DEBUG("[CollReduceExecutor][RunLoop]copy from user in to ccl in.");
 
     HcclResult ret = KernelRun(param, execMem);
@@ -173,11 +171,11 @@ HcclResult CollReduceExecutor::RunLoopInner(const OpParam &param, const ReduceTy
     if (topoAttr_.realUserRank == param.root) { // 只root rank需要把数据从中转内存拷贝出去
         DeviceMem outMem(execMem.outputPtr, curSize);
         DeviceMem outCommMem = execMem.outputMem.range(0, curSize);
-        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, outMem, outCommMem, const_cast<Stream&>(param.stream)));
+        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, outMem, outCommMem, param.stream));
     }
 
     CHK_RET(RankConsistent::GetInstance().DelOpPara(tag_));
-    CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));
+    CHK_RET(LaunchTaskExtend(dispatcher_, param.stream, algResResp_->slaveStreams));
     return ret;
 }
 
@@ -192,6 +190,9 @@ u64 CollReduceExecutor::CalcLoopMaxCount(const u32 unitSize, const AlgResourceRe
 
 bool CollReduceExecutor::IsHugeData(const u64 curSize)
 {
+    if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT) {
+        return true;
+    }
     HCCL_WARNING("[CollReduceExecutor][IsHugeData]opMeta is using the default option.");
     bool hugeData = (curSize / HCCL_INTERNODE_MAX_DATA_RATE > RDMA_SEND_MAX_SIZE) ||
                     (curSize > SDMA_SEND_MAX_SIZE);

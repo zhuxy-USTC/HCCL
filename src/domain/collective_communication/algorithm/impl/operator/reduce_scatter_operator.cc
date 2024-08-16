@@ -12,9 +12,10 @@
 #include "device_capacity.h"
 
 namespace hccl {
-ReduceScatterOperator::ReduceScatterOperator(std::unique_ptr<hcclImpl> &pImpl,
+ReduceScatterOperator::ReduceScatterOperator(AlgConfigurator* algConfigurator,
+    std::unique_ptr<hcclImpl> &pImpl,
     std::unique_ptr<TopoMatcher> &topoMatcher) :
-    CommonOperator(pImpl, topoMatcher, HcclCMDType::HCCL_CMD_REDUCE_SCATTER)
+    CollAlgOperator(algConfigurator, pImpl, topoMatcher, HcclCMDType::HCCL_CMD_REDUCE_SCATTER)
 {
 }
 
@@ -25,7 +26,8 @@ ReduceScatterOperator::~ReduceScatterOperator()
 HcclResult ReduceScatterOperator::SelectAlg(const std::string& tag, const OpParam& param, std::string& algName,
     std::string& newTag)
 {
-    if (userRankSize_ == 1 && GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (userRankSize_ == 1 && (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE ||
+        param.aicpuUnfoldMode)) { // aicpu normal
         algName = "ReduceScatterSingleExecutor";
         return HCCL_SUCCESS;
     }
@@ -56,7 +58,7 @@ HcclResult ReduceScatterOperator::SelectAlg(const std::string& tag, const OpPara
         bool isRdmaReduce = IsSupportRDMAReduce(param.DataDes.dataType, param.reduceType);
         const std::string REDUCE_SCATTER_NO_INLINE = "_no_inline";
         newTag = (isInlineReduce && isRdmaReduce) ? newTag : newTag + REDUCE_SCATTER_NO_INLINE;
-    } 
+    }
 
     HCCL_INFO("[SelectAlg] reduce_scatter newTag is [%s]", newTag.c_str());
     CHK_PRT_RET(ret != HCCL_SUCCESS,
@@ -149,22 +151,29 @@ HcclResult ReduceScatterOperator::SelectAlgfor91073(const OpParam& param, std::s
     if (topoType_ == TopoType::TOPO_TYPE_NP_SINGLE_RING) {
         algName = "ReduceScatterRingFor91073Executor";
     } else if (topoType_ == TopoType::TOPO_TYPE_NP_DOUBLE_RING) {
-        if (GetExternalInputEnableRdmaSdmaConcurrent()) {
-            HcclResult ret = SetInterServerRingAlgo(algType_);
-            HCCL_WARNING("[ReduceScatterOperator][SelectAlgfor91073] env HCCL_CONCURRENT_ENABLE is set, "
-                "set interserver algo to ring.");
-            CHK_PRT_RET(ret != HCCL_SUCCESS,
-                HCCL_ERROR("[ReduceScatterOperator][SelectAlgfor91073]errNo[0x%016llx] tag[%s], ReduceScatter set inter "
-                    "server ring algo failed", HCCL_ERROR_CODE(ret), param.tag.c_str()), ret);
+        if (GetExternalInputEnableRdmaSdmaConcurrent() && !param.aicpuUnfoldMode) {
+            if (!(UseInterServerRingAlgo(algType_) || UseInterServerNBAlgo(algType_))) {
+                HcclResult ret = SetInterServerRingAlgo(algType_);
+                HCCL_WARNING("[ReduceScatterOperator][SelectAlgfor91073] env HCCL_CONCURRENT_ENABLE is set, "
+                    "set interserver algo to ring.");
+                CHK_PRT_RET(ret != HCCL_SUCCESS,
+                    HCCL_ERROR("[ReduceScatterOperator][SelectAlgfor91073]errNo[0x%016llx] tag[%s], ReduceScatter "
+                    "set inter server ring algo failed", HCCL_ERROR_CODE(ret), param.tag.c_str()), ret);
+            }
             algName = "ReduceScatterDoubleRingConcurrentExecutor";
         } else {
-            algName = "ReduceScatterRingFor91073Executor";
+            if (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_REDUCE_SCATTER)[HCCL_ALGO_LEVEL_0] ==
+                HcclAlgoType::HCCL_ALGO_TYPE_FAST_DOUBLE_RING) {
+                algName = "ReduceScatterFastDoubleRingFor91073Executor";
+            } else {
+                algName = "ReduceScatterRingFor91073Executor";
+            }
         }
     } else {
         algName = "ReduceScatterComm";
     }
 
-    // 91073超节点只支持server间ring,NB和NHR，默认需继续使用NHR
+    // 910_73超节点只支持server间ring,NB和NHR，默认需继续使用NHR
     if (!(UseInterServerRingAlgo(algType_) || UseInterServerNBAlgo(algType_))) {
         HcclResult ret = SetInterServerNHRAlgo(algType_);
         HCCL_WARNING("[ReduceScatterOperator][SelectAlgfor91073] only support ring, NB and NHR in AlgoLevel1 yet, "\

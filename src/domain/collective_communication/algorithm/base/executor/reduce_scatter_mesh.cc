@@ -37,7 +37,7 @@ HcclResult ReduceScatterMesh::RunDestRducer(const LINK &link, const Slice &rxSli
     // 使用scratchmem接收数据，并同inputmem数据做reduce
     DeviceMem dstMem = inputMem_.range(rxSlice.offset, rxSlice.size);
     DeviceMem srcMem = scratchMem_.range(dstSlice.offset, dstSlice.size);
-    HCCL_INFO("rank[%u] rxSlice offset[%llu], size[%llu] dstSlice offset[%llu] size[%llu] ",
+    HCCL_INFO("rank[%u] rxSlice offset[%llu], size[%llu] dstSlice offset[%llu] size[%llu]",
         interRank_, rxSlice.offset, rxSlice.size, dstSlice.offset, dstSlice.size);
 
     HcclResult ret = reducerInfo_->run(dispatcher_, link, baseOffset_ + rxSlice.offset,
@@ -69,7 +69,7 @@ HcclResult ReduceScatterMesh::RunReduceScatter(const std::vector<LINK> &links,
         u32 srcRank = rxRankOpOrder[orderIndex];
         s32 dstRank = txRankOpOrder[orderIndex];
         CHK_SMART_PTR_NULL(links[srcRank]);
-        HCCL_INFO("rank[%u] will tx_ack to rank[%u] ", interRank_, srcRank);
+        HCCL_INFO("rank[%u] will tx_ack to rank[%u]", interRank_, srcRank);
         ret = links[srcRank]->TxAck(stream_);
         CHK_PRT_RET(ret != HCCL_SUCCESS,
             HCCL_ERROR("[Run][ReduceScatter]rank[%u] tx ack to rank[%u] failed", interRank_, srcRank), ret);
@@ -87,8 +87,8 @@ HcclResult ReduceScatterMesh::RunReduceScatter(const std::vector<LINK> &links,
         ret = RunSourceReducer(links[dstRank], inputSlices[dstRank], scratchSlices[dstRank]);
         CHK_PRT_RET(ret != HCCL_SUCCESS,
             HCCL_ERROR("[Run][ReduceScatter]rank:%u round[%u] reducer src run failed", interRank_, round), ret);
-        HCCL_INFO("rank[%u] round[%u] rx from rank[%u], inSlicesoffset[%llu] size[%llu] \
-                scratchSlices offset[%llu] size[%llu]",
+        HCCL_INFO("rank[%u] round[%u] rx from rank[%u], inSlicesoffset[%llu] size[%llu] "\
+            "scratchSlices offset[%llu] size[%llu]",
             interRank_, round, srcRank, inputSlices[interRank_].offset, inputSlices[interRank_].size,
             scratchSlices[interRank_].offset, scratchSlices[interRank_].size);
 
@@ -192,7 +192,7 @@ HcclResult ReduceScatterMesh::RunAsync(const u32 rank, const u32 rankSize, const
             "to ouputmem[%p] failed", rank, src.ptr(), outputMem_.ptr()), ret);
     }
 
-    HCCL_INFO("ReduceScatterMesh finished: rank[%u] end", rank);
+    HCCL_INFO("ReduceScatterMesh finished: rank[%u]", rank);
     return HCCL_SUCCESS;
 }
 }  // namespace hccl

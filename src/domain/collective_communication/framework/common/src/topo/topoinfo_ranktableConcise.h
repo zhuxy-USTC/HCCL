@@ -42,10 +42,11 @@ private:
     HcclResult GetSingleDevice(const nlohmann::json &deviceListObj, u32 objIndex,
         RankTable_t &clusterInfo, std::string &serverId, u32 &serverIdx, HcclIpAddress &hostIp);
     HcclResult GetSingleDeviceIp(const nlohmann::json &deviceListObj, u32 objIndex,
-        RankTable_t &clusterInfo, RankInfo_t &rankinfo);
+        RankTable_t &clusterInfo, RankInfo_t &rankinfo, bool invalidHostIp = true);
     HcclResult GetSingleSuperDeviceId(const nlohmann::json &deviceListObj, u32 objIndex,
         RankTable_t &clusterInfo, RankInfo_t &rankinfo);
-    HcclResult CheckNicDeployConsistence(RankTable_t &clusterInfo) const;
+    void DetectNicDepoly(RankTable_t &rankTable);
+    HcclResult CheckNicDeployConsistence(RankTable_t &clusterInfo, NICDeployment deploy) const;
 
     // 解析超节点信息
     HcclResult GetSuperPodList(const nlohmann::json &obj, RankTable_t &clusterInfo);

@@ -52,7 +52,7 @@ HcclResult ScatterRingConcurrentDirect::RunAsync(const u32 rank, const u32 rankS
         CHK_RET(ExecuteBarrier(leftLink_, rightLink_));
     }
 
-    HCCL_INFO("ScatterRingConcurrentDirect finished: rank[%u] end", rank);
+    HCCL_INFO("ScatterRingConcurrentDirect finished: rank[%u]", rank);
     return HCCL_SUCCESS;
 }
 
@@ -86,7 +86,7 @@ HcclResult ScatterRingConcurrentDirect::CheckParameters(const u32 rank, const u3
                 HCCL_ERROR("[ScatterRingConcurrentDirect] userMemInputSlices size[%u] is not equal to rank size[%u]",
                            userMemInputSlices_.size(), rankSize),
                 HCCL_E_PARA);
-    HCCL_INFO("ScatterRingConcurrentDirect finished to CheckParameters");
+    HCCL_INFO("ScatterRingConcurrentDirect CheckParameters success");
     return HCCL_SUCCESS;
 }
 

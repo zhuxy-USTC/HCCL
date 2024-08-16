@@ -53,7 +53,7 @@ HcclResult CollAllReduceMidCountAivRdmaExecutor::CalcTransportMemType(TransportM
 {
     // 中数据量：使用AIVIN，标记区在AIVIN末尾，单算子模式用CCLOUT，图模式用USEROUT
     inputType = TransportMemType::AIV_INPUT;
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
         outputType = TransportMemType::PARAM_OUTPUT;
@@ -72,12 +72,11 @@ HcclResult CollAllReduceMidCountAivRdmaExecutor::CalcLevel0CommInfo(TransportMem
     return HCCL_SUCCESS;
 }
 
-HcclResult CollAllReduceMidCountAivRdmaExecutor::Orchestrate(const OpParam& param, const AlgResourceResponse& algRes)
+HcclResult CollAllReduceMidCountAivRdmaExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algRes)
 {
     HcclUs startut = TIME_NOW();
     tag_ = param.tag;
     algResResp_ = &algRes;
-    CHK_RET(GetStreamInfo(algRes));
 
     // 中数据量：使用AIVIN，标记区在AIVIN末尾，单算子模式用CCLOUT，图模式用USEROUT
     ExecMem execMem;
@@ -85,7 +84,7 @@ HcclResult CollAllReduceMidCountAivRdmaExecutor::Orchestrate(const OpParam& para
     execMem.inputPtr = param.inputPtr;
     execMem.outputPtr = param.outputPtr;
     execMem.inputMem = algRes.aivInputMem;
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         execMem.outputMem = algRes.cclOutputMem;
     } else {
         execMem.outputMem = algRes.paramOutputMem;
@@ -104,7 +103,7 @@ HcclResult CollAllReduceMidCountAivRdmaExecutor::Orchestrate(const OpParam& para
 HcclResult CollAllReduceMidCountAivRdmaExecutor::KernelRun(const OpParam &param, ExecMem &execMem)
 {
     HCCL_INFO("[CollAllReduceMidCountAivRdmaExecutor][KernelRun]allreduce aiv enter");
-    HcclWorkflowMode workflow = GetWorkflowMode();
+    HcclWorkflowMode workflow = workflowMode_;
     bool isOpbase = (workflow == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
     CHK_RET(ActiveSlaveStreams(param.stream));
 

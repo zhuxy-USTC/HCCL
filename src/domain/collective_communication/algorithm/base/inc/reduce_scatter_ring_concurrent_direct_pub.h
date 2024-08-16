@@ -24,7 +24,8 @@ public:
                                                const std::vector<std::shared_ptr<LocalNotify>> &mainSignals,
                                                const std::vector<std::shared_ptr<LocalNotify>> &subSignals,
                                                const std::vector<u32>                          &ringsOrder,
-                                               const std::vector<Slice>                        &userMemInputSlices);
+                                               const std::vector<Slice>                        &userMemInputSlices,
+                                               bool isSdma = true);
     ~ReduceScatterRingConcurrentDirect() override;
 
     HcclResult RunAsync(const u32 rank, const u32 rankSize, const std::vector<LINK> &links) override;
@@ -62,6 +63,9 @@ private:
     const std::vector<u32>                    ringsOrder_;
     const std::vector<Slice>                  userMemInputSlices_;
     u64                                       lastStepOffset_;
+    bool                                      isSdma_;
+    DeviceMem                                 finalSrc_;
+    DeviceMem                                 finalDst_;
 };
 } // namespace hccl
 

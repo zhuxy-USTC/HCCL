@@ -26,7 +26,7 @@ public:
                       const std::string &tag = "",
                       const NICDeployment nicDeployInner = NICDeployment::NIC_DEPLOYMENT_DEVICE,
                       const bool useOneDoorbell = false, const bool isAicpuModeEn = false,
-                      const bool isHaveCpuRank = false, const bool useSdidForDeviceId = false);
+                      const bool isHaveCpuRank = false, const bool useSuperPodMode = false);
 
     ~CommRing() override;
 

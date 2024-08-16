@@ -66,7 +66,7 @@ HcclResult AllGatherMeshAtomic::RunAllGather(const std::vector<LINK> &links, con
         CHK_RET(links[dstRank]->TxDataSignal(subStream));
         CHK_RET(links[dstRank]->RxDataSignal(subStream));
     }
-    // 添加空task,保证子图执行时不乱序
+
     CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
     return HCCL_SUCCESS;
 }

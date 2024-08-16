@@ -63,11 +63,7 @@ HcclResult AllGatherMesh::RunAllGatherHighPerf(const std::vector<LINK> &links, c
 
         subStream = (round == interRankSize_ - 1) ? stream_ : meshStreams_[round - 1];
 
-        s32 streamID = 0;
-        HcclResult rtRet = hrtGetStreamId(subStream.ptr(), streamID);
-        CHK_PRT_RET(rtRet != HCCL_SUCCESS, HCCL_ERROR("[Run][AllGather]Call hrtGetStreamId error[%d]", rtRet),
-            HCCL_E_INTERNAL);
-        profilerInput_.streamID = streamID;
+        profilerInput_.streamID = subStream.id();
         profilerInput_.planeID = round - 1;
         profilerInput_.step = HCCL_EXEC_STEP_NOT_SET;
 
@@ -97,11 +93,7 @@ HcclResult AllGatherMesh::RunAllGather(const std::vector<LINK> &links, const std
 
         subStream = (round == interRankSize_ - 1) ? stream_ : meshStreams_[round - 1];
 
-        s32 streamID = 0;
-        HcclResult rtRet = hrtGetStreamId(subStream.ptr(), streamID);
-        CHK_PRT_RET(rtRet != HCCL_SUCCESS, HCCL_ERROR("[Run][AllGather]Call hrtGetStreamId error[%d]", rtRet),
-            HCCL_E_INTERNAL);
-        profilerInput_.streamID = streamID;
+        profilerInput_.streamID = subStream.id();
         profilerInput_.planeID = round - 1;
         profilerInput_.step = HCCL_EXEC_STEP_NOT_SET;
 
@@ -153,8 +145,8 @@ HcclResult AllGatherMesh::RunAsync(const u32 rank, const u32 rankSize, const std
     HcclResult ret = HCCL_SUCCESS;
     CHK_SMART_PTR_NULL(dispatcher_);
     CHK_PTR_NULL(stream_.ptr());
-    HCCL_INFO("AllGatherMesh run: rank[%u] totalrank[%u] inputMem[%p] outputMem[%p] count[%llu]", rank, rankSize,
-        inputMem_.ptr(), outputMem_.ptr(), count_);
+    HCCL_INFO("AllGatherMesh run: rank[%u] totalrank[%u] inputMem[%p] outputMem[%p] count[%llu]", 
+        rank, rankSize, inputMem_.ptr(), outputMem_.ptr(), count_);
 
     interRank_ = rank;
     interRankSize_ = rankSize;
@@ -214,7 +206,7 @@ HcclResult AllGatherMesh::RunAsync(const u32 rank, const u32 rankSize, const std
         DeviceMem dst = outputMem_.range(slices_[rank].offset, slices_[rank].size);
         DeviceMem src = inputMem_.range(inputSlices[rank].offset, inputSlices[rank].size);
 
-        HCCL_INFO("inputMem != outputMem: rank[%u] copy src[%p] offset[%llu] size[%llu] to dst[%p] offset[%llu] "
+        HCCL_INFO("inputMem != outputMem: rank[%u] copy src[%p] offset[%llu] size[%llu] to dst[%p] offset[%llu]"
             "size[%llu]",
             rank, src.ptr(), inputSlices[rank].offset, inputSlices[rank].size, dst.ptr(), slices_[rank].offset,
             slices_[rank].size);
@@ -229,7 +221,7 @@ HcclResult AllGatherMesh::RunAsync(const u32 rank, const u32 rankSize, const std
         CHK_RET(LocalNotify::Wait(meshStreams_[streamIndex], dispatcher_, meshSignalAux_[streamIndex],
             profilerInput_.stage));
 
-        HCCL_DEBUG("rank[%u] siganl_aux index[%u] signal record signalaux[%p] ", rank, streamIndex,
+        HCCL_DEBUG("rank[%u] siganl_aux index[%u] signal record signalaux[%p]", rank, streamIndex,
             meshSignalAux_[streamIndex]->ptr());
         CHK_RET(LocalNotify::Post(stream_, dispatcher_, meshSignalAux_[streamIndex],
             profilerInput_.stage));
@@ -249,9 +241,9 @@ HcclResult AllGatherMesh::RunAsync(const u32 rank, const u32 rankSize, const std
         CHK_RET(LocalNotify::Post(meshStreams_[streamIndex], dispatcher_, meshSignal_[streamIndex],
             profilerInput_.stage));
     }
-    // 添加空task,保证子图执行时不乱序
+
     CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
-    HCCL_INFO("AllGatherMesh finished: rank[%u", rank);
+    HCCL_INFO("AllGatherMesh finished: rank[%u]", rank);
     return HCCL_SUCCESS;
 }
 } // namespace hccl

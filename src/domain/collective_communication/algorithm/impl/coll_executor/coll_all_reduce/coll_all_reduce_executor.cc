@@ -18,16 +18,14 @@ CollAllReduceExecutor::CollAllReduceExecutor(const HcclDispatcher dispatcher,
 {
 }
 
-HcclResult CollAllReduceExecutor::Orchestrate(const OpParam& param,
-    const AlgResourceResponse& algRes)
+HcclResult CollAllReduceExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algRes)
 {
     HcclUs startut = TIME_NOW();
     tag_ = param.tag;
     algResResp_ = &algRes;
-    GetStreamInfo(algRes);
-    auto rtStream = param.stream.ptr();
-    HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, GetWorkflowMode());
-    HCCL_PROFILER_ADD_STREAM(rtStream, param.tag, 0, algType_);
+
+    HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, workflowMode_);
+    HCCL_PROFILER_ADD_STREAM(param.stream.id(), param.tag, 0, algType_);
     HCCL_PROFILER_ADD_OPDATA(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr, param.DataDes.dataType, \
         param.root, algoAttr_.identifier);
     HCCL_PROFILER_ADD_GROUPRANK(algoAttr_.identifier, topoAttr_.userRankSize, topoAttr_.userRank);
@@ -35,7 +33,7 @@ HcclResult CollAllReduceExecutor::Orchestrate(const OpParam& param,
 
     HcclResult ret = HCCL_SUCCESS;
     // 图模式和单卡场景下不需要Loop
-    if (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (workflowMode_ != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         ExecMem execMem;
         execMem.count = param.DataDes.count;
         execMem.inputPtr = param.inputPtr;
@@ -62,8 +60,8 @@ HcclResult CollAllReduceExecutor::Orchestrate(const OpParam& param,
         HCCL_ERROR("[CollAllReduceExecutor][Orchestrate]errNo[0x%016llx]all reudce excutor kernel run failed",
             HCCL_ERROR_CODE(ret)), ret);
 
-    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
-        HCCL_PROFILER_DEL_STREAM(rtStream);
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
+        HCCL_PROFILER_DEL_STREAM(param.stream.id());
         HCCL_PROFILER_DEL_TAG(param.tag);
         HCCL_PROFILER_DEL_OPDATA(param.tag);
         HCCL_PROFILER_DEL_GROUPRANK(param.tag);
@@ -84,6 +82,9 @@ u64 CollAllReduceExecutor::CalcLoopMaxCount(const u64 cclBuffSize, const u32 uni
 
 bool CollAllReduceExecutor::IsHugeData(const u64 curSize)
 {
+    if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT) {
+        return true;
+    }
     HCCL_WARNING("[CollAllReduceExecutor][IsHugeData]opMeta is using the default option: not huge data.");
     return false;
 }
@@ -94,12 +95,11 @@ bool CollAllReduceExecutor::IsSmallData(const u64 totalSize, const u64 curSize)
     return false;
 }
 
-u64 CollAllReduceExecutor::GetSliceNum(const u64 totalSize)
+HcclResult CollAllReduceExecutor::GetSliceNum(const u64 totalSize, u64& sliceNum)
 {
     const AlgTypeLevel0 algLevel0 = GetLevel0AlgType(algType_);
     u64 actualSize = 0;
     u32 actualRankSize = 0;
-    u64 sliceNum = 0;
 
     if (algLevel0 == AlgTypeLevel0::ALG_LEVEL0_RESERVED) {
         // level0算法配null走单层拓扑场景
@@ -125,13 +125,16 @@ u64 CollAllReduceExecutor::GetSliceNum(const u64 totalSize)
     if (UseInterServerNBAlgo(algType_)) {
         if (totalSize > HCCL_MIN_SLICE_ALIGN) {
             u64 sliceSize = GetSliceSizeOfNB(actualSize, actualRankSize);
+            CHK_PRT_RET(sliceSize == 0,
+                HCCL_ERROR("[CollAllReduceExecutor][GetSliceNum]sliceSize is zero."),
+                HCCL_E_PARA);
             sliceNum = std::ceil(actualSize * 1.0f / sliceSize);
         }
     }
-    return sliceNum;
+    return HCCL_SUCCESS;
 }
 
-HcclResult CollAllReduceExecutor::RunLoop(const OpParam &param, const AlgResourceResponse &algRes)
+HcclResult CollAllReduceExecutor::RunLoop(OpParam &param, AlgResourceResponse &algRes)
 {
     u32 unitSize = SIZE_TABLE[param.DataDes.dataType];
     ReduceType reduceType = ((param.reduceType != HCCL_REDUCE_PROD) &&
@@ -181,7 +184,7 @@ HcclResult CollAllReduceExecutor::RunLoop(const OpParam &param, const AlgResourc
     return HCCL_SUCCESS;
 }
 
-HcclResult CollAllReduceExecutor::RunLoopInner(const OpParam &param, const ReduceType &reduceType, ExecMem &execMem)
+HcclResult CollAllReduceExecutor::RunLoopInner(OpParam &param, const ReduceType &reduceType, ExecMem &execMem)
 {
     u32 unitSize = SIZE_TABLE[param.DataDes.dataType];
     u64 curSize = execMem.count * unitSize; // 单位：字节
@@ -202,13 +205,14 @@ HcclResult CollAllReduceExecutor::RunLoopInner(const OpParam &param, const Reduc
             hugeData = hugeData || param.DataDes.count > INT32_MAX;
         }
 
-        u64 sliceNum = GetSliceNum(execMem.count * unitSize);
+        u64 sliceNum = 0;
+        CHK_RET(GetSliceNum(execMem.count * unitSize, sliceNum));
         bool smallData = IsSmallData(param.DataDes.count * unitSize, curSize);  // override
         u32 dataSplit = curSize <= HCCL_SDMA_RDMA_SPLIT_SIZE ? 1 : 0;
         auto opMeta = HcclOpMetaInfo::GetOneForAllReduce(autoSelectedAlgTypeLevel1,
             param.DataDes.dataType, reduceType, smallData, 1, hugeData, CopyPattern::BCOPY, sliceNum);
         opMeta.dataSplit = dataSplit;
-        CHK_RET(InitTask(dispatcher_, const_cast<Stream&>(param.stream), opMeta.isEnableCache, opMeta.GetCacheKey()));
+        CHK_RET(InitTask(dispatcher_, param.stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
         /* 记录指令信息用于一致性校验 */
         CHK_RET(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_ALLREDUCE,
             param.tag, execMem.count, param.DataDes.dataType, param.reduceType, execMem.inputMem.size(),
@@ -225,7 +229,7 @@ HcclResult CollAllReduceExecutor::RunLoopInner(const OpParam &param, const Reduc
         // 如果使用in CCL buffer，需要将user buffer in中的结果拷贝到CCL buffer in
         DeviceMem inMem(execMem.inputPtr, curSize);
         DeviceMem inCommMem = execMem.inputMem.range(0, curSize);
-        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, inCommMem, inMem, const_cast<Stream&>(param.stream)));
+        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, inCommMem, inMem, param.stream));
         HCCL_DEBUG("[CollAllReduceExecutor][RunLoop]copy from user in to ccl in.");
     }
     HcclResult ret = KernelRun(param, execMem);
@@ -240,17 +244,19 @@ HcclResult CollAllReduceExecutor::RunLoopInner(const OpParam &param, const Reduc
         // 如果使用CCL buffer，需要将CCL buffer out中的结果拷贝到user buffer out
         DeviceMem outCommMem = execMem.outputMem.range(0, curSize);
         DeviceMem outMem(execMem.outputPtr, curSize);
-        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, outMem, outCommMem, const_cast<Stream&>(param.stream)));
+        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, outMem, outCommMem, param.stream));
     }
 
     if (!is310P3Common_) {
         CHK_RET(RankConsistent::GetInstance().DelOpPara(param.tag));
-        CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));
+        CHK_RET(LaunchTaskExtend(dispatcher_,
+            const_cast<Stream &>(param.stream),
+            const_cast<std::vector<Stream> &>(algResResp_->slaveStreams)));
     }
     return ret;
 }
 
-HcclResult CollAllReduceExecutor::AvoidSubgraphLoop(const OpParam &param, const AlgResourceResponse &algRes)
+HcclResult CollAllReduceExecutor::AvoidSubgraphLoop(OpParam &param, AlgResourceResponse &algRes)
 {
     HCCL_DEBUG("[CollAllReduceExecutor][AvoidSubgraphLoop]start.");
 
@@ -265,14 +271,14 @@ HcclResult CollAllReduceExecutor::AvoidSubgraphLoop(const OpParam &param, const 
     auto opMeta =
         HcclOpMetaInfo::GetOneForAllReduce(originalAlgTypeLevel1, param.DataDes.dataType, reduceType,
             param.DataDes.count * unitSize <= HCCL_SMALL_COUNT_128_KB, 1, hugeData, CopyPattern::ZCOPY);
-    CHK_RET(InitTask(dispatcher_, const_cast<Stream&>(param.stream), opMeta.isEnableCache, opMeta.GetCacheKey()));
+    CHK_RET(InitTask(dispatcher_, param.stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
     /* 记录指令信息用于一致性校验 */
     CHK_RET(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_ALLREDUCE, param.tag, param.DataDes.count,
         param.DataDes.dataType, param.reduceType, algRes.cclInputMem.size(), algRes.cclOutputMem.size()));
 
     DeviceMem src(param.inputPtr, 0);
     DeviceMem dst(algRes.cclInputMem.ptr(), 0);
-    CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dst, src, const_cast<Stream&>(param.stream)));
+    CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dst, src, param.stream));
     /* 入参的正确性由HCCL确保 */
     ExecMem execMem;
     execMem.count = param.DataDes.count;
@@ -286,7 +292,7 @@ HcclResult CollAllReduceExecutor::AvoidSubgraphLoop(const OpParam &param, const 
         HCCL_ERROR_CODE(ret), param.tag.c_str(), param.inputPtr, param.outputPtr, param.DataDes.count,
         param.DataDes.dataType, param.reduceType), ret);
     CHK_RET(RankConsistent::GetInstance().DelOpPara(param.tag));
-    CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));
+    CHK_RET(LaunchTask(dispatcher_, param.stream));
     return HCCL_SUCCESS;
 }
 
