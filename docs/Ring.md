@@ -8,6 +8,10 @@ Ring算法，所有的NPU以环形相连，每张卡都有左手卡与右手卡�
 
 Ring算法适用于“星型”或“胖树”拓扑互联，其特点是通过Ring环将所有NPU设备的单端口双工链路串联起来。
 
+Ring算法实现AllReduce算子的流程如下图所示，每一步依次给下游发送对应的数据块，沿着环转一圈之后完成ReduceScatter阶段，再沿环转一圈完成AllGather阶段。
+
+![](figures/AllReduce_Ring.png)
+
 Ring算法的时间复杂度是O\(n-1\)，n为Ring环上的NPU设备个数。
 
 ## 耗时计算
