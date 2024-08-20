@@ -24,6 +24,7 @@ HCCL的软件架构如下图所示，分为“通信框架”、“通信算法�
 | Ring  | Server内和Server间通信算法，是基于环结构的并行调度算法。<br> Server间通信场景下，适用于小规模节点数（<32机，且非2幂）和中大规模通信数据量（\>=256M）的场景。  | [Ring](docs/Ring.md)   |
 | RHD | Server间通信算法，递归二分和倍增算法，当通信域内Server个数为2的整数次幂时，此算法具有较好的亲和性。  | [RHD](docs/RHD.md) |
 |  Pairwise|Server间通信算法，比较算法，仅用于AllToAll与AlltoAllV算子，适用于数据量较小（<=1M \* RankSize）的场景。   | [PairWise](docs/PairWise.md)  |
+| Star| Server内通信算法，Star算法适用于有根节点的通信操作（如Broadcast、Reduce、Gather、Scatter等），利用星型拓扑或全连接拓扑一步完成通信操作。| [Star](docs/Star.md) |
 
 HCCL采用α–β模型（Hockney）进行性能评估，算法耗时计算用到的变量定义如下：
 
