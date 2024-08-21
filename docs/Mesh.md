@@ -18,6 +18,10 @@ Mesh算法的时间复杂度是O\(1\)。
 
 | 操作          | 耗时                             |
 | ------------- | -------------------------------- |
-| Scatter       | Scatter算子是单流，耗时为:<br> $ (p-1)(\alpha+\frac{1}{p}n\beta)=(p-1)\alpha+\frac{p-1}{p}n\beta $            |
-| ReduceScatter | ReduceScatter算子是单流，耗时为：<br> $ (p-1)(\alpha+\frac{1}{p}n\beta+\frac{1}{p}n\gamma)=(p-1)\alpha+\frac{p-1}{p}n\beta+\frac{p-1}{p}n\gamma  $                                |
-| AllGather     | Allgather算子是多流实现，耗时为：<br> $ (p-1)\alpha+\frac{1}{p}n\beta $                                   |
+| Scatter       | $\alpha+\frac{1}{p}n\beta$       |
+| Gather        | $\alpha+\frac{1}{p}n\beta$       |
+| Broadcast     |  实现为Scatter + AllGather，耗时为：<br> $ 2\alpha + \frac{2}{p}n\beta $     |
+| Reduce       |  实现为ReduceScatter + Gather，耗时为：<br> $ 2\alpha + \frac{2}{p}n\beta + \frac{p-1}{p}n\gamma  $     |
+| ReduceScatter | $ \alpha+\frac{1}{p}n\beta+\frac{p-1}{p}n\gamma $|
+| AllGather        | $\alpha+\frac{1}{p}n\beta$       |
+| AllReduce     | 实现为ReduceScatter + AllGather，耗时为：<br> $2\alpha+\frac{2}{p}n\beta + \frac{p-1}{p}n\gamma  $                                   |
