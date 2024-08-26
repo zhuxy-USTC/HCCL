@@ -64,7 +64,7 @@ HCCL支持源码编译，在源码编译前，请根据如下步骤完成相关�
    
    请从[Link](https://www.hiascend.com/developer/download/community/result?module=cann)获取配套版本的CANN开发套件包`Ascend-cann-toolkit_<cann_version>_linux-<arch>.run`。
    
-   - **本源码仓与CANN社区版本的配套关系可参见"[开放项目与CANN版本配套表](https://gitee.com/ascend/cann-community/blob/master/README.md#cannversionmap)"。**
+   - **本源码仓与CANN版本的配套关系可参见"[开放项目与CANN版本配套表](https://gitee.com/ascend/cann-community/blob/master/README.md#cannversionmap)"。**
    - 支持的操作系统请参见配套版本的[用户手册](https://hiascend.com/document/redirect/CannCommunityInstSoftware)中“支持的操作系统”章节。
    
 2. 安装依赖
@@ -134,8 +134,9 @@ HCCL支持源码编译，在源码编译前，请根据如下步骤完成相关�
 开发者可通过如下命令下载本仓源码：
 
 ```bash
-git clone https://gitee.com/ascend/cann-hccl.git
+git clone -b <tag_version> https://gitee.com/ascend/cann-hccl.git
 ```
+<tag_version>请替换为具体的标签名称，本源码仓与CANN版本的配套关系可参见"[开放项目与CANN版本配套表](https://gitee.com/ascend/cann-community/blob/master/README.md#cannversionmap)"。
 
 ## 编译
 
