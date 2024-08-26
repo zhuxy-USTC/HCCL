@@ -134,9 +134,9 @@ HCCL支持源码编译，在源码编译前，请根据如下步骤完成相关�
 开发者可通过如下命令下载本仓源码：
 
 ```bash
-git clone -b <tag_version> https://gitee.com/ascend/cann-hccl.git
+git clone -b ${tag_version} https://gitee.com/ascend/cann-hccl.git
 ```
-<tag_version>请替换为具体的标签名称，本源码仓与CANN版本的配套关系可参见"[开放项目与CANN版本配套表](https://gitee.com/ascend/cann-community/blob/master/README.md#cannversionmap)"。
+${tag_version}请替换为具体的标签名称，本源码仓与CANN版本的配套关系可参见"[开放项目与CANN版本配套表](https://gitee.com/ascend/cann-community/blob/master/README.md#cannversionmap)"。
 
 ## 编译
 
