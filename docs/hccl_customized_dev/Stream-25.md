@@ -1,10 +1,20 @@
-# Stream 
+# Stream<a name="ZH-CN_TOPIC_0000002031107045"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001963694613_section106mcpsimp"></a>
+
+Stream构造函数。
 
 ## 函数原型<a name="zh-cn_topic_0000001963694613_section103mcpsimp"></a>
 
 ```
 // Stream构造函数
 Stream()
+
+//Stream拷贝构造函数
+Stream(const Stream &that); 
+
+//Stream移动构造函数
+Stream(Stream &&that);
 
 // 基于类型构造Stream，是stream owner
 Stream(const StreamType streamType, bool isMainStream = false)
@@ -15,10 +25,6 @@ Stream(const rtStream_t rtStream, bool isMainStream = true)
 // 基于HcclComStreamInfo信息构造stream，不是stream owner
 Stream(const HcclComStreamInfo &streamInfo, bool isMainStream = false)
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001963694613_section106mcpsimp"></a>
-
-Stream构造函数。
 
 ## 参数说明<a name="zh-cn_topic_0000001963694613_section109mcpsimp"></a>
 

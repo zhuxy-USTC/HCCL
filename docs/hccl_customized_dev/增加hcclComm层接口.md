@@ -1,4 +1,4 @@
-# 增加hcclComm层接口 
+# 增加hcclComm层接口<a name="ZH-CN_TOPIC_0000001904666546"></a>
 
 hcclComm为通信域层，在HCCL架构中隶属于框架层。
 
