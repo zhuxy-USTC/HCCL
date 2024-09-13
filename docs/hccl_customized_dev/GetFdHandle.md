@@ -1,14 +1,14 @@
-# GetFdHandle 
+# GetFdHandle<a name="ZH-CN_TOPIC_0000001994627208"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001956618433_section2674mcpsimp"></a>
+
+获取FdHandle。
 
 ## 函数原型<a name="zh-cn_topic_0000001956618433_section2671mcpsimp"></a>
 
 ```
 FdHandle GetFdHandle() const
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001956618433_section2674mcpsimp"></a>
-
-获取FdHandle。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618433_section2677mcpsimp"></a>
 

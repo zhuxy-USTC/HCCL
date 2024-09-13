@@ -1,4 +1,8 @@
-# Init 
+# Init<a name="ZH-CN_TOPIC_0000002031186541"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001956458641_section2945mcpsimp"></a>
+
+Notify初始化。
 
 ## 函数原型<a name="zh-cn_topic_0000001956458641_section2942mcpsimp"></a>
 
@@ -6,10 +10,6 @@
 HcclResult Init(const NotifyLoadType type = NotifyLoadType::HOST_NOTIFY)
 HcclResult Init(const HcclSignalInfo &notifyInfo, const NotifyLoadType type = NotifyLoadType::DEVICE_NOTIFY)
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001956458641_section2945mcpsimp"></a>
-
-Notify初始化。
 
 ## 参数说明<a name="zh-cn_topic_0000001956458641_section2948mcpsimp"></a>
 

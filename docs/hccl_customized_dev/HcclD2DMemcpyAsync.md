@@ -1,14 +1,14 @@
-# HcclD2DMemcpyAsync 
+# HcclD2DMemcpyAsync<a name="ZH-CN_TOPIC_0000001994467380"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001926464492_section2913mcpsimp"></a>
+
+异步device间内存copy。
 
 ## 函数原型<a name="zh-cn_topic_0000001926464492_section2911mcpsimp"></a>
 
 ```
 HcclResult HcclD2DMemcpyAsync(HcclDispatcher dispatcherPtr, hccl::DeviceMem &dst, const hccl::DeviceMem &src, hccl::Stream &stream, u32 remoteUserRank = INVALID_VALUE_RANKID, hccl::LinkType inLinkType = hccl::LinkType::LINK_ONCHIP)
 ```
-
-## 功能说明<a name="zh-cn_topic_0000001926464492_section2913mcpsimp"></a>
-
-异步device间内存copy。
 
 ## 参数说明<a name="zh-cn_topic_0000001926464492_section2915mcpsimp"></a>
 
