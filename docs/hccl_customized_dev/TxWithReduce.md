@@ -1,4 +1,8 @@
-# TxWithReduce 
+# TxWithReduce<a name="ZH-CN_TOPIC_0000002031186561"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001956458781_section6911mcpsimp"></a>
+
+异步发送数据，将本端src地址的数据发送到远端指定类型地址中，并完成reduce操作。
 
 ## 函数原型<a name="zh-cn_topic_0000001956458781_section6908mcpsimp"></a>
 
@@ -9,10 +13,6 @@ HcclResult TxWithReduce(UserMemType dstMemType, u64 dstOffset, const void *src, 
 // 发送多块内存数据
 HcclResult TxWithReduce(const std::vector<TxMemoryInfo> &txWithReduceMems, const HcclDataType datatype, HcclReduceOp redOp, Stream &stream)
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001956458781_section6911mcpsimp"></a>
-
-异步发送数据，将本端src地址的数据发送到远端指定类型地址中，并完成reduce操作。
 
 ## 参数说明<a name="zh-cn_topic_0000001956458781_section6914mcpsimp"></a>
 

@@ -1,12 +1,14 @@
-# GetTxDataSigleDevNotifyInfo 
+# GetTxDataSigleDevNotifyInfo<a name="ZH-CN_TOPIC_0000001994627260"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001956618593_section7912mcpsimp"></a>
+
+获取同步notify信息相关信息。
 
 ## 函数原型<a name="zh-cn_topic_0000001956618593_section7909mcpsimp"></a>
 
-HcclResult GetTxDataSigleDevNotifyInfo\(HcclSignalInfo &notifyInfo\)
-
-## 函数功能<a name="zh-cn_topic_0000001956618593_section7912mcpsimp"></a>
-
-获取同步notify信息相关信息。
+```
+HcclResult GetTxDataSigleDevNotifyInfo(HcclSignalInfo &notifyInfo)
+```
 
 ## 参数说明<a name="zh-cn_topic_0000001956618593_section7915mcpsimp"></a>
 
