@@ -1,14 +1,14 @@
-# HcclMemcpyAsync 
+# HcclMemcpyAsync<a name="ZH-CN_TOPIC_0000002031186473"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001953703441_section2493mcpsimp"></a>
+
+异步内存copy。
 
 ## 函数原型<a name="zh-cn_topic_0000001953703441_section2491mcpsimp"></a>
 
 ```
 HcclResult HcclMemcpyAsync(HcclDispatcher dispatcherPtr, void *dst, const uint64_t destMax, const void *src, const uint64_t count, const HcclRtMemcpyKind kind, hccl::Stream &stream, const u32 remoteUserRank, hccl::LinkType linkType)
 ```
-
-## 功能说明<a name="zh-cn_topic_0000001953703441_section2493mcpsimp"></a>
-
-异步内存copy。
 
 ## 参数说明<a name="zh-cn_topic_0000001953703441_section2495mcpsimp"></a>
 

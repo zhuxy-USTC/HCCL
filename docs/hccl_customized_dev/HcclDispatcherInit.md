@@ -1,14 +1,14 @@
-# HcclDispatcherInit 
+# HcclDispatcherInit<a name="ZH-CN_TOPIC_0000001994467372"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001926464484_section2687mcpsimp"></a>
+
+初始化dispatcher。
 
 ## 函数原型<a name="zh-cn_topic_0000001926464484_section2685mcpsimp"></a>
 
 ```
 HcclResult HcclDispatcherInit(DispatcherType type, const s32 deviceLogicId, const std::shared_ptr<hccl::ProfilerManager> &profilerManager, HcclDispatcher *dispatcher)
 ```
-
-## 功能说明<a name="zh-cn_topic_0000001926464484_section2687mcpsimp"></a>
-
-初始化dispatcher。
 
 ## 参数说明<a name="zh-cn_topic_0000001926464484_section2689mcpsimp"></a>
 

@@ -1,12 +1,14 @@
-# id 
+# id<a name="ZH-CN_TOPIC_0000001994627316"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001963694633_section628mcpsimp"></a>
+
+获取stream id。
 
 ## 函数原型<a name="zh-cn_topic_0000001963694633_section625mcpsimp"></a>
 
-s32 id\(\) const
-
-## 函数功能<a name="zh-cn_topic_0000001963694633_section628mcpsimp"></a>
-
-获取stream id。
+```
+s32 id() const
+```
 
 ## 参数说明<a name="zh-cn_topic_0000001963694633_section631mcpsimp"></a>
 

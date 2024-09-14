@@ -1,12 +1,14 @@
-# WaitFinAck 
+# WaitFinAck<a name="ZH-CN_TOPIC_0000001994467512"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001929299982_section8583mcpsimp"></a>
+
+接收完成应答同步信号。
 
 ## 函数原型<a name="zh-cn_topic_0000001929299982_section8580mcpsimp"></a>
 
-HcclResult WaitFinAck\(Stream &stream\)
-
-## 函数功能<a name="zh-cn_topic_0000001929299982_section8583mcpsimp"></a>
-
-接收完成应答同步信号。
+```
+HcclResult WaitFinAck(Stream &stream)
+```
 
 ## 参数说明<a name="zh-cn_topic_0000001929299982_section8586mcpsimp"></a>
 

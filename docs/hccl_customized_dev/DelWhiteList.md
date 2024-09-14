@@ -1,14 +1,14 @@
-# DelWhiteList
+# DelWhiteList<a name="ZH-CN_TOPIC_0000001994627188"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001956618425_section2525mcpsimp"></a>
+
+删除白名单。
 
 ## 函数原型<a name="zh-cn_topic_0000001956618425_section2522mcpsimp"></a>
 
 ```
 HcclResult DelWhiteList(std::vector<SocketWlistInfo> &wlistInfoVec)
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001956618425_section2525mcpsimp"></a>
-
-删除白名单。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618425_section2528mcpsimp"></a>
 
