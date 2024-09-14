@@ -1,12 +1,14 @@
-# Read 
+# Read<a name="ZH-CN_TOPIC_0000002031107017"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001956458821_section8336mcpsimp"></a>
+
+单边读数据。
 
 ## 函数原型<a name="zh-cn_topic_0000001956458821_section8333mcpsimp"></a>
 
-HcclResult Read\(const void \*localAddr, UserMemType remoteMemType, u64 remoteOffset, u64 len, Stream &stream\)
-
-## 函数功能<a name="zh-cn_topic_0000001956458821_section8336mcpsimp"></a>
-
-单边读数据。
+```
+HcclResult Read(const void *localAddr, UserMemType remoteMemType, u64 remoteOffset, u64 len, Stream &stream)
+```
 
 ## 参数说明<a name="zh-cn_topic_0000001956458821_section8339mcpsimp"></a>
 

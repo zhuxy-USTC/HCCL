@@ -1,14 +1,14 @@
-# SetIfName 
+# SetIfName<a name="ZH-CN_TOPIC_0000002031186497"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001929299746_section1458mcpsimp"></a>
+
+设置网卡名。
 
 ## 函数原型<a name="zh-cn_topic_0000001929299746_section1455mcpsimp"></a>
 
 ```
 HcclResult SetIfName(const std::string &name)
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001929299746_section1458mcpsimp"></a>
-
-设置网卡名。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299746_section1461mcpsimp"></a>
 

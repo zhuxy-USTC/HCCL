@@ -1,4 +1,8 @@
-# HostMem 
+# HostMem<a name="ZH-CN_TOPIC_0000002031107037"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001933105884_section10023mcpsimp"></a>
+
+Host Mem构造函数。
 
 ## 函数原型<a name="zh-cn_topic_0000001933105884_section10020mcpsimp"></a>
 
@@ -7,10 +11,6 @@ HostMem()
 HostMem(const HostMem &that)
 HostMem(HostMem &&that)
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001933105884_section10023mcpsimp"></a>
-
-Host Mem构造函数。
 
 ## 参数说明<a name="zh-cn_topic_0000001933105884_section10026mcpsimp"></a>
 

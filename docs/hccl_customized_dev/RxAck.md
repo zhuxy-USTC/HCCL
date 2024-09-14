@@ -1,14 +1,14 @@
-# RxAck 
+# RxAck<a name="ZH-CN_TOPIC_0000001994627248"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001956618581_section7411mcpsimp"></a>
+
+本端等待对端的同步信号。
 
 ## 函数原型<a name="zh-cn_topic_0000001956618581_section7408mcpsimp"></a>
 
 ```
 HcclResult RxAck(Stream &stream)
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001956618581_section7411mcpsimp"></a>
-
-本端等待对端的同步信号。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618581_section7414mcpsimp"></a>
 
