@@ -1,14 +1,14 @@
-# GetLocalIp 
+# GetLocalIp<a name="ZH-CN_TOPIC_0000001994467436"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001929299782_section2626mcpsimp"></a>
+
+获取本端IP信息。
 
 ## 函数原型<a name="zh-cn_topic_0000001929299782_section2623mcpsimp"></a>
 
 ```
 HcclIpAddress GetLocalIp() const
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001929299782_section2626mcpsimp"></a>
-
-获取本端IP信息。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299782_section2629mcpsimp"></a>
 

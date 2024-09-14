@@ -1,15 +1,15 @@
-# TransDataDef 
+# TransDataDef<a name="ZH-CN_TOPIC_0000002031186601"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001939004906_section154mcpsimp"></a>
+
+TransDataDef构造函数。
 
 ## 函数原型<a name="zh-cn_topic_0000001939004906_section151mcpsimp"></a>
 
 ```
-TransDataDef()
-TransDataDef(u64 srcBuf, u64 dstBuf, u64 count, HcclDataType dataType, bool errorFlag = false, u32 tableId = DEFAULT_TABLE_ID_VALUE, s64 globalStep = DEFAULT_GLOBAL_STEP_VALUE)
+TransDataDef()   // 默认构造函数
+TransDataDef(u64 srcBuf, u64 dstBuf, u64 count, HcclDataType dataType, bool errorFlag = false, u32 tableId = DEFAULT_TABLE_ID_VALUE, s64 globalStep = DEFAULT_GLOBAL_STEP_VALUE)  //构造函数
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001939004906_section154mcpsimp"></a>
-
-TransDataDef构造函数。
 
 ## 参数说明<a name="zh-cn_topic_0000001939004906_section157mcpsimp"></a>
 
