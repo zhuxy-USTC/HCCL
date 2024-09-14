@@ -1,12 +1,14 @@
-# GetTxAckDevNotifyInfo 
+# GetTxAckDevNotifyInfo<a name="ZH-CN_TOPIC_0000002031186577"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001929459306_section7838mcpsimp"></a>
+
+获取同步notify信息相关信息。
 
 ## 函数原型<a name="zh-cn_topic_0000001929459306_section7835mcpsimp"></a>
 
-HcclResult GetTxAckDevNotifyInfo\(HcclSignalInfo &notifyInfo\)
-
-## 函数功能<a name="zh-cn_topic_0000001929459306_section7838mcpsimp"></a>
-
-获取同步notify信息相关信息。
+```
+HcclResult GetTxAckDevNotifyInfo(HcclSignalInfo &notifyInfo)
+```
 
 ## 参数说明<a name="zh-cn_topic_0000001929459306_section7841mcpsimp"></a>
 
