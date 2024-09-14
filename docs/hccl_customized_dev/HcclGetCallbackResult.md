@@ -1,14 +1,14 @@
-# HcclGetCallbackResult 
+# HcclGetCallbackResult<a name="ZH-CN_TOPIC_0000001994467388"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001926464500_section2622mcpsimp"></a>
+
+获取callback执行结果。
 
 ## 函数原型<a name="zh-cn_topic_0000001926464500_section2620mcpsimp"></a>
 
 ```
 HcclResult HcclGetCallbackResult(HcclDispatcher dispatcherPtr)
 ```
-
-## 功能说明<a name="zh-cn_topic_0000001926464500_section2622mcpsimp"></a>
-
-获取callback执行结果。
 
 ## 参数说明<a name="zh-cn_topic_0000001926464500_section2624mcpsimp"></a>
 
