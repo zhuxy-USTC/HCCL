@@ -1,14 +1,14 @@
-# RxDataSignal 
+# RxDataSignal<a name="ZH-CN_TOPIC_0000001994627240"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001956618561_section6765mcpsimp"></a>
+
+本端等待对端的同步信号。
 
 ## 函数原型<a name="zh-cn_topic_0000001956618561_section6762mcpsimp"></a>
 
 ```
 HcclResult RxDataSignal(Stream &stream)
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001956618561_section6765mcpsimp"></a>
-
-本端等待对端的同步信号。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618561_section6768mcpsimp"></a>
 

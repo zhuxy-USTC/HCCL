@@ -1,12 +1,14 @@
-# RxWaitDone 
+# RxWaitDone<a name="ZH-CN_TOPIC_0000001994627256"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001956618589_section7757mcpsimp"></a>
+
+等待接收完成。
 
 ## 函数原型<a name="zh-cn_topic_0000001956618589_section7754mcpsimp"></a>
 
-HcclResult RxWaitDone\(Stream &stream\)
-
-## 函数功能<a name="zh-cn_topic_0000001956618589_section7757mcpsimp"></a>
-
-等待接收完成。
+```
+HcclResult RxWaitDone(Stream &stream)
+```
 
 ## 参数说明<a name="zh-cn_topic_0000001956618589_section7760mcpsimp"></a>
 

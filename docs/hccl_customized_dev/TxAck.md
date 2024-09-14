@@ -1,14 +1,14 @@
-# TxAck 
+# TxAck<a name="ZH-CN_TOPIC_0000002031106989"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001956458793_section7374mcpsimp"></a>
+
+本端发送同步信号到对端。
 
 ## 函数原型<a name="zh-cn_topic_0000001956458793_section7371mcpsimp"></a>
 
 ```
 HcclResult TxAck(Stream &stream)
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001956458793_section7374mcpsimp"></a>
-
-本端发送同步信号到对端。
 
 ## 参数说明<a name="zh-cn_topic_0000001956458793_section7377mcpsimp"></a>
 
