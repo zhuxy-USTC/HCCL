@@ -1,8 +1,10 @@
-# Stream 
+# Stream<a name="ZH-CN_TOPIC_0000001994467532"></a>
 
--   **[Stream](Stream-16.md)**  
+-   **[简介](简介-24.md)**  
 
--   **[\~Stream](Stream-17.md)**  
+-   **[Stream](Stream-25.md)**  
+
+-   **[\~Stream](Stream-26.md)**  
 
 -   **[InitSqeContext](InitSqeContext.md)**  
 
@@ -24,13 +26,13 @@
 
 -   **[IsMainStream](IsMainStream.md)**  
 
--   **[ptr](ptr-18.md)**  
+-   **[ptr](ptr-27.md)**  
 
 -   **[id](id.md)**  
 
 -   **[sqId](sqId.md)**  
 
--   **[GetMode](GetMode-19.md)**  
+-   **[GetMode](GetMode-28.md)**  
 
 -   **[cqId](cqId.md)**  
 

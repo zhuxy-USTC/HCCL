@@ -1,14 +1,14 @@
-# HcclSignalRecord 
+# HcclSignalRecord<a name="ZH-CN_TOPIC_0000001994627140"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001926623848_section517mcpsimp"></a>
+
+notify record。
 
 ## 函数原型<a name="zh-cn_topic_0000001926623848_section515mcpsimp"></a>
 
 ```
 HcclResult HcclSignalRecord(HcclDispatcher dispatcherPtr, HcclRtNotify signal, hccl::Stream &stream, u32 userRank, u64 offset, s32 stage, bool inchip, u64 signalAddr)
 ```
-
-## 功能说明<a name="zh-cn_topic_0000001926623848_section517mcpsimp"></a>
-
-notify record。
 
 ## 参数说明<a name="zh-cn_topic_0000001926623848_section519mcpsimp"></a>
 

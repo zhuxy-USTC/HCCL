@@ -1,14 +1,14 @@
-# SetStatus 
+# SetStatus<a name="ZH-CN_TOPIC_0000001994627180"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001929459142_section2127mcpsimp"></a>
+
+设置socket状态。
 
 ## 函数原型<a name="zh-cn_topic_0000001929459142_section2124mcpsimp"></a>
 
 ```
 void SetStatus(HcclSocketStatus status)
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001929459142_section2127mcpsimp"></a>
-
-设置socket状态。
 
 ## 参数说明<a name="zh-cn_topic_0000001929459142_section2130mcpsimp"></a>
 

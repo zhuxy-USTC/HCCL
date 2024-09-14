@@ -1,14 +1,14 @@
-# SetNotifyData 
+# SetNotifyData<a name="ZH-CN_TOPIC_0000001994627228"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001929459174_section3204mcpsimp"></a>
+
+设置notify信息。
 
 ## 函数原型<a name="zh-cn_topic_0000001929459174_section3201mcpsimp"></a>
 
 ```
 HcclResult SetNotifyData(HcclSignalInfo &notifyInfo)
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001929459174_section3204mcpsimp"></a>
-
-设置notify信息。
 
 ## 参数说明<a name="zh-cn_topic_0000001929459174_section3207mcpsimp"></a>
 

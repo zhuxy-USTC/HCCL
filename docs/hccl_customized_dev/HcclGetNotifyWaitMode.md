@@ -1,14 +1,14 @@
-# HcclGetNotifyWaitMode 
+# HcclGetNotifyWaitMode<a name="ZH-CN_TOPIC_0000001994627136"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001926623844_section481mcpsimp"></a>
+
+获取notify wait工作模式。
 
 ## 函数原型<a name="zh-cn_topic_0000001926623844_section479mcpsimp"></a>
 
 ```
 HcclResult HcclGetNotifyWaitMode(HcclDispatcher dispatcherPtr, SyncMode *notifyWaitMode)
 ```
-
-## 功能说明<a name="zh-cn_topic_0000001926623844_section481mcpsimp"></a>
-
-获取notify wait工作模式。
 
 ## 参数说明<a name="zh-cn_topic_0000001926623844_section483mcpsimp"></a>
 

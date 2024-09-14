@@ -1,15 +1,15 @@
-# Recv 
+# Recv<a name="ZH-CN_TOPIC_0000001994627184"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001929459146_section2268mcpsimp"></a>
+
+TCP socket recv接口。
 
 ## 函数原型<a name="zh-cn_topic_0000001929459146_section2265mcpsimp"></a>
 
 ```
-HcclResult Recv(void *recvBuf, u32 recvBufLen)
-HcclResult Recv(std::string &recvMsg)
+HcclResult Recv(void *recvBuf, u32 recvBufLen)  // 传入接收地址和长度，接收信息
+HcclResult Recv(std::string &recvMsg)  // 传入string对象接收信息
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001929459146_section2268mcpsimp"></a>
-
-Socket recv。
 
 ## 参数说明<a name="zh-cn_topic_0000001929459146_section2271mcpsimp"></a>
 
