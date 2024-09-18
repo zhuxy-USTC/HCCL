@@ -1,6 +1,4 @@
-# DeviceMemory<a name="ZH-CN_TOPIC_0000001994467516"></a>
-
--   **[简介](简介-17.md)**  
+# DeviceMemory
 
 -   **[DeviceMem](DeviceMem.md)**  
 

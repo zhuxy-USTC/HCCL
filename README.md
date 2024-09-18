@@ -16,7 +16,7 @@ HCCL的软件架构如下图所示，分为“通信框架”、“通信算法�
   - 通信算法：作为集合通信算法的承载模块，提供特定集合通信操作的资源计算，并根据通信域信息完成通信任务编排。
 - 集合通信平台层，提供NPU之上与集合通信关联的资源管理，并提供集合通信维测能力。
 
-本源码仓提供了Mesh、Ring、Recursive Halving-Doubling（RHD）、PairWise、Star五种拓扑算法的实现源码。
+本源码仓提供了Mesh、Ring、Recursive Halving-Doubling（RHD）、PairWise四种拓扑算法的实现源码。
 
 | 算法  | 描述  |原理与耗时   |
 |---|---|---|
@@ -62,9 +62,10 @@ HCCL支持源码编译，在源码编译前，请根据如下步骤完成相关�
 
 1. 获取CANN开发套件包。
    
-   请参见"[开放项目与CANN版本配套表](https://gitee.com/ascend/cann-community/blob/master/README.md#cannversionmap)"获取对应的CANN开发套件包`Ascend-cann-toolkit_<cann_version>_linux-<arch>.run`。
-   - **为确保您的源码定制开发顺利进行，请选择配套的CANN版本与Gitee分支源码，使用master分支可能存在版本不匹配的风险。**
-   - 支持的安装方式及操作系统请参见配套版本的[用户手册](https://hiascend.com/document/redirect/CannCommunityInstSoftware)。
+   请从[Link](https://www.hiascend.com/developer/download/community/result?module=cann)获取配套版本的CANN开发套件包`Ascend-cann-toolkit_<cann_version>_linux-<arch>.run`。
+   
+   - **本源码仓与CANN版本的配套关系可参见"[开放项目与CANN版本配套表](https://gitee.com/ascend/cann-community/blob/master/README.md#cannversionmap)"。**
+   - 支持的操作系统请参见配套版本的[用户手册](https://hiascend.com/document/redirect/CannCommunityInstSoftware)中“支持的操作系统”章节。
    
 2. 安装依赖
   

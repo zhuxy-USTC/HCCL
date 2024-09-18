@@ -1,14 +1,14 @@
-# GetNotifyData<a name="ZH-CN_TOPIC_0000002031106969"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299798_section3167mcpsimp"></a>
-
-获取notify信息。
+# GetNotifyData 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299798_section3164mcpsimp"></a>
 
 ```
 HcclResult GetNotifyData(HcclSignalInfo &notifyInfo)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929299798_section3167mcpsimp"></a>
+
+获取notify信息。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299798_section3170mcpsimp"></a>
 

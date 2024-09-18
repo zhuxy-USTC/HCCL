@@ -1,14 +1,14 @@
-# RxDone<a name="ZH-CN_TOPIC_0000001994627252"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956618585_section7559mcpsimp"></a>
-
-接收完成。
+# RxDone 
 
 ## 函数原型<a name="zh-cn_topic_0000001956618585_section7556mcpsimp"></a>
 
 ```
 HcclResult RxDone(Stream &stream)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001956618585_section7559mcpsimp"></a>
+
+接收完成。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618585_section7562mcpsimp"></a>
 

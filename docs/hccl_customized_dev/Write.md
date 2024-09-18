@@ -1,14 +1,12 @@
-# Write<a name="ZH-CN_TOPIC_0000002031186593"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929459322_section8274mcpsimp"></a>
-
-单边写数据。
+# Write 
 
 ## 函数原型<a name="zh-cn_topic_0000001929459322_section8271mcpsimp"></a>
 
-```
-HcclResult Write(const void *localAddr, UserMemType remoteMemType, u64 remoteOffset, u64 len, Stream &stream)
-```
+HcclResult Write\(const void \*localAddr, UserMemType remoteMemType, u64 remoteOffset, u64 len, Stream &stream\)
+
+## 函数功能<a name="zh-cn_topic_0000001929459322_section8274mcpsimp"></a>
+
+单边写数据。
 
 ## 参数说明<a name="zh-cn_topic_0000001929459322_section8277mcpsimp"></a>
 

@@ -1,14 +1,12 @@
-# PostFinAck<a name="ZH-CN_TOPIC_0000001994627280"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956618613_section8546mcpsimp"></a>
-
-发送完成应答同步信号。
+# PostFinAck 
 
 ## 函数原型<a name="zh-cn_topic_0000001956618613_section8543mcpsimp"></a>
 
-```
-HcclResult PostFinAck(Stream &stream)
-```
+HcclResult PostFinAck\(Stream &stream\)
+
+## 函数功能<a name="zh-cn_topic_0000001956618613_section8546mcpsimp"></a>
+
+发送完成应答同步信号。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618613_section8549mcpsimp"></a>
 

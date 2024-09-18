@@ -1,4 +1,4 @@
-# 增加通信算子Operator<a name="ZH-CN_TOPIC_0000001904826438"></a>
+# 增加通信算子Operator 
 
 算子类在HCCL架构中隶属于算法层，其通过SelectAlg，CalcResRequest和Orchestrate接口与框架层进行交互，分别实现算法选择，资源计算和算法编排功能。
 
@@ -78,10 +78,9 @@
     2.  为 tag 增加合理的后缀，构造 newTag 返回，框架层会对拥有相同 newTag 的算子执行资源复用。
 
 4.  重写资源计算和算法编排接口（可选）。
-    
-    **注意：** 
 
-    > 在算子基类 CollAlgOperator 中，CalResRequest 和 Orchestrate 已经被实现为调用 CollExecutorBase 类（见[增加通信算法Executor](增加通信算法Executor.md)）的同名接口，即主要功能是在 CollExecutorBase 中实现。因此在实际开发中，对算子的 CalResRequest 和 Orchestrate 进行重写并不常见，推荐在 CollExecutorBase 的派生类中重写对应的接口，而不是直接在算子类中实现。
+     **注意：** 
+    >在算子基类 CollAlgOperator 中，CalResRequest 和 Orchestrate 已经被实现为调用 CollExecutorBase 类（见[增加通信算法Executor](增加通信算法Executor.md)）的同名接口，即主要功能是在 CollExecutorBase 中实现。因此在实际开发中，对算子的 CalResRequest 和 Orchestrate 进行重写并不常见，推荐在 CollExecutorBase 的派生类中重写对应的接口，而不是直接在算子类中实现。
 
     ```
     virtual HcclResult CalcResRequest(const std::string& algName,

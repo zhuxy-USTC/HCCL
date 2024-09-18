@@ -1,14 +1,14 @@
-# AddWhiteList<a name="ZH-CN_TOPIC_0000002031106949"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956458625_section2488mcpsimp"></a>
-
-添加白名单。
+# AddWhiteList
 
 ## 函数原型<a name="zh-cn_topic_0000001956458625_section2485mcpsimp"></a>
 
 ```
 HcclResult AddWhiteList(std::vector<SocketWlistInfo> &wlistInfoVec)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001956458625_section2488mcpsimp"></a>
+
+添加白名单。
 
 ## 参数说明<a name="zh-cn_topic_0000001956458625_section2491mcpsimp"></a>
 

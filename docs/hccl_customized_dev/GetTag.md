@@ -1,14 +1,14 @@
-# GetTag<a name="ZH-CN_TOPIC_0000001994467432"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299778_section2562mcpsimp"></a>
-
-获取socket tag。
+# GetTag 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299778_section2559mcpsimp"></a>
 
 ```
 std::string GetTag() const
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929299778_section2562mcpsimp"></a>
+
+获取socket tag。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299778_section2565mcpsimp"></a>
 

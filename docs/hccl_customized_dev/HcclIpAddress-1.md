@@ -1,12 +1,12 @@
-# \~HcclIpAddress<a name="ZH-CN_TOPIC_0000002031106913"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001963412553_section179301833781"></a>
-
-IpAddress析构函数。
+# \~HcclIpAddress 
 
 ## 函数原型<a name="zh-cn_topic_0000001963412553_section129293337812"></a>
 
 \~HcclIpAddress\(\)
+
+## 函数功能<a name="zh-cn_topic_0000001963412553_section179301833781"></a>
+
+IpAddress析构函数。
 
 ## 参数说明<a name="zh-cn_topic_0000001963412553_section129306331882"></a>
 

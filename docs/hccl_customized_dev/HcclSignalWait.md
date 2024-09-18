@@ -1,14 +1,14 @@
-# HcclSignalWait<a name="ZH-CN_TOPIC_0000001994467384"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001926464496_section1955mcpsimp"></a>
-
-notify wait。
+# HcclSignalWait 
 
 ## 函数原型<a name="zh-cn_topic_0000001926464496_section1953mcpsimp"></a>
 
 ```
 HcclResult HcclSignalWait(HcclDispatcher dispatcherPtr, HcclRtNotify signal, hccl::Stream &stream, u32 userRank, u32 remoteUserRank, s32 stage, bool inchip)
 ```
+
+## 功能说明<a name="zh-cn_topic_0000001926464496_section1955mcpsimp"></a>
+
+notify wait。
 
 ## 参数说明<a name="zh-cn_topic_0000001926464496_section1957mcpsimp"></a>
 

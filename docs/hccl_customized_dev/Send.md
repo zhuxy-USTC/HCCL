@@ -1,15 +1,15 @@
-# Send<a name="ZH-CN_TOPIC_0000002031106945"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299770_section2224mcpsimp"></a>
-
-TCP socket send接口。
+# Send 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299770_section2221mcpsimp"></a>
 
 ```
-HcclResult Send(const void *data, u64 size)  // 传入地址和发送长度，发送信息
-HcclResult Send(const std::string &sendMsg)  // 传入string对象，发送信息
+HcclResult Send(const void *data, u64 size)
+HcclResult Send(const std::string &sendMsg)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929299770_section2224mcpsimp"></a>
+
+Socket send。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299770_section2227mcpsimp"></a>
 

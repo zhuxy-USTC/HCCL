@@ -1,14 +1,14 @@
-# Wait<a name="ZH-CN_TOPIC_0000002031106965"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299794_section3026mcpsimp"></a>
-
-Notify wait任务。
+# Wait 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299794_section3023mcpsimp"></a>
 
 ```
 HcclResult Wait(Stream& stream, HcclDispatcher dispatcher, s32 stage = INVALID_VALUE_STAGE, u32 timeOut = NOTIFY_DEFAULT_WAIT_TIME)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929299794_section3026mcpsimp"></a>
+
+Notify wait任务。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299794_section3029mcpsimp"></a>
 

@@ -1,14 +1,14 @@
-# DeInit<a name="ZH-CN_TOPIC_0000002031186557"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929459282_section6712mcpsimp"></a>
-
-Transpor销毁。
+# DeInit
 
 ## 函数原型<a name="zh-cn_topic_0000001929459282_section6709mcpsimp"></a>
 
 ```
 HcclResult DeInit()
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929459282_section6712mcpsimp"></a>
+
+Transpor销毁。
 
 ## 参数说明<a name="zh-cn_topic_0000001929459282_section6715mcpsimp"></a>
 

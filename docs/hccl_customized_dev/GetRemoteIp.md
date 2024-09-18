@@ -1,14 +1,14 @@
-# GetRemoteIp<a name="ZH-CN_TOPIC_0000002031106953"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956458629_section2594mcpsimp"></a>
-
-获取对端IP。
+# GetRemoteIp 
 
 ## 函数原型<a name="zh-cn_topic_0000001956458629_section2591mcpsimp"></a>
 
 ```
 HcclIpAddress GetRemoteIp() const
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001956458629_section2594mcpsimp"></a>
+
+获取对端IP。
 
 ## 参数说明<a name="zh-cn_topic_0000001956458629_section2597mcpsimp"></a>
 

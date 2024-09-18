@@ -1,14 +1,14 @@
-# SetScopeID<a name="ZH-CN_TOPIC_0000001994467396"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956618385_section1293mcpsimp"></a>
-
-设置ScopeID。
+# SetScopeID 
 
 ## 函数原型<a name="zh-cn_topic_0000001956618385_section1290mcpsimp"></a>
 
 ```
 HcclResult SetScopeID(s32 scopeID)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001956618385_section1293mcpsimp"></a>
+
+设置ScopeID。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618385_section1296mcpsimp"></a>
 

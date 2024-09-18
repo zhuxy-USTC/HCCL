@@ -1,14 +1,14 @@
-# HcclNetDevGetLocalIp<a name="ZH-CN_TOPIC_0000002031186505"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956618401_section1751mcpsimp"></a>
-
-获取对应的网卡ip。
+# HcclNetDevGetLocalIp 
 
 ## 函数原型<a name="zh-cn_topic_0000001956618401_section1748mcpsimp"></a>
 
 ```
 HcclResult HcclNetDevGetLocalIp(HcclNetDevCtx netDevCtx, hccl::HcclIpAddress &localIp)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001956618401_section1751mcpsimp"></a>
+
+获取对应的网卡ip。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618401_section1754mcpsimp"></a>
 

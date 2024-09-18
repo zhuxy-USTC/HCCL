@@ -1,14 +1,14 @@
-# LocalNotify<a name="ZH-CN_TOPIC_0000001994627220"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001936418290_section058319255132"></a>
-
-LocalNotify构造函数。
+# LocalNotify 
 
 ## 函数原型<a name="zh-cn_topic_0000001936418290_section7583112571311"></a>
 
 ```
 LocalNotify()
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001936418290_section058319255132"></a>
+
+LocalNotify构造函数。
 
 ## 参数说明<a name="zh-cn_topic_0000001936418290_section13584122531313"></a>
 

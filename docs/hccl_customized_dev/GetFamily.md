@@ -1,14 +1,14 @@
-# GetFamily<a name="ZH-CN_TOPIC_0000002031106917"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929459114_section1325mcpsimp"></a>
-
-获取IP地址族。
+# GetFamily 
 
 ## 函数原型<a name="zh-cn_topic_0000001929459114_section1322mcpsimp"></a>
 
 ```
 s32 GetFamily() const
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929459114_section1325mcpsimp"></a>
+
+获取IP地址族。
 
 ## 参数说明<a name="zh-cn_topic_0000001929459114_section1328mcpsimp"></a>
 

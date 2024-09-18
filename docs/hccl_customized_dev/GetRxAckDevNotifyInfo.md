@@ -1,14 +1,12 @@
-# GetRxAckDevNotifyInfo<a name="ZH-CN_TOPIC_0000002031107001"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956458805_section7875mcpsimp"></a>
-
-获取同步notify信息相关信息。
+# GetRxAckDevNotifyInfo 
 
 ## 函数原型<a name="zh-cn_topic_0000001956458805_section7872mcpsimp"></a>
 
-```
-HcclResult GetRxAckDevNotifyInfo(HcclSignalInfo &notifyInfo)
-```
+HcclResult GetRxAckDevNotifyInfo\(HcclSignalInfo &notifyInfo\)
+
+## 函数功能<a name="zh-cn_topic_0000001956458805_section7875mcpsimp"></a>
+
+获取同步notify信息相关信息。
 
 ## 参数说明<a name="zh-cn_topic_0000001956458805_section7878mcpsimp"></a>
 

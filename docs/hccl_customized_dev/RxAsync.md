@@ -1,8 +1,4 @@
-# RxAsync<a name="ZH-CN_TOPIC_0000001994467476"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956618577_section7231mcpsimp"></a>
-
-异步接收数据，将远端指定类型地址中的数据接收到本端dst地址中。
+# RxAsync 
 
 ## 函数原型<a name="zh-cn_topic_0000001956618577_section7228mcpsimp"></a>
 
@@ -14,9 +10,13 @@ HcclResult RxAsync(UserMemType srcMemType, u64 srcOffset, void *dst, u64 len, St
 HcclResult RxAsync(std::vector<RxMemoryInfo>& rxMems, Stream &stream)
 ```
 
+## 函数功能<a name="zh-cn_topic_0000001956618577_section7231mcpsimp"></a>
+
+异步接收数据，将远端指定类型地址中的数据接收到本端dst地址中。
+
 ## 参数说明<a name="zh-cn_topic_0000001956618577_section7234mcpsimp"></a>
 
--   原型1——异步接收单块内存
+-   原型1
 
     **表 1**  参数说明
 
@@ -67,7 +67,7 @@ HcclResult RxAsync(std::vector<RxMemoryInfo>& rxMems, Stream &stream)
     </tbody>
     </table>
 
--   原型2——异步接收多块内存
+-   原型2
 
     **表 2**  参数说明
 

@@ -1,14 +1,14 @@
-# HcclNetCloseDev<a name="ZH-CN_TOPIC_0000001994627168"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929459126_section1670mcpsimp"></a>
-
-关闭网卡设备。
+# HcclNetCloseDev 
 
 ## 函数原型<a name="zh-cn_topic_0000001929459126_section1667mcpsimp"></a>
 
 ```
 void HcclNetCloseDev(HcclNetDevCtx netDevCtx)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929459126_section1670mcpsimp"></a>
+
+关闭网卡设备。
 
 ## 参数说明<a name="zh-cn_topic_0000001929459126_section1673mcpsimp"></a>
 

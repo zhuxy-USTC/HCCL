@@ -1,8 +1,4 @@
-# RxWithReduce<a name="ZH-CN_TOPIC_0000002031106985"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299930_section7048mcpsimp"></a>
-
-异步接收数据，将远端指定类型地址中的数据接收到本端dst地址中，并完成reduce操作。
+# RxWithReduce 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299930_section7045mcpsimp"></a>
 
@@ -13,6 +9,10 @@ HcclResult RxWithReduce(UserMemType recvSrcMemType, u64 recvSrcOffset, void *rec
 // 接收并且做reduce操作，多块内存
 HcclResult RxWithReduce(const std::vector<RxWithReduceMemoryInfo> &rxWithReduceMems, HcclDataType reduceDatatype, HcclReduceOp reduceOp, Stream &stream, const u64 reduceAttr)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929299930_section7048mcpsimp"></a>
+
+异步接收数据，将远端指定类型地址中的数据接收到本端dst地址中，并完成reduce操作。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299930_section7051mcpsimp"></a>
 

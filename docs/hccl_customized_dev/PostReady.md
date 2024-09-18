@@ -1,14 +1,12 @@
-# PostReady<a name="ZH-CN_TOPIC_0000001994627276"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956618609_section8398mcpsimp"></a>
-
-发送ready同步信号。
+# PostReady 
 
 ## 函数原型<a name="zh-cn_topic_0000001956618609_section8395mcpsimp"></a>
 
-```
-HcclResult PostReady(Stream &stream)
-```
+HcclResult PostReady\(Stream &stream\)
+
+## 函数功能<a name="zh-cn_topic_0000001956618609_section8398mcpsimp"></a>
+
+发送ready同步信号。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618609_section8401mcpsimp"></a>
 

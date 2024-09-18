@@ -1,14 +1,14 @@
-# Accept<a name="ZH-CN_TOPIC_0000002031186517"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956618417_section2180mcpsimp"></a>
-
-发起建链请求。
+# Accept
 
 ## 函数原型<a name="zh-cn_topic_0000001956618417_section2177mcpsimp"></a>
 
 ```
 HcclResult Accept(const std::string &tag, std::shared_ptr<HcclSocket> &socket)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001956618417_section2180mcpsimp"></a>
+
+发起建链请求。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618417_section2183mcpsimp"></a>
 

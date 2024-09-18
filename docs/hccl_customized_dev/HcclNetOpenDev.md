@@ -1,14 +1,14 @@
-# HcclNetOpenDev<a name="ZH-CN_TOPIC_0000002031106929"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299750_section1605mcpsimp"></a>
-
-打开网卡设备。
+# HcclNetOpenDev 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299750_section1602mcpsimp"></a>
 
 ```
 HcclResult HcclNetOpenDev(HcclNetDevCtx *netDevCtx, NicType nicType, s32 devicePhyId, s32 deviceLogicId, hccl::HcclIpAddress localIp)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929299750_section1605mcpsimp"></a>
+
+打开网卡设备。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299750_section1608mcpsimp"></a>
 

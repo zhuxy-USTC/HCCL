@@ -1,14 +1,14 @@
-# HcclDispatcherDestroy<a name="ZH-CN_TOPIC_0000002031186465"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001953703433_section2464mcpsimp"></a>
-
-销毁dispatcher。
+# HcclDispatcherDestroy 
 
 ## 函数原型<a name="zh-cn_topic_0000001953703433_section2462mcpsimp"></a>
 
 ```
 HcclResult HcclDispatcherDestroy(HcclDispatcher dispatcher)
 ```
+
+## 功能说明<a name="zh-cn_topic_0000001953703433_section2464mcpsimp"></a>
+
+销毁dispatcher。
 
 ## 参数说明<a name="zh-cn_topic_0000001953703433_section2466mcpsimp"></a>
 

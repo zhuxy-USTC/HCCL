@@ -1,8 +1,4 @@
-# HcclIpAddress<a name="ZH-CN_TOPIC_0000002031186485"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299730_section1069mcpsimp"></a>
-
-构造IpAddress。
+# HcclIpAddress 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299730_section1066mcpsimp"></a>
 
@@ -14,6 +10,10 @@ HcclIpAddress(const struct in_addr &address)
 HcclIpAddress(const struct in6_addr &address)
 HcclIpAddress(const std::string &address)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929299730_section1069mcpsimp"></a>
+
+构造IpAddress。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299730_section1072mcpsimp"></a>
 

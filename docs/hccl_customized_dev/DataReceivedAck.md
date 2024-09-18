@@ -1,14 +1,14 @@
-# DataReceivedAck<a name="ZH-CN_TOPIC_0000002031186565"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929459294_section7337mcpsimp"></a>
-
-接收数据后，发送同步信号到对端。
+# DataReceivedAck
 
 ## 函数原型<a name="zh-cn_topic_0000001929459294_section7334mcpsimp"></a>
 
 ```
 HcclResult DataReceivedAck(Stream &stream)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929459294_section7337mcpsimp"></a>
+
+接收数据后，发送同步信号到对端。
 
 ## 参数说明<a name="zh-cn_topic_0000001929459294_section7340mcpsimp"></a>
 

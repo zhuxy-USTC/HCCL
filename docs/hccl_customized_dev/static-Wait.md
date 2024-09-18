@@ -1,14 +1,14 @@
-# static Wait<a name="ZH-CN_TOPIC_0000002031106973"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299802_section3294mcpsimp"></a>
-
-Notify wait任务。
+# static Wait 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299802_section3291mcpsimp"></a>
 
 ```
 static HcclResult Wait(Stream& stream, HcclDispatcher dispatcherPtr, const std::shared_ptr<LocalNotify> &notify, s32 stage = INVALID_VALUE_STAGE, u32 timeOut = NOTIFY_DEFAULT_WAIT_TIME)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929299802_section3294mcpsimp"></a>
+
+Notify wait任务。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299802_section3297mcpsimp"></a>
 
