@@ -1,15 +1,15 @@
-# TagMachinePara 
+# TagMachinePara<a name="ZH-CN_TOPIC_0000002031107025"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001938845574_section249mcpsimp"></a>
+
+TagMachinePara构造函数。
 
 ## 函数原型<a name="zh-cn_topic_0000001938845574_section246mcpsimp"></a>
 
 ```
-TagMachinePara()
-TagMachinePara(const struct TagMachinePara &that)
+TagMachinePara()  // 默认构造函数
+TagMachinePara(const struct TagMachinePara &that)  // 拷贝构造函数
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001938845574_section249mcpsimp"></a>
-
-TagMachinePara构造函数。
 
 ## 参数说明<a name="zh-cn_topic_0000001938845574_section252mcpsimp"></a>
 

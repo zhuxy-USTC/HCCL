@@ -1,14 +1,14 @@
-# RegisterLaunchTaskCallBack 
+# RegisterLaunchTaskCallBack<a name="ZH-CN_TOPIC_0000002031106909"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001939295602_section2622mcpsimp"></a>
+
+注册launch task callback函数。
 
 ## 函数原型<a name="zh-cn_topic_0000001939295602_section2620mcpsimp"></a>
 
 ```
 void RegisterLaunchTaskCallBack(HcclResult (*p1)(const HcclDispatcher &, hccl::Stream &))
 ```
-
-## 功能说明<a name="zh-cn_topic_0000001939295602_section2622mcpsimp"></a>
-
-注册launch task callback函数。
 
 ## 参数说明<a name="zh-cn_topic_0000001939295602_section2624mcpsimp"></a>
 

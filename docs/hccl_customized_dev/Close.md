@@ -1,14 +1,14 @@
-# Close
+# Close<a name="ZH-CN_TOPIC_0000002031106941"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001929299766_section2111mcpsimp"></a>
+
+Socket断链。
 
 ## 函数原型<a name="zh-cn_topic_0000001929299766_section2108mcpsimp"></a>
 
 ```
 void Close()
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001929299766_section2111mcpsimp"></a>
-
-Socket断链。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299766_section2114mcpsimp"></a>
 

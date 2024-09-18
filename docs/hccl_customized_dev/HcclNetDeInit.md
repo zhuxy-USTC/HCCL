@@ -1,14 +1,14 @@
-# HcclNetDeInit 
+# HcclNetDeInit<a name="ZH-CN_TOPIC_0000002031186501"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001956618397_section1554mcpsimp"></a>
+
+销毁网络功能。
 
 ## 函数原型<a name="zh-cn_topic_0000001956618397_section1551mcpsimp"></a>
 
 ```
 HcclResult HcclNetDeInit(NICDeployment nicDeploy, s32 devicePhyId, s32 deviceLogicId)
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001956618397_section1554mcpsimp"></a>
-
-销毁网络功能。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618397_section1557mcpsimp"></a>
 

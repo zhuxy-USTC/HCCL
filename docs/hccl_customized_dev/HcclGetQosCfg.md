@@ -1,14 +1,14 @@
-# HcclGetQosCfg 
+# HcclGetQosCfg<a name="ZH-CN_TOPIC_0000002031186469"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001953703437_section855mcpsimp"></a>
+
+获取qos cfg。
 
 ## 函数原型<a name="zh-cn_topic_0000001953703437_section853mcpsimp"></a>
 
 ```
 HcclResult HcclGetQosCfg(HcclDispatcher dispatcherPtr, u32 *qosCfg)
 ```
-
-## 功能说明<a name="zh-cn_topic_0000001953703437_section855mcpsimp"></a>
-
-获取qos cfg。
 
 ## 参数说明<a name="zh-cn_topic_0000001953703437_section857mcpsimp"></a>
 

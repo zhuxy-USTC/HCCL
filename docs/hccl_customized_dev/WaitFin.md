@@ -1,12 +1,14 @@
-# WaitFin 
+# WaitFin<a name="ZH-CN_TOPIC_0000002031107021"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001956458825_section8509mcpsimp"></a>
+
+接收完成同步信号。
 
 ## 函数原型<a name="zh-cn_topic_0000001956458825_section8506mcpsimp"></a>
 
-HcclResult WaitFin\(Stream &stream\)
-
-## 函数功能<a name="zh-cn_topic_0000001956458825_section8509mcpsimp"></a>
-
-接收完成同步信号。
+```
+HcclResult WaitFin(Stream &stream)
+```
 
 ## 参数说明<a name="zh-cn_topic_0000001956458825_section8512mcpsimp"></a>
 
