@@ -1,12 +1,14 @@
-# ClearLocalBuff
+# ClearLocalBuff<a name="ZH-CN_TOPIC_0000001994467544"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001936376208_section580mcpsimp"></a>
+
+清空sqe context里的buffer信息。
 
 ## 函数原型<a name="zh-cn_topic_0000001936376208_section577mcpsimp"></a>
 
-HcclResult ClearLocalBuff\(\)
-
-## 函数功能<a name="zh-cn_topic_0000001936376208_section580mcpsimp"></a>
-
-清空sqe context里的buffer信息。
+```
+HcclResult ClearLocalBuff()
+```
 
 ## 参数说明<a name="zh-cn_topic_0000001936376208_section583mcpsimp"></a>
 

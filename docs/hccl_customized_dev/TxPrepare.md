@@ -1,14 +1,14 @@
-# TxPrepare 
+# TxPrepare<a name="ZH-CN_TOPIC_0000001994467480"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001929299946_section7448mcpsimp"></a>
+
+发送前同步准备。
 
 ## 函数原型<a name="zh-cn_topic_0000001929299946_section7445mcpsimp"></a>
 
 ```
 HcclResult TxPrepare(Stream &stream)
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001929299946_section7448mcpsimp"></a>
-
-发送前同步准备。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299946_section7451mcpsimp"></a>
 

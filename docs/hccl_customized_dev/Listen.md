@@ -1,14 +1,14 @@
-# Listen 
+# Listen<a name="ZH-CN_TOPIC_0000001994467420"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001956458613_section2079mcpsimp"></a>
+
+Socket listen。
 
 ## 函数原型<a name="zh-cn_topic_0000001956458613_section2076mcpsimp"></a>
 
 ```
 HcclResult Listen()
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001956458613_section2079mcpsimp"></a>
-
-Socket listen。
 
 ## 参数说明<a name="zh-cn_topic_0000001956458613_section2082mcpsimp"></a>
 

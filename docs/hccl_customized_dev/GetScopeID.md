@@ -1,14 +1,14 @@
-# GetScopeID 
+# GetScopeID<a name="ZH-CN_TOPIC_0000002031186489"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001929299738_section1309mcpsimp"></a>
+
+获取Ip的ScopeID。
 
 ## 函数原型<a name="zh-cn_topic_0000001929299738_section1306mcpsimp"></a>
 
 ```
 s32 GetScopeID() const
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001929299738_section1309mcpsimp"></a>
-
-获取Ip的ScopeID。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299738_section1312mcpsimp"></a>
 

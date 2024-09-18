@@ -1,12 +1,14 @@
-# PostFin 
+# PostFin<a name="ZH-CN_TOPIC_0000002031186597"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001929459326_section8472mcpsimp"></a>
+
+发送完成同步信号。
 
 ## 函数原型<a name="zh-cn_topic_0000001929459326_section8469mcpsimp"></a>
 
-HcclResult PostFin\(Stream &stream\)
-
-## 函数功能<a name="zh-cn_topic_0000001929459326_section8472mcpsimp"></a>
-
-发送完成同步信号。
+```
+HcclResult PostFin(Stream &stream)
+```
 
 ## 参数说明<a name="zh-cn_topic_0000001929459326_section8475mcpsimp"></a>
 

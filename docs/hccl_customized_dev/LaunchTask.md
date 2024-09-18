@@ -1,14 +1,14 @@
-# LaunchTask 
+# LaunchTask<a name="ZH-CN_TOPIC_0000002031186477"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001953703445_section595mcpsimp"></a>
+
+launch task。
 
 ## 函数原型<a name="zh-cn_topic_0000001953703445_section593mcpsimp"></a>
 
 ```
 HcclResult LaunchTask(HcclDispatcher dispatcherPtr, hccl::Stream &stream)
 ```
-
-## 功能说明<a name="zh-cn_topic_0000001953703445_section595mcpsimp"></a>
-
-launch task。
 
 ## 参数说明<a name="zh-cn_topic_0000001953703445_section597mcpsimp"></a>
 
