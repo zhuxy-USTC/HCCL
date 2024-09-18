@@ -1,14 +1,14 @@
-# TxData 
+# TxData<a name="ZH-CN_TOPIC_0000001994467484"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001929299954_section7596mcpsimp"></a>
+
+发送数据。
 
 ## 函数原型<a name="zh-cn_topic_0000001929299954_section7593mcpsimp"></a>
 
 ```
 HcclResult TxData(UserMemType dstMemType, u64 dstOffset, const void *src, u64 len, Stream &stream)
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001929299954_section7596mcpsimp"></a>
-
-发送数据。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299954_section7599mcpsimp"></a>
 

@@ -1,4 +1,8 @@
-# Transport 
+# Transport<a name="ZH-CN_TOPIC_0000002031106977"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001956458765_section6589mcpsimp"></a>
+
+Transport构造函数。
 
 ## 函数原型<a name="zh-cn_topic_0000001956458765_section6586mcpsimp"></a>
 
@@ -6,10 +10,6 @@
 Transport(TransportBase *pimpl)
 Transport(TransportType type, TransportPara& para, const HcclDispatcher dispatcher, const std::unique_ptr<NotifyPool> &notifyPool, MachinePara &machinePara,  const TransportDeviceP2pData &transDevP2pData = TransportDeviceP2pData())
 ```
-
-## 函数功能<a name="zh-cn_topic_0000001956458765_section6589mcpsimp"></a>
-
-Transport构造函数。
 
 ## 参数说明<a name="zh-cn_topic_0000001956458765_section6592mcpsimp"></a>
 

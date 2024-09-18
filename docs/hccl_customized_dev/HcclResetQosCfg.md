@@ -1,14 +1,14 @@
-# HcclResetQosCfg 
+# HcclResetQosCfg<a name="ZH-CN_TOPIC_0000001994467376"></a>
+
+## 功能说明<a name="zh-cn_topic_0000001926464488_section265mcpsimp"></a>
+
+重置qos cfg。
 
 ## 函数原型<a name="zh-cn_topic_0000001926464488_section263mcpsimp"></a>
 
 ```
 HcclResult HcclResetQosCfg(HcclDispatcher dispatcherPtr)
 ```
-
-## 功能说明<a name="zh-cn_topic_0000001926464488_section265mcpsimp"></a>
-
-重置qos cfg。
 
 ## 参数说明<a name="zh-cn_topic_0000001926464488_section267mcpsimp"></a>
 

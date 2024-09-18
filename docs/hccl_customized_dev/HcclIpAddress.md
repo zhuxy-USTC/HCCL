@@ -1,8 +1,10 @@
-# HcclIpAddress 
+# HcclIpAddress<a name="ZH-CN_TOPIC_0000001994627148"></a>
 
--   **[HcclIpAddress](HcclIpAddress-0.md)**  
+-   **[简介](简介-1.md)**  
 
--   **[\~HcclIpAddress](HcclIpAddress-1.md)**  
+-   **[HcclIpAddress](HcclIpAddress-2.md)**  
+
+-   **[\~HcclIpAddress](HcclIpAddress-3.md)**  
 
 -   **[GetIfName](GetIfName.md)**  
 
