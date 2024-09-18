@@ -1,14 +1,14 @@
-# Init<a name="ZH-CN_TOPIC_0000001994467468"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299922_section6696mcpsimp"></a>
-
-Transport初始化。
+# Init 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299922_section6693mcpsimp"></a>
 
 ```
 HcclResult Init()
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929299922_section6696mcpsimp"></a>
+
+Transport初始化。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299922_section6699mcpsimp"></a>
 

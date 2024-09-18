@@ -1,14 +1,12 @@
-# alloc<a name="ZH-CN_TOPIC_0000001994627296"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001933265292_section10039mcpsimp"></a>
-
-根据输入去申请device内存。
+# alloc
 
 ## 函数原型<a name="zh-cn_topic_0000001933265292_section10036mcpsimp"></a>
 
-```
-static HostMem alloc(u64 size, bool isRtsMem = true)
-```
+static HostMem alloc\(u64 size, bool isRtsMem = true\)
+
+## 函数功能<a name="zh-cn_topic_0000001933265292_section10039mcpsimp"></a>
+
+根据输入去申请device内存。
 
 ## 参数说明<a name="zh-cn_topic_0000001933265292_section10042mcpsimp"></a>
 

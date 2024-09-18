@@ -1,14 +1,14 @@
-# RxPrepare<a name="ZH-CN_TOPIC_0000002031186569"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929459298_section7485mcpsimp"></a>
-
-接收前同步准备。
+# RxPrepare 
 
 ## 函数原型<a name="zh-cn_topic_0000001929459298_section7482mcpsimp"></a>
 
 ```
 HcclResult RxPrepare(Stream &stream)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929459298_section7485mcpsimp"></a>
+
+接收前同步准备。
 
 ## 参数说明<a name="zh-cn_topic_0000001929459298_section7488mcpsimp"></a>
 

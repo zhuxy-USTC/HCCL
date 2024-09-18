@@ -1,14 +1,12 @@
-# RxEnv<a name="ZH-CN_TOPIC_0000001994627272"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956618605_section8221mcpsimp"></a>
-
-接收前信息准备。
+# RxEnv 
 
 ## 函数原型<a name="zh-cn_topic_0000001956618605_section8218mcpsimp"></a>
 
-```
-HcclResult RxEnv(Stream &stream)
-```
+HcclResult RxEnv\(Stream &stream\)
+
+## 函数功能<a name="zh-cn_topic_0000001956618605_section8221mcpsimp"></a>
+
+接收前信息准备。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618605_section8224mcpsimp"></a>
 

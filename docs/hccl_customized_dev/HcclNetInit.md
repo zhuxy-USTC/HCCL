@@ -1,14 +1,14 @@
-# HcclNetInit<a name="ZH-CN_TOPIC_0000001994467408"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956458597_section1496mcpsimp"></a>
-
-初始化网络功能。
+# HcclNetInit 
 
 ## 函数原型<a name="zh-cn_topic_0000001956458597_section1493mcpsimp"></a>
 
 ```
 HcclResult HcclNetInit(NICDeployment nicDeploy, s32 devicePhyId, s32 deviceLogicId, bool enableWhitelistFlag)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001956458597_section1496mcpsimp"></a>
+
+初始化网络功能。
 
 ## 参数说明<a name="zh-cn_topic_0000001956458597_section1499mcpsimp"></a>
 

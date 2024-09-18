@@ -1,6 +1,4 @@
-# Dispatcher<a name="ZH-CN_TOPIC_0000002031106889"></a>
-
--   **[简介](简介-0.md)**  
+# Dispatcher
 
 -   **[HcclDispatcherInit](HcclDispatcherInit.md)**  
 

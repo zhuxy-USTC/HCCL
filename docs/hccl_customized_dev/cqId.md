@@ -1,14 +1,12 @@
-# cqId<a name="ZH-CN_TOPIC_0000002031107061"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001936535572_section676mcpsimp"></a>
-
-获取sq id。
+# cqId
 
 ## 函数原型<a name="zh-cn_topic_0000001936535572_section673mcpsimp"></a>
 
-```
-u32 cqId() const
-```
+u32 cqId\(\) const
+
+## 函数功能<a name="zh-cn_topic_0000001936535572_section676mcpsimp"></a>
+
+获取sq id。
 
 ## 参数说明<a name="zh-cn_topic_0000001936535572_section679mcpsimp"></a>
 

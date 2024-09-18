@@ -1,14 +1,12 @@
-# TxEnv<a name="ZH-CN_TOPIC_0000002031107013"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956458817_section8171mcpsimp"></a>
-
-发送前信息准备。
+# TxEnv 
 
 ## 函数原型<a name="zh-cn_topic_0000001956458817_section8168mcpsimp"></a>
 
-```
-HcclResult TxEnv(const void *ptr, const u64 len, Stream &stream)
-```
+HcclResult TxEnv\(const void \*ptr, const u64 len, Stream &stream\)
+
+## 函数功能<a name="zh-cn_topic_0000001956458817_section8171mcpsimp"></a>
+
+发送前信息准备。
 
 ## 参数说明<a name="zh-cn_topic_0000001956458817_section8174mcpsimp"></a>
 

@@ -1,12 +1,12 @@
-# \~LocalNotify<a name="ZH-CN_TOPIC_0000001994467448"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001936258914_section082005114134"></a>
-
-LocalNotify析构函数。
+# \~LocalNotify 
 
 ## 函数原型<a name="zh-cn_topic_0000001936258914_section20820205131311"></a>
 
 \~LocalNotify\(\)
+
+## 函数功能<a name="zh-cn_topic_0000001936258914_section082005114134"></a>
+
+LocalNotify析构函数。
 
 ## 参数说明<a name="zh-cn_topic_0000001936258914_section1682010510138"></a>
 

@@ -1,14 +1,14 @@
-# ISend<a name="ZH-CN_TOPIC_0000001994467428"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299774_section2386mcpsimp"></a>
-
-非阻塞发送。
+# ISend 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299774_section2383mcpsimp"></a>
 
 ```
 HcclResult ISend(void *data, u64 size, u64& compSize)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929299774_section2386mcpsimp"></a>
+
+非阻塞发送。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299774_section2389mcpsimp"></a>
 

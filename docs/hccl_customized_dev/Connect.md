@@ -1,14 +1,14 @@
-# Connect<a name="ZH-CN_TOPIC_0000002031186513"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956618413_section2095mcpsimp"></a>
-
-Socket建链。
+# Connect
 
 ## 函数原型<a name="zh-cn_topic_0000001956618413_section2092mcpsimp"></a>
 
 ```
 HcclResult Connect()
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001956618413_section2095mcpsimp"></a>
+
+Socket建链。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618413_section2098mcpsimp"></a>
 

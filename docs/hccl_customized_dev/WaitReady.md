@@ -1,14 +1,12 @@
-# WaitReady<a name="ZH-CN_TOPIC_0000001994467508"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299978_section8435mcpsimp"></a>
-
-等待ready同步信号。
+# WaitReady 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299978_section8432mcpsimp"></a>
 
-```
-HcclResult WaitReady(Stream &stream)
-```
+HcclResult WaitReady\(Stream &stream\)
+
+## 函数功能<a name="zh-cn_topic_0000001929299978_section8435mcpsimp"></a>
+
+等待ready同步信号。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299978_section8438mcpsimp"></a>
 

@@ -1,14 +1,14 @@
-# Init<a name="ZH-CN_TOPIC_0000002031106937"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299762_section2047mcpsimp"></a>
-
-Socket初始化。
+# Init 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299762_section2044mcpsimp"></a>
 
 ```
 HcclResult Init()
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929299762_section2047mcpsimp"></a>
+
+Socket初始化。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299762_section2050mcpsimp"></a>
 

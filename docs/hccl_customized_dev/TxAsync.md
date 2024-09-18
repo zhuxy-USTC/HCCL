@@ -1,17 +1,16 @@
-# TxAsync<a name="ZH-CN_TOPIC_0000001994467472"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299926_section6802mcpsimp"></a>
-
-异步发送数据，将本端src地址的数据发送到远端指定类型地址中。
+# TxAsync 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299926_section6799mcpsimp"></a>
 
 ```
-// 单块内存TxAsync
 HcclResult TxAsync(UserMemType dstMemType, u64 dstOffset, const void *src, u64 len, Stream &stream)
-// 多块内存TxAsync
+
 HcclResult TxAsync(std::vector<TxMemoryInfo>& txMems, Stream &stream)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929299926_section6802mcpsimp"></a>
+
+异步发送数据，将本端src地址的数据发送到远端指定类型地址中。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299926_section6805mcpsimp"></a>
 

@@ -1,16 +1,14 @@
-# HostMemory<a name="ZH-CN_TOPIC_0000001994467524"></a>
-
--   **[简介](简介-18.md)**  
+# HostMemory 
 
 -   **[HostMem](HostMem.md)**  
 
--   **[alloc](alloc-19.md)**  
+-   **[alloc](alloc-11.md)**  
 
--   **[create](create-20.md)**  
+-   **[create](create-12.md)**  
 
--   **[ptr](ptr-21.md)**  
+-   **[ptr](ptr-13.md)**  
 
--   **[size](size-22.md)**  
+-   **[size](size-14.md)**  
 
--   **[range](range-23.md)**  
+-   **[range](range-15.md)**  
 

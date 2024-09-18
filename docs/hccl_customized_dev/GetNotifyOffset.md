@@ -1,14 +1,14 @@
-# GetNotifyOffset<a name="ZH-CN_TOPIC_0000002031186549"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956618449_section3257mcpsimp"></a>
-
-获取notify offset。
+# GetNotifyOffset 
 
 ## 函数原型<a name="zh-cn_topic_0000001956618449_section3254mcpsimp"></a>
 
 ```
 HcclResult GetNotifyOffset(u64 &notifyOffset)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001956618449_section3257mcpsimp"></a>
+
+获取notify offset。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618449_section3260mcpsimp"></a>
 

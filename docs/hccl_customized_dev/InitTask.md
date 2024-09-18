@@ -1,14 +1,14 @@
-# InitTask<a name="ZH-CN_TOPIC_0000002031106905"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001953823225_section2070mcpsimp"></a>
-
-初始化task。
+# InitTask 
 
 ## 函数原型<a name="zh-cn_topic_0000001953823225_section2068mcpsimp"></a>
 
 ```
 HcclDispatcher dispatcherPtr, hccl::Stream &stream, const hccl::HcclOpMetaInfo &opMetaInfo)
 ```
+
+## 功能说明<a name="zh-cn_topic_0000001953823225_section2070mcpsimp"></a>
+
+初始化task。
 
 ## 参数说明<a name="zh-cn_topic_0000001953823225_section2072mcpsimp"></a>
 

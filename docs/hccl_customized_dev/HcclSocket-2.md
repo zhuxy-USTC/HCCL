@@ -1,8 +1,4 @@
-# HcclSocket<a name="ZH-CN_TOPIC_0000001994467416"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956458609_section1938mcpsimp"></a>
-
-构造socket对象。
+# HcclSocket 
 
 ## 函数原型<a name="zh-cn_topic_0000001956458609_section1935mcpsimp"></a>
 
@@ -10,6 +6,10 @@
 HcclSocket(const std::string &tag, HcclNetDevCtx netDevCtx, const HcclIpAddress &remoteIp, u32 remotePort, HcclSocketRole localRole)
 HcclSocket(HcclNetDevCtx netDevCtx, u32 localPort)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001956458609_section1938mcpsimp"></a>
+
+构造socket对象。
 
 ## 参数说明<a name="zh-cn_topic_0000001956458609_section1941mcpsimp"></a>
 

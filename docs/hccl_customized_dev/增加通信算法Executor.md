@@ -1,4 +1,4 @@
-# 增加通信算法Executor<a name="ZH-CN_TOPIC_0000001904666550"></a>
+# 增加通信算法Executor 
 
 Executor实现了算法的主要功能（资源计算和算法编排），由Operator创建并使用。
 

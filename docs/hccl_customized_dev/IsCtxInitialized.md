@@ -1,14 +1,14 @@
-# IsCtxInitialized<a name="ZH-CN_TOPIC_0000001994627144"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001926623852_section1754mcpsimp"></a>
-
-task是否初始化。
+# IsCtxInitialized 
 
 ## 函数原型<a name="zh-cn_topic_0000001926623852_section1752mcpsimp"></a>
 
 ```
 HcclResult IsCtxInitialized(HcclDispatcher dispatcherPtr, bool *ctxInitFlag)
 ```
+
+## 功能说明<a name="zh-cn_topic_0000001926623852_section1754mcpsimp"></a>
+
+task是否初始化。
 
 ## 参数说明<a name="zh-cn_topic_0000001926623852_section1756mcpsimp"></a>
 

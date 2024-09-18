@@ -1,14 +1,12 @@
-# GetRemoteMem<a name="ZH-CN_TOPIC_0000001994467488"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299958_section7794mcpsimp"></a>
-
-获取远端交换的mem。
+# GetRemoteMem 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299958_section7791mcpsimp"></a>
 
-```
-HcclResult GetRemoteMem(UserMemType memType, void **remotePtr)
-```
+HcclResult GetRemoteMem\(UserMemType memType, void \*\*remotePtr\)
+
+## 函数功能<a name="zh-cn_topic_0000001929299958_section7794mcpsimp"></a>
+
+获取远端交换的mem。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299958_section7797mcpsimp"></a>
 

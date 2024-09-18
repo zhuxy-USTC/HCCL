@@ -1,14 +1,12 @@
-# \~Stream<a name="ZH-CN_TOPIC_0000001994627304"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001963694617_section254mcpsimp"></a>
-
-Stream析构函数。
+# \~Stream 
 
 ## 函数原型<a name="zh-cn_topic_0000001963694617_section251mcpsimp"></a>
 
-```
-~Stream()
-```
+\~Stream\(\)
+
+## 函数功能<a name="zh-cn_topic_0000001963694617_section254mcpsimp"></a>
+
+Stream析构函数。
 
 ## 参数说明<a name="zh-cn_topic_0000001963694617_section257mcpsimp"></a>
 

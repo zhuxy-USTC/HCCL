@@ -1,14 +1,14 @@
-# Post<a name="ZH-CN_TOPIC_0000001994627224"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929459170_section3084mcpsimp"></a>
-
-Notify post任务。
+# Post 
 
 ## 函数原型<a name="zh-cn_topic_0000001929459170_section3081mcpsimp"></a>
 
 ```
 HcclResult Post(Stream& stream, HcclDispatcher dispatcher, s32 stage = INVALID_VALUE_STAGE)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929459170_section3084mcpsimp"></a>
+
+Notify post任务。
 
 ## 参数说明<a name="zh-cn_topic_0000001929459170_section3087mcpsimp"></a>
 

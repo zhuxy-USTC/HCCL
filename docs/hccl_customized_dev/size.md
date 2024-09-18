@@ -1,14 +1,12 @@
-# size<a name="ZH-CN_TOPIC_0000002031107033"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001933265280_section9962mcpsimp"></a>
-
-获取device mem大小。
+# size 
 
 ## 函数原型<a name="zh-cn_topic_0000001933265280_section9959mcpsimp"></a>
 
-```
-u64 size() const
-```
+u64 size\(\) const
+
+## 函数功能<a name="zh-cn_topic_0000001933265280_section9962mcpsimp"></a>
+
+获取device mem大小。
 
 ## 参数说明<a name="zh-cn_topic_0000001933265280_section9965mcpsimp"></a>
 

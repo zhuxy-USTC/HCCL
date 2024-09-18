@@ -1,14 +1,14 @@
-# static Post<a name="ZH-CN_TOPIC_0000001994627232"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929459178_section3359mcpsimp"></a>
-
-Notify post任务。
+# static Post 
 
 ## 函数原型<a name="zh-cn_topic_0000001929459178_section3356mcpsimp"></a>
 
 ```
 static HcclResult Post(Stream& stream, HcclDispatcher dispatcherPtr, const std::shared_ptr<LocalNotify> &notify, s32 stage = INVALID_VALUE_STAGE)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929459178_section3359mcpsimp"></a>
+
+Notify post任务。
 
 ## 参数说明<a name="zh-cn_topic_0000001929459178_section3362mcpsimp"></a>
 

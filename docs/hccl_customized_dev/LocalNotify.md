@@ -1,12 +1,10 @@
-# LocalNotify<a name="ZH-CN_TOPIC_0000001994467440"></a>
+# LocalNotify 
 
--   **[简介](简介-8.md)**  
+-   **[LocalNotify](LocalNotify-4.md)**  
 
--   **[LocalNotify](LocalNotify-9.md)**  
+-   **[\~LocalNotify](LocalNotify-5.md)**  
 
--   **[\~LocalNotify](LocalNotify-10.md)**  
-
--   **[Init](Init-11.md)**  
+-   **[Init](Init-6.md)**  
 
 -   **[Wait](Wait.md)**  
 

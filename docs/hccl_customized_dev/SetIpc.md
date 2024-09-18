@@ -1,14 +1,14 @@
-# SetIpc<a name="ZH-CN_TOPIC_0000002031186545"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956618445_section3151mcpsimp"></a>
-
-设置ipc通信功能。
+# SetIpc 
 
 ## 函数原型<a name="zh-cn_topic_0000001956618445_section3148mcpsimp"></a>
 
 ```
 virtual HcclResult SetIpc()
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001956618445_section3151mcpsimp"></a>
+
+设置ipc通信功能。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618445_section3154mcpsimp"></a>
 

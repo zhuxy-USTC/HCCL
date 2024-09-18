@@ -1,14 +1,12 @@
-# GetRxDataSigleDevNotifyInfo<a name="ZH-CN_TOPIC_0000001994467492"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929299962_section7949mcpsimp"></a>
-
-获取同步notify信息相关信息。
+# GetRxDataSigleDevNotifyInfo 
 
 ## 函数原型<a name="zh-cn_topic_0000001929299962_section7946mcpsimp"></a>
 
-```
-HcclResult GetRxDataSigleDevNotifyInfo(HcclSignalInfo &notifyInfo)
-```
+HcclResult GetRxDataSigleDevNotifyInfo\(HcclSignalInfo &notifyInfo\)
+
+## 函数功能<a name="zh-cn_topic_0000001929299962_section7949mcpsimp"></a>
+
+获取同步notify信息相关信息。
 
 ## 参数说明<a name="zh-cn_topic_0000001929299962_section7952mcpsimp"></a>
 

@@ -1,14 +1,14 @@
-# HcclReduceAsync<a name="ZH-CN_TOPIC_0000002031106901"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001953823221_section891mcpsimp"></a>
-
-异步reduce。
+# HcclReduceAsync 
 
 ## 函数原型<a name="zh-cn_topic_0000001953823221_section889mcpsimp"></a>
 
 ```
 HcclResult HcclReduceAsync(HcclDispatcher dispatcherPtr, void *src, uint64_t count, const HcclDataType datatype, const HcclReduceOp reduceOp, hccl::Stream &stream, void *dst, const u32 remoteUserRank, const hccl::LinkType linkType, const u64 reduceAttr)
 ```
+
+## 功能说明<a name="zh-cn_topic_0000001953823221_section891mcpsimp"></a>
+
+异步reduce。
 
 ## 参数说明<a name="zh-cn_topic_0000001953823221_section893mcpsimp"></a>
 

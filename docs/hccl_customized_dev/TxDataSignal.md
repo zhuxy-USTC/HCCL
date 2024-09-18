@@ -1,14 +1,14 @@
-# TxDataSignal<a name="ZH-CN_TOPIC_0000002031106981"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956458777_section6728mcpsimp"></a>
-
-本端发送同步信号到对端。
+# TxDataSignal 
 
 ## 函数原型<a name="zh-cn_topic_0000001956458777_section6725mcpsimp"></a>
 
 ```
 HcclResult TxDataSignal(Stream &stream)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001956458777_section6728mcpsimp"></a>
+
+本端发送同步信号到对端。
 
 ## 参数说明<a name="zh-cn_topic_0000001956458777_section6731mcpsimp"></a>
 

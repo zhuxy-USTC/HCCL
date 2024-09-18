@@ -1,8 +1,4 @@
-# DeviceMem<a name="ZH-CN_TOPIC_0000002031107029"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001933105872_section9791mcpsimp"></a>
-
-DeviceMem构造函数。
+# DeviceMem
 
 ## 函数原型<a name="zh-cn_topic_0000001933105872_section9788mcpsimp"></a>
 
@@ -15,6 +11,10 @@ DeviceMem(const DeviceMem &that)
 // DeviceMem移动构造函数
 DeviceMem(DeviceMem &&that)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001933105872_section9791mcpsimp"></a>
+
+DeviceMem构造函数
 
 ## 参数说明<a name="zh-cn_topic_0000001933105872_section9794mcpsimp"></a>
 

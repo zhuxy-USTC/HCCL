@@ -1,14 +1,14 @@
-# TxDone<a name="ZH-CN_TOPIC_0000002031106993"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956458797_section7522mcpsimp"></a>
-
-发送完成。
+# TxDone 
 
 ## 函数原型<a name="zh-cn_topic_0000001956458797_section7519mcpsimp"></a>
 
 ```
 HcclResult TxDone(Stream &stream)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001956458797_section7522mcpsimp"></a>
+
+发送完成。
 
 ## 参数说明<a name="zh-cn_topic_0000001956458797_section7525mcpsimp"></a>
 

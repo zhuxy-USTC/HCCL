@@ -1,14 +1,14 @@
-# SetReadableAddress<a name="ZH-CN_TOPIC_0000001994467404"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001956618393_section1421mcpsimp"></a>
-
-设置IP地址信息。
+# SetReadableAddress 
 
 ## 函数原型<a name="zh-cn_topic_0000001956618393_section1418mcpsimp"></a>
 
 ```
 HcclResult SetReadableAddress(const std::string &address)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001956618393_section1421mcpsimp"></a>
+
+设置IP地址信息。
 
 ## 参数说明<a name="zh-cn_topic_0000001956618393_section1424mcpsimp"></a>
 

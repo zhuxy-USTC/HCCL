@@ -1,14 +1,14 @@
-# IRecv<a name="ZH-CN_TOPIC_0000002031186521"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929459150_section2437mcpsimp"></a>
-
-非阻塞接收。
+# IRecv 
 
 ## 函数原型<a name="zh-cn_topic_0000001929459150_section2434mcpsimp"></a>
 
 ```
 HcclResult IRecv(void *recvBuf, u32 recvBufLen, u64& compSize)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929459150_section2437mcpsimp"></a>
+
+非阻塞接收。
 
 ## 参数说明<a name="zh-cn_topic_0000001929459150_section2440mcpsimp"></a>
 

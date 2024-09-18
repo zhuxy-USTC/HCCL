@@ -1,14 +1,14 @@
-# HcclSetGlobalWorkSpace<a name="ZH-CN_TOPIC_0000002031106893"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001953823213_section294mcpsimp"></a>
-
-设置global workspace mem。
+# HcclSetGlobalWorkSpace 
 
 ## 函数原型<a name="zh-cn_topic_0000001953823213_section292mcpsimp"></a>
 
 ```
 HcclResult HcclSetGlobalWorkSpace(HcclDispatcher dispatcherPtr, std::vector<void *> &globalWorkSpaceAddr)
 ```
+
+## 功能说明<a name="zh-cn_topic_0000001953823213_section294mcpsimp"></a>
+
+设置global workspace mem。
 
 ## 参数说明<a name="zh-cn_topic_0000001953823213_section296mcpsimp"></a>
 

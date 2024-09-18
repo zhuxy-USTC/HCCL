@@ -1,4 +1,4 @@
-# 增加HcclCommunicator接口<a name="ZH-CN_TOPIC_0000001941345833"></a>
+# 增加HcclCommunicator接口 
 
 HcclCommunicator是通信域功能的执行层，在HCCL架构中隶属于框架层。HcclCommunicator与算子类通过三个接口进行交互（参考[增加通信算子Operator](增加通信算子Operator.md)），并进行资源创建（stream、notify、memory、建链等）。
 
@@ -9,24 +9,24 @@ src/domain/collective_communication/framework/communicator/impl/hccl_communicato
 src/domain/collective_communication/framework/communicator/impl/hccl_communicator.h
 ```
 
-1.  <a name="li1544184665913"></a>在枚举类 HcclCMDType 中为新算子添加一个枚举值。
+1. <a name="li1544184665913"></a>在枚举类 HcclCMDType 中为新算子添加一个枚举值。
 
-    HcclCMDType 定义在 hccl\_common.h，每个算子都唯一对应 HcclCMDType 中的一个值。
+   HcclCMDType 定义在 hccl\_common.h，每个算子都唯一对应 HcclCMDType 中的一个值。
 
-    枚举值格式：HCCL\_CMD\_XXX
+   枚举值格式：HCCL\_CMD\_XXX
 
-    **注意：** 
+   **注意：** 
 
-    - HCCL\_CMD\_INVALID，HCCL\_CMD\_MAX 和 HCCL\_CMD\_ALL 为特殊值，具有特定作用。
-    - HCCL\_CMD\_INVALID 表示无效算子，必须放在第一个，且值等于0。
-    - HCCL\_CMD\_MAX 记录了 HcclCMDType 中枚举值的数量，必须放在最后。
-    - HCCL\_CMD\_ALL 在某些场景下表示所有算子，建议放在 HCCL\_CMD\_MAX 的前一个位置。
+    >HCCL\_CMD\_INVALID，HCCL\_CMD\_MAX 和 HCCL\_CMD\_ALL 为特殊值，具有特定作用。
+    >HCCL\_CMD\_INVALID 表示无效算子，必须放在第一个，且值等于0；
+    >HCCL\_CMD\_MAX 记录了 HcclCMDType 中枚举值的数量，必须放在最后；
+    >HCCL\_CMD\_ALL 在某些场景下表示所有算子，建议放在 HCCL\_CMD\_MAX 的前一个位置。
 
     此外，还需要在 hccl\_impl.h 中的以下 map 成员的默认值中添加新枚举值：
 
-    > algType\_
+    algType\_
 
-    > isAlgoLevel1Default\_
+    isAlgoLevel1Default\_
 
 2.  定义新算子的API。
 
@@ -46,36 +46,36 @@ src/domain/collective_communication/framework/communicator/impl/hccl_communicato
     HcclResult ReduceScatterOutPlace(const std::string &tag, void *inputPtr, void *outputPtr, u64 count, HcclDataType dataType, HcclReduceOp op, HcclRtStream stream)
     ```
 
-3.  异常流程处理（可选）
+3. 异常流程处理（可选）
 
-    处理异常流程可以有效避免预期之外的行为，减少错误或提升效率。
+   处理异常流程可以有效避免预期之外的行为，减少错误或提升效率。
 
-    例如检查当前device类型是否支持该算子，检查通信域是否已经初始化等。
+   例如检查当前device类型是否支持该算子，检查通信域是否已经初始化等。
 
-    **说明：**源码中的硬件类型体现的是Soc Version，您可以在安装昇腾AI处理器的服务器中执行“**npu-smi info**”命令查询，查询到的“Chip Name”即为对应的Soc Version。
+   **说明：**源码中的硬件类型体现的是Soc Version，您可以在安装昇腾AI处理器的服务器中执行“npu-smi info”命令查询，查询到的“Chip Name”即为对应的Soc Version。
 
-    以 ReduceScatter 算子为例：
+   以 ReduceScatter 算子为例：
 
-    ```
-    HcclResult HcclCommunicator::ReduceScatterOutPlace(const std::string &tag, void *inputPtr, void *outputPtr,
-        u64 count, HcclDataType dataType, HcclReduceOp op, HcclRtStream stream)
-    {
-        ...
-    
-        // 硬件类型为Atlas 推理系列产品（Ascend 310P处理器）中的加速卡时，不支持ReduceScatter算子
-        CHK_PRT_RET(Is310P3Common(), HCCL_ERROR("[HcclCommunicator][ReduceScatterOutPlace]"
-            "ReduceScatterOutPlace is not supported"), HCCL_E_NOT_SUPPORT);
-    
-        // 通信域未初始化，返回报错
-        if (!IsAtomicInit()) {
-            HCCL_ERROR("[HcclCommunicator][ReduceScatterOutPlace]errNo[0x%016llx] hccl init must be called before"
-                " call this function", HCCL_ERROR_CODE(HCCL_E_UNAVAIL));
-            return HCCL_E_UNAVAIL;
-        }
-    
-        ...
-    }
-    ```
+   ```
+   HcclResult HcclCommunicator::ReduceScatterOutPlace(const std::string &tag, void *inputPtr, void *outputPtr,
+       u64 count, HcclDataType dataType, HcclReduceOp op, HcclRtStream stream)
+   {
+       ...
+   
+       // 硬件类型为Atlas 推理系列产品（Ascend 310P处理器）中的加速卡时，不支持ReduceScatter算子
+       CHK_PRT_RET(Is310P3Common(), HCCL_ERROR("[HcclCommunicator][ReduceScatterOutPlace]"
+           "ReduceScatterOutPlace is not supported"), HCCL_E_NOT_SUPPORT);
+   
+       // 通信域未初始化，返回报错
+       if (!IsAtomicInit()) {
+           HCCL_ERROR("[HcclCommunicator][ReduceScatterOutPlace]errNo[0x%016llx] hccl init must be called before"
+               " call this function", HCCL_ERROR_CODE(HCCL_E_UNAVAIL));
+           return HCCL_E_UNAVAIL;
+       }
+   
+       ...
+   }
+   ```
 
 4.  添加Debug信息（按需）。
 
@@ -397,10 +397,9 @@ src/domain/collective_communication/framework/communicator/impl/hccl_communicato
     </table>
 
     **注意：** 
-
-    -   对于一个算子，DataDes，All2AllDataDes，BatchSendRecvDataDes只会生效其一，所以为union类型。
-    -   若自定义算子使用了OpParam未包含的入参，需在OpParam的定义中对应增加新的成员。
-    -   调用ExecOp时，opType需要传入步骤[1](#li1544184665913)新增的枚举值，opParam需要用算子入参构造。
+    >-   对于一个算子，DataDes，All2AllDataDes，BatchSendRecvDataDes只会生效其一，所以为union类型。
+    >-   若自定义算子使用了OpParam未包含的入参，需在OpParam的定义中对应增加新的成员。
+    >-   调用ExecOp时，opType需要传入步骤[1](#li1544184665913)新增的枚举值，opParam需要用算子入参构造。
 
     以 ReduceScatter 算子为例：
 

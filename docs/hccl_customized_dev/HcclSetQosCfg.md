@@ -1,14 +1,14 @@
-# HcclSetQosCfg<a name="ZH-CN_TOPIC_0000001994627132"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001926623840_section2106mcpsimp"></a>
-
-设置qos cfg。
+# HcclSetQosCfg 
 
 ## 函数原型<a name="zh-cn_topic_0000001926623840_section2104mcpsimp"></a>
 
 ```
 HcclResult HcclSetQosCfg(HcclDispatcher dispatcherPtr, const u32 qosCfg)
 ```
+
+## 功能说明<a name="zh-cn_topic_0000001926623840_section2106mcpsimp"></a>
+
+设置qos cfg。
 
 ## 参数说明<a name="zh-cn_topic_0000001926623840_section2108mcpsimp"></a>
 

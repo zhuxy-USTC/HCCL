@@ -1,14 +1,14 @@
-# RxData<a name="ZH-CN_TOPIC_0000002031186573"></a>
-
-## 功能说明<a name="zh-cn_topic_0000001929459302_section7658mcpsimp"></a>
-
-接收数据。
+# RxData 
 
 ## 函数原型<a name="zh-cn_topic_0000001929459302_section7655mcpsimp"></a>
 
 ```
 HcclResult RxData(UserMemType srcMemType, u64 srcOffset, void *dst, u64 len, Stream &stream)
 ```
+
+## 函数功能<a name="zh-cn_topic_0000001929459302_section7658mcpsimp"></a>
+
+接收数据。
 
 ## 参数说明<a name="zh-cn_topic_0000001929459302_section7661mcpsimp"></a>
 
