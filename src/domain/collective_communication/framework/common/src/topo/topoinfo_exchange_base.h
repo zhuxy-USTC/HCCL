@@ -20,7 +20,7 @@
 #include "hccl_network_pub.h"
 
 namespace hccl {
-constexpr u32 MAX_AGENT_BUF_SIZE = 128;
+constexpr u32 MAX_AGENT_BUF_SIZE = 256; // masterInfo方式: superPodId(128) + hostIp + deviceId
 constexpr s32 TOPO_SERVERIP_OFFSET_OF_RANKID = 32;
 constexpr int BIT_NUM_PER_BYTE = 8;
 
@@ -29,7 +29,6 @@ public:
     explicit TopoInfoExchangeBase();
     virtual ~TopoInfoExchangeBase();
 protected:
-    HcclResult SaveClusterInfo(const RankTable_t &clusterInfo);
     HcclResult DisconnectSocket(std::shared_ptr<HcclSocket> socket) const;
     HcclResult BlockReceive(std::shared_ptr<HcclSocket> socket, char *buff, u32 size) const;
     HcclResult SendClusterInfoMsg(std::shared_ptr<HcclSocket> socket, const RankTable_t &clusterInfo,

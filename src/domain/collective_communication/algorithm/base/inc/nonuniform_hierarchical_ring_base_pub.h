@@ -52,6 +52,8 @@ protected:
 
     std::vector<u32> sliceMap_;
 
+    bool isNeedMerge = false;
+
 private:
 };
 }  // hccl

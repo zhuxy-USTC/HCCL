@@ -129,14 +129,8 @@ HcclResult CCLBufferManager::ReleaseCommAIVbuffer()
 
 HcclResult CCLBufferManager::InitCCLbuffer(u64 inCCLbufferSize, u64 outCCLbufferSize)
 {
-    if (inCCLbuffer_.ptr() == nullptr) {
-        CHK_RET(CreateCCLbuffer(inCCLbufferSize, inCCLbuffer_));
-        inCCLbufferSize_ = inCCLbufferSize;
-    }
-    if (outCCLbuffer_.ptr() == nullptr) {
-        CHK_RET(CreateCCLbuffer(outCCLbufferSize, outCCLbuffer_));
-        outCCLbufferSize_ = outCCLbufferSize;
-    }
+    inCCLbufferSize_ = inCCLbufferSize;
+    outCCLbufferSize_ = outCCLbufferSize;
     return HCCL_SUCCESS;
 }
 

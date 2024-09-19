@@ -121,7 +121,7 @@ HcclResult CollAllReduceMidCountAivRdmaExecutor::KernelRun(const OpParam &param,
     u32 sliceNum = outerCommInfo.localRankSize;
     CHK_RET(PrepareSliceDataWithAlignSize(totalSize, sliceNum, 0, dataSegsSlice, HCCL_ALIGN_COUNT_32_B));
     CHK_PRT_RET(commIndex >= dataSegsSlice.size(),
-        HCCL_ERROR("[CollAllReduceMeshExecutor][Run]commIndex[%u] >= dataSegsSlice size[%llu]", commIndex,
+        HCCL_ERROR("[CollAllReduceMeshExecutor][Run]commIndex[%u] >= dataSegsSlice size[%zu]", commIndex,
         dataSegsSlice.size()), HCCL_E_INTERNAL);
     std::vector<hccl::LINK> intraLinks = outerCommInfo.links;
     std::vector<hccl::LINK> interLinks = innerCommInfo.links;
@@ -167,6 +167,18 @@ HcclResult CollAllReduceMidCountAivRdmaExecutor::KernelRun(const OpParam &param,
     } else if (UseInterServerNHRV1Algo(algType_)) {
         innerExecutor.reset(new (std::nothrow) AllReduceNHRV1(dispatcher_, reduceAttr));
         HCCL_INFO("allreduce mesh: using nhr_v1 algo inter-server.");
+    } else if (UseInterServerAHCAlgo(algType_)) {
+        // 获取通信域分组信息
+        std::vector<std::vector<u32>> subGroups;
+        CHK_RET(topoMatcher_->GetLevelSubGroups(COMM_LEVEL1, subGroups));
+        innerExecutor.reset(new (std::nothrow) AllReduceAHC(dispatcher_, reduceAttr, execMem.count, subGroups));
+        HCCL_INFO("allreduce mesh: using ahc algo inter-server.");
+    } else if (UseInterServerAHCBrokeAlgo(algType_)) {
+        // 获取通信域分组信息
+        std::vector<std::vector<u32>> subGroups;
+        CHK_RET(topoMatcher_->GetLevelSubGroups(COMM_LEVEL1, subGroups));
+        innerExecutor.reset(new (std::nothrow) AllReduceAHCBroke(dispatcher_, reduceAttr, execMem.count, subGroups));
+        HCCL_INFO("allreduce mesh: using ahc-broke algo inter-server.");
     } else if (UseInterServerNBAlgo(algType_)) {
         innerExecutor.reset(new (std::nothrow) AllReduceNB(dispatcher_, reduceAttr));
         HCCL_INFO("allreduce mesh: using nb algo inter-server.");

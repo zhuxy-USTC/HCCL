@@ -28,6 +28,7 @@ public:
     HcclResult SetAlgType(const AlgType algType);
 
     HcclResult SetCCLInBuffer(u64 cclbufferSize);
+    HcclResult SetIsSupportSDMAReduce(bool isSupportSDMAReduce);
 
     virtual HcclResult CalcResRequest(const OpParam& param, AlgResourceRequest &resourceRequest) = 0;
     virtual HcclResult Orchestrate(OpParam& param, AlgResourceResponse& algRes) = 0;
@@ -42,6 +43,7 @@ protected:
     u64 inCCLbufferSize_{0}; // CCLIN大小，用于计算scratch
     AlgType algType_; // 算法类型
     std::unique_ptr<TopoMatcher> &topoMatcher_;
+    bool isSupportSDMAReduce_ = false;
 };
 }
 #endif

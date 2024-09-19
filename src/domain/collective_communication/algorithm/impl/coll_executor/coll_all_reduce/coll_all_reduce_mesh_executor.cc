@@ -93,7 +93,6 @@ HcclResult CollAllReduceMeshExecutor::KernelRun(const OpParam &param, ExecMem &e
 {
     u32 perDataSize = SIZE_TABLE[param.DataDes.dataType];
 
-    std::vector<Slice> dataSegsSlicePerDie; // 数据分成ranksize份，每份的起始偏移和大小
     std::vector<Slice> dataSegsSlice;   // 数据分成ranksize份，每份的起始偏移和大小
     std::vector<std::vector<Slice> > multiStreamSlice; // 每个stream使用的数据基于用户buffer的偏移
     std::unique_ptr<ExecutorBase> innerExecutor;
@@ -127,7 +126,7 @@ HcclResult CollAllReduceMeshExecutor::KernelRun(const OpParam &param, ExecMem &e
     /* 外层所有rank均参与内层的allReduce计算，所以此处对rank不作限制，但是每个rank需找到自己所在的内层通信域 */
     u32 commIndex = outerCommInfo.localRank;
     CHK_PRT_RET(commIndex >= dataSegsSlice.size(),
-        HCCL_ERROR("[CollAllReduceMeshExecutor][Run]commIndex[%u] >= dataSegsSlice size[%llu]", commIndex,
+        HCCL_ERROR("[CollAllReduceMeshExecutor][Run]commIndex[%u] >= dataSegsSlice size[%zu]", commIndex,
         dataSegsSlice.size()), HCCL_E_INTERNAL);
 
     CHK_RET(CheckCommSize(COMM_LEVEL1, commIndex + 1));
@@ -156,6 +155,18 @@ HcclResult CollAllReduceMeshExecutor::KernelRun(const OpParam &param, ExecMem &e
     } else if (UseInterServerNHRV1Algo(algType_)) {
         innerExecutor.reset(new (std::nothrow) AllReduceNHRV1(dispatcher_, reduceAttr));
         HCCL_INFO("allreduce mesh: using nhr_v1 algo inter-server.");
+    } else if (UseInterServerAHCAlgo(algType_)) {
+        // 获取通信域分组信息
+        std::vector<std::vector<u32>> subGroups;
+        CHK_RET(topoMatcher_->GetLevelSubGroups(COMM_LEVEL1, subGroups));
+        innerExecutor.reset(new (std::nothrow) AllReduceAHC(dispatcher_, reduceAttr, execMem.count, subGroups));
+        HCCL_INFO("allreduce mesh: using ahc algo inter-server.");
+    } else if (UseInterServerAHCBrokeAlgo(algType_)) {
+        // 获取通信域分组信息
+        std::vector<std::vector<u32>> subGroups;
+        CHK_RET(topoMatcher_->GetLevelSubGroups(COMM_LEVEL1, subGroups));
+        innerExecutor.reset(new (std::nothrow) AllReduceAHCBroke(dispatcher_, reduceAttr, execMem.count, subGroups));
+        HCCL_INFO("allreduce mesh: using ahc-broke algo inter-server.");
     } else if (UseInterServerNBAlgo(algType_)) {
         innerExecutor.reset(new (std::nothrow) AllReduceNB(dispatcher_, reduceAttr));
         HCCL_INFO("allreduce mesh: using nb algo inter-server.");

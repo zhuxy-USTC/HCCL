@@ -94,7 +94,7 @@ union HcclConfigValue {
 };
 
 const uint32_t HCCL_ROOT_INFO_BYTES =  4108; // 4108: root info length
-const uint32_t COMM_NAME_MAX_LENGTH = 32; // group name max length
+const uint32_t COMM_NAME_MAX_LENGTH = 128; // group name max length
 /**
  * @brief HCCL root info
  */
@@ -114,6 +114,13 @@ typedef struct HcclCommConfigDef {
     uint32_t hcclDeterministic;
     char hcclCommName[COMM_NAME_MAX_LENGTH];
 } HcclCommConfig;
+
+typedef enum {
+    HCCL_COMM_CONFIG_BUFFER_SIZE= 0,
+    HCCL_COMM_CONFIG_DETERMINISTIC = 1,
+    HCCL_COMM_CONFIG_COMM_NAME = 2,
+    HCCL_COMM_CONFIG_RESERVED
+} HcclCommConfigCapability;
 
 typedef enum {
     HCCL_SEND = 0,

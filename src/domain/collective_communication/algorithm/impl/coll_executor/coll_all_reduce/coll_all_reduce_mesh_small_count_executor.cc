@@ -51,7 +51,7 @@ HcclResult CollAllReduceMeshSmallCountExecutor::CalcScratchMemSize(u64& scratchM
 HcclResult CollAllReduceMeshSmallCountExecutor::CalcStreamNum(u32& streamNum)
 {
     u32 totalStreamNum = 0U;
-    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB || aicpuUnfoldMode_) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
         totalStreamNum = topoAttr_.deviceNumPerAggregation - 1U;
     } else {
         totalStreamNum = topoAttr_.deviceNumPerAggregation;
@@ -106,17 +106,14 @@ HcclResult CollAllReduceMeshSmallCountExecutor::Orchestrate(OpParam& param, AlgR
     HcclUs startut = TIME_NOW();
     ParseParam(param);
     algResResp_ = &algRes;
-    HCCL_PROFILER_ADD_STREAM(param.stream.id(), param.tag, 0, algType_);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(param.stream.id(), param.tag, 0, algType_);
     CHK_RET(AddSubStreamToProfiling());
 
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, workflowMode_);
-        HCCL_PROFILER_ADD_OPDATA(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr, \
-            param.DataDes.dataType, param.root, algoAttr_.identifier);
+        HCCL_PROFILER_ADD_OPDATA_OP(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr, \
+            param.DataDes.dataType, param.root, algoAttr_.identifier, param.reduceType);
         HCCL_PROFILER_ADD_GROUPRANK(algoAttr_.identifier, topoAttr_.userRankSize, topoAttr_.userRank);
-        CHK_RET(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_ALLREDUCE, param.tag,
-            param.DataDes.count, param.DataDes.dataType, param.reduceType, algRes.cclInputMem.size(),
-            algRes.cclOutputMem.size()));
     }
 
     ExecMem execMem;
@@ -138,11 +135,10 @@ HcclResult CollAllReduceMeshSmallCountExecutor::Orchestrate(OpParam& param, AlgR
             HCCL_ERROR_CODE(ret)), ret);
 
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
-        CHK_RET(RankConsistent::GetInstance().DelOpPara(param.tag));
-        HCCL_PROFILER_DEL_STREAM(param.stream.id());
+        HCCL_PROFILER_DEL_STREAM_BY_STREAMID(param.stream.id());
         HCCL_PROFILER_DEL_TAG(param.tag);
         HCCL_PROFILER_DEL_OPDATA(param.tag);
-        HCCL_PROFILER_DEL_GROUPRANK(param.tag);
+        HCCL_PROFILER_DEL_GROUPRANK(algoAttr_.identifier);
     }
     HCCL_INFO("tag[%s], AllReduce executor orchestrate success, take time [%lld]us",
         param.tag.c_str(), DURATION_US(TIME_NOW() - startut));

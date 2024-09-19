@@ -15,6 +15,8 @@
 #include "calc_hd_transport_req_pub.h"
 #include "calc_nhr_transport_req_pub.h"
 #include "calc_nhr_v1_transport_req_pub.h"
+#include "calc_ahc_transport_req_pub.h"
+#include "calc_ahc_broke_transport_req_pub.h"
 #include "calc_mesh_transport_req_pub.h"
 #include "calc_partial_mesh_transport_req_pub.h"
 #include "calc_ring_transport_req_pub.h"

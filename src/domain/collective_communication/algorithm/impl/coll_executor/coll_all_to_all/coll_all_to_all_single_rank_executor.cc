@@ -17,6 +17,35 @@ CollAlltoAllSingleRankExecutor::CollAlltoAllSingleRankExecutor(const HcclDispatc
 {
 }
 
+HcclResult CollAlltoAllSingleRankExecutor::Orchestrate(OpParam& param, AlgResourceResponse& algRes)
+{
+    HcclUs startut = TIME_NOW();
+    HcclResult ret = HCCL_SUCCESS;
+    tag_ = param.tag;
+    algResResp_ = &algRes;
+    AlltoAllVParam_ = param;
+
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(param.stream.id(), param.tag, 0, algType_);
+
+    ExecMem execMem;
+    execMem.count = 0;
+    execMem.inputPtr = param.inputPtr;
+    execMem.outputPtr = param.outputPtr;
+
+    ret = KernelRun(param, execMem);
+
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[CollAlltoAllSingleRankExecutor][Orchestrate]errNo[0x%016llx]excutor run failed",
+            HCCL_ERROR_CODE(ret)), ret);
+
+    HCCL_PROFILER_DEL_STREAM_BY_STREAMID(param.stream.id());
+
+    HCCL_INFO("tag[%s], AlltoAllSingleRankExecutor orchestrate success, take time [%lld]us.",
+        param.tag.c_str(), DURATION_US(TIME_NOW() - startut));
+
+    return HCCL_SUCCESS;
+}
+
 HcclResult CollAlltoAllSingleRankExecutor::KernelRun(const OpParam &param, ExecMem &execMem)
 {
     u64 sendCount  = 0 ;
@@ -38,9 +67,9 @@ HcclResult CollAlltoAllSingleRankExecutor::KernelRun(const OpParam &param, ExecM
     if (execMem.inputPtr != execMem.outputPtr) {
         DeviceMem srcMem(execMem.inputPtr, totalSize);
         DeviceMem dstMem(execMem.outputPtr, totalSize);
-        HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, const_cast<Stream&>(param.stream));
+        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, const_cast<Stream&>(param.stream)));
     } 
-    CHK_RET(LaunchTask(dispatcher_, const_cast<Stream&>(param.stream)));
+    CHK_RET(LaunchTaskExtend(dispatcher_, const_cast<Stream&>(param.stream), algResResp_->slaveStreams));
     return HCCL_SUCCESS;
 }
 

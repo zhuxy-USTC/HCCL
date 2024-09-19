@@ -28,10 +28,14 @@ private:
     HcclResult CalcCommInfo(std::vector<LevelNSubCommTransport>& opTransport) override;
 
     /* *************** 算法编排 *************** */
+    HcclResult GetPairWiseList(HcclSendRecvItem *sendRecvItemsPtr, u32 itemNum, 
+        std::vector<HcclSendRecvItem *> &orderedList);
+    HcclResult ProcessSelfSendRecvTasks(std::vector<HcclSendRecvItem*> &orderedList,
+        u32 itemNum, u32& loopStartIndex, Stream& stream);
     u64 CalcSendLoopMaxCount(DeviceMem& inCCLBuffer, const u32 unitSize);
     u64 CalcRecvLoopMaxCount(DeviceMem& outCCLBuffer, const u32 unitSize);
     HcclResult GetSendRecvInfo(HcclSendRecvItem* itemPtr);
-    HcclResult RunLoop(OpParam &param, AlgResourceResponse &algRes, u32 index);
+    HcclResult RunLoop(OpParam &param, AlgResourceResponse &algRes, HcclSendRecvItem* sendRecvItem);
     HcclResult KernelRun(const OpParam &param, ExecMem &execMem) override;
 
 private:

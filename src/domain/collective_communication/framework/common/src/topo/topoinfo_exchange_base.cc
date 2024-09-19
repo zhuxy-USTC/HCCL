@@ -26,18 +26,6 @@ TopoInfoExchangeBase::~TopoInfoExchangeBase()
 {
 }
 
-HcclResult TopoInfoExchangeBase::SaveClusterInfo(const RankTable_t &clusterInfo)
-{
-    nlohmann::json basicJson;
-    HcclResult ret = Struct2Json(clusterInfo, basicJson);
-    CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_WARNING("cluster info to json failed ,ret[%d]", ret), HCCL_E_INTERNAL);
-    basicJson[PROP_STEP] = currentStep_;  // add step to verify.
-
-    std::string buffer = basicJson.dump(2);
-    HCCL_INFO("the rankinfo exchanged is %s", buffer.c_str());
-    return HCCL_SUCCESS;
-}
-
 HcclResult TopoInfoExchangeBase::DisconnectSocket(std::shared_ptr<HcclSocket> socket) const
 {
     if (socket) {
@@ -219,9 +207,7 @@ HcclResult TopoInfoExchangeBase::TransformRankListToJson(const RankTable_t &clus
         nlohmann::json rankJson;
         rankJson[PROP_RANK_ID] = rankInfo.rankId;
         rankJson[PROP_SERVER_ID] = rankInfo.serverId;
-        rankJson[PROP_HOST_IP] =
-            (GetExternalInputHcclDeviceNicDisable()) ?
-            std::string(rankInfo.hostIp.GetReadableIP()) : "0.0.0.0";
+        rankJson[PROP_HOST_IP] = std::string(rankInfo.hostIp.GetReadableIP());
         rankJson[PROP_DEV_INFO] = devInfoJson;
 
         rankJson[PROP_SUPER_POD_ID] = rankInfo.superPodId;

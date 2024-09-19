@@ -109,7 +109,7 @@ HcclResult CollReduceScatterMeshOpbasePipelineExecutor::RunLoop(OpParam &param, 
     CHK_PTR_NULL(curOutputPtr);
 
     u64 maxCountPerLoop = CalcLoopMaxCount(unitSize);
-    HCCL_DEBUG("[CollReduceScatterMeshOpbasePipelineExecutor][RunLoop]tag[%s], userRankSize is [%llu], maxCountPerLoop "
+    HCCL_DEBUG("[CollReduceScatterMeshOpbasePipelineExecutor][RunLoop]tag[%s], userRankSize is [%u], maxCountPerLoop "
         "is [%llu].", param.tag.c_str(), topoAttr_.userRankSize, maxCountPerLoop);
 
     // 先获取 comm inner \ comm outer 的value

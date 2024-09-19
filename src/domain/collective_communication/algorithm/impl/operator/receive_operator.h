@@ -18,7 +18,8 @@
 namespace hccl {
 class ReceiveOperator : public CollAlgOperator {
 public:
-    ReceiveOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
+    ReceiveOperator(AlgConfigurator* algConfigurator, CCLBufferManager &cclBufferManager,
+        HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~ReceiveOperator();
 
     HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName, std::string& newTag);

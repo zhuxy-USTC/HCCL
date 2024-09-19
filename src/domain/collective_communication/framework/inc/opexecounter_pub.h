@@ -38,9 +38,9 @@ private:
     OpExeCounter() = default;
     ~OpExeCounter();
     
-    void* headCountMem_;
-    void* tailCountMem_;
-    void* addOneMem_;
+    void* headCountMem_{};
+    void* tailCountMem_{};
+    void* addOneMem_{};
     int refCount_ = 0;
     bool isNeedOpCounter_ = false;
 };

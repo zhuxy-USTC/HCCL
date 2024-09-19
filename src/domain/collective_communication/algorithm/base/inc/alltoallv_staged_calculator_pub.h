@@ -12,9 +12,33 @@
 #define ALLTOALL_V_STAGED_CALCULATOR_PUB_H
 
 #include "executor_base_pub.h"
+#include "coll_alg_utils.h"
 #include "common.h"
 
 namespace hccl {
+
+struct RemoteMem {
+    DeviceMem remoteScratchPingMem;
+    DeviceMem remoteScratchPongMem;
+};
+
+struct SendDataBlock {
+    u64 sendLen;
+    u64 userInOffset;
+    u64 scratchOffset;
+};
+
+struct ReadDataBlock {
+    u64 recvLen;
+    u64 remoteOffset;
+    u64 recvOffset;
+};
+
+struct AlltoallSendRecvInfo {
+    std::vector<SendDataBlock> sendInfo;
+    std::vector<ReadDataBlock> readInfo;
+};
+
 struct OneSendRecvAddrInfo {
     u64 localOffset;
     u64 localLength;

@@ -30,7 +30,7 @@ HcclResult CollRunAlltoAllVStaged::ParallelTaskLoaderProcess(const std::string &
     }
     streamsPtr[streamIndex] = &stream;
 
-    HCCL_INFO("[ParallelTaskLoaderProcess]main stream[%p], streams size[%u]", stream.ptr(), streamsPtr.size());
+    HCCL_INFO("[ParallelTaskLoaderProcess]main stream[%p], streams size[%zu]", stream.ptr(), streamsPtr.size());
 
     // 准备多线程启动参数
     CHK_RET(parallelTaskLoader_->Prepare(streamsPtr, outerCommInfo));
@@ -74,7 +74,7 @@ void CollRunAlltoAllVStaged::CalcWorkSpaceMemSize(const AlltoAllUserRankInfo &us
     if (allMeshAggregationSendRecvInfo.size() % meshAggregationRankSize != 0 ||
         allMeshAggregationSendRecvInfo.size() == 0) {
         workspaceMemSize = 0;
-        HCCL_ERROR("Invalid Send Recv Info Size[%u]", allMeshAggregationSendRecvInfo.size());
+        HCCL_ERROR("Invalid Send Recv Info Size[%zu]", allMeshAggregationSendRecvInfo.size());
         return;
     }
     workspaceMemSize = 0;
@@ -181,25 +181,25 @@ HcclResult CollRunAlltoAllVStaged::CalStagedAlltoallVCommInfo(TransportMemType i
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
         !isAlltoAllZCopyMode_) { // 单算子 && BCopy模式
         HCCL_INFO("cal comm in opbase and Bcopy mode");
-        CalcLevel0CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport);
-        CalcLevel1CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport);
-        CalcLevel2CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport);
+        CHK_RET(CalcLevel0CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport));
+        CHK_RET(CalcLevel1CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport));
+        CHK_RET(CalcLevel2CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport));
     } else if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
         isAlltoAllZCopyMode_) { // 单算子 && ZCopy模式
         HCCL_INFO("cal comm in opbase and Zcopy mode");
         if (topoAttr_.isSingleMeshAggregation) {
-            CalcLevel0CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport);
+            CHK_RET(CalcLevel0CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport));
         } else {
-            CalcLevel0CommInfo(TransportMemType::CCL_INPUT, (alltoallMeshReadOnly ?
-                TransportMemType::CCL_OUTPUT : TransportMemType::SCRATCH), opTransport);
-            CalcLevel1CommInfo(TransportMemType::SCRATCH, TransportMemType::CCL_OUTPUT, opTransport);
+            CHK_RET(CalcLevel0CommInfo(TransportMemType::CCL_INPUT, (alltoallMeshReadOnly ?
+                TransportMemType::CCL_OUTPUT : TransportMemType::SCRATCH), opTransport));
+            CHK_RET(CalcLevel1CommInfo(TransportMemType::SCRATCH, TransportMemType::CCL_OUTPUT, opTransport));
         }
-        CalcLevel2CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport);
+        CHK_RET(CalcLevel2CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport));
     } else {
         HCCL_INFO("cal comm in graph mode");
-        CalcLevel0CommInfo(TransportMemType::PARAM_INPUT, TransportMemType::SCRATCH, opTransport);
-        CalcLevel1CommInfo(TransportMemType::SCRATCH, TransportMemType::PARAM_OUTPUT, opTransport);
-        CalcLevel2CommInfo(TransportMemType::PARAM_INPUT, TransportMemType::PARAM_OUTPUT, opTransport);
+        CHK_RET(CalcLevel0CommInfo(TransportMemType::PARAM_INPUT, TransportMemType::SCRATCH, opTransport));
+        CHK_RET(CalcLevel1CommInfo(TransportMemType::SCRATCH, TransportMemType::PARAM_OUTPUT, opTransport));
+        CHK_RET(CalcLevel2CommInfo(TransportMemType::PARAM_INPUT, TransportMemType::PARAM_OUTPUT, opTransport));
     }
     HCCL_DEBUG("[CollRunAlltoAllVStaged][CalStagedAlltoallVCommInfo] ends");
     return HCCL_SUCCESS;
@@ -210,7 +210,7 @@ HcclResult CollRunAlltoAllVStaged::CalcCommInfo(std::vector<LevelNSubCommTranspo
     TransportMemType inputType = TransportMemType::RESERVED;
     TransportMemType outputType = TransportMemType::RESERVED;
 
-    CalStagedAlltoallVCommInfo(inputType, outputType, opTransport);
+    CHK_RET(CalStagedAlltoallVCommInfo(inputType, outputType, opTransport));
     return HCCL_SUCCESS;
 }
 
@@ -250,7 +250,7 @@ HcclResult CollRunAlltoAllVStaged::PrepareAlltoAllVStaged1(DeviceMem &sendBuf, D
         } else {
             HCCL_INFO("Running alltoallv Staged Mesh intra Server");
             if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
-                ActiveSlaveStreams(AlltoAllVParam_.stream);
+                CHK_RET(ActiveSlaveStreams(AlltoAllVParam_.stream));
             }
             // 添加从流profiling, 用于维护planID
             CHK_RET(AddSubStreamToProfiling());
@@ -397,7 +397,7 @@ HcclResult CollRunAlltoAllVStaged::KernelRun(const OpParam &param, ExecMem &exec
     if (alltoallMeshReadOnly) {
         HCCL_INFO("[AlltoAllOperator][RunAlltoAllVStaged] staged 1 read only algo");
         if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
-            ActiveSlaveStreams(param.stream);
+            CHK_RET(ActiveSlaveStreams(param.stream));
         }
         // 添加从流profiling, 用于维护planID
         CHK_RET(AddSubStreamToProfiling());
@@ -415,18 +415,18 @@ HcclResult CollRunAlltoAllVStaged::KernelRun(const OpParam &param, ExecMem &exec
         }
 
         if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
-            CHK_RET(alltoallReadOnly->Prepare(algRes_.paramInputMem, (topoAttr_.isSingleMeshAggregation ?
-                algRes_.paramOutputMem : execMem.scratchMem), execMem.inputMem, execMem.outputMem, sendAddrInfosIntra,
+            CHK_RET(alltoallReadOnly->Prepare(algResResp_->paramInputMem, (topoAttr_.isSingleMeshAggregation ?
+                algResResp_->paramOutputMem : execMem.scratchMem), execMem.inputMem, execMem.outputMem, sendAddrInfosIntra,
                 recvAddrInfosIntra, workflowMode_));
         } else {
-            CHK_RET(alltoallReadOnly->Prepare(algRes_.paramInputMem, (topoAttr_.isSingleMeshAggregation ?
-                algRes_.paramOutputMem : execMem.scratchMem), algRes_.paramInputMem, algRes_.paramOutputMem,
+            CHK_RET(alltoallReadOnly->Prepare(algResResp_->paramInputMem, (topoAttr_.isSingleMeshAggregation ?
+                algResResp_->paramOutputMem : execMem.scratchMem), algResResp_->paramInputMem, algResResp_->paramOutputMem,
                 sendAddrInfosIntra, recvAddrInfosIntra, workflowMode_));
         }
         CHK_RET(alltoallReadOnly->RunAsync());
     } else {
         std::unique_ptr<AlltoAllVStagedBase> alltoallOuter = nullptr;
-        CHK_RET(PrepareAlltoAllVStaged1(algRes_.paramInputMem, algRes_.paramOutputMem, execMem.scratchMem,
+        CHK_RET(PrepareAlltoAllVStaged1(algResResp_->paramInputMem, algResResp_->paramOutputMem, execMem.scratchMem,
             sendAddrInfosIntra, recvAddrInfosIntra, const_cast<Stream&>(param.stream), tag_, alltoallOuter, execMem));
         if ((algResResp_->slaveStreams.size() != 0) &&
             (!GetExternalInputHcclEnableFfts()) && isAlltoAllZCopyMode_) {
@@ -455,15 +455,15 @@ HcclResult CollRunAlltoAllVStaged::KernelRun(const OpParam &param, ExecMem &exec
         CHK_RET(CheckCommSize(COMM_MESH_L1, COMM_INDEX_0 + 1));
         SubCommInfo innerCommInfo = GetSubCommInfo(COMM_MESH_L1, COMM_INDEX_0);
         std::unique_ptr<AlltoAllVStagedBase> alltoallInner = nullptr;
-        PrepareAlltoAllVStaged2(algRes_.paramOutputMem, execMem.scratchMem, sendAddrInfosInter, recvAddrInfosInter,
-            const_cast<Stream&>(param.stream), tag_, alltoallInner, execMem);
+        CHK_RET(PrepareAlltoAllVStaged2(algResResp_->paramOutputMem, execMem.scratchMem, sendAddrInfosInter,
+            recvAddrInfosInter, const_cast<Stream&>(param.stream), tag_, alltoallInner, execMem));
         CHK_RET(RunAlltoAllVTemplateStaged(alltoallInner, innerCommInfo));
     }
 
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
         isAlltoAllZCopyMode_ && !topoAttr_.isSingleMeshAggregation) {
-        DeviceMem srcMem = (execMem.outputMem).range(0, algRes_.paramOutputMem.size());
-        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, algRes_.paramOutputMem, srcMem, const_cast<Stream&>(param.stream)));
+        DeviceMem srcMem = (execMem.outputMem).range(0, algResResp_->paramOutputMem.size());
+        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, algResResp_->paramOutputMem, srcMem, const_cast<Stream&>(param.stream)));
     }
 
     HCCL_INFO("[CollRunAlltoAllVStaged][kernelRun] alltoall staged ends");

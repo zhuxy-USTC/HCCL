@@ -18,6 +18,8 @@ class CollAlltoAllSingleRankExecutor : public CollAlltoAllExecutor {
 public:
     CollAlltoAllSingleRankExecutor(const HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~CollAlltoAllSingleRankExecutor() = default;
+
+    HcclResult Orchestrate(OpParam& param, AlgResourceResponse& algRes) override;
 private:
     HcclResult KernelRun(const OpParam &param, ExecMem &execMem) override;
 };

@@ -34,9 +34,9 @@ HcclResult CollBroadcastExecutor::Orchestrate(OpParam& param, AlgResourceRespons
     tag_ = param.tag;
     algResResp_ = &algRes;
     HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, workflowMode_);
-    HCCL_PROFILER_ADD_STREAM(param.stream.id(), param.tag, 0, algType_);
-    HCCL_PROFILER_ADD_OPDATA(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr, param.DataDes.dataType, \
-        param.root, algoAttr_.identifier);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(param.stream.id(), param.tag, 0, algType_);
+    HCCL_PROFILER_ADD_OPDATA_OP(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr, param.DataDes.dataType, \
+        param.root, algoAttr_.identifier, HcclReduceOp::HCCL_REDUCE_RESERVED);
     HCCL_PROFILER_ADD_GROUPRANK(algoAttr_.identifier, topoAttr_.userRankSize, topoAttr_.userRank);
 
     // 添加从流profiling, 用于维护planID
@@ -69,7 +69,9 @@ HcclResult CollBroadcastExecutor::Orchestrate(OpParam& param, AlgResourceRespons
             HCCL_ERROR_CODE(ret)), ret);
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
         HCCL_PROFILER_DEL_TAG(param.tag);
-        HCCL_PROFILER_DEL_STREAM(param.stream.id());
+        HCCL_PROFILER_DEL_STREAM_BY_STREAMID(param.stream.id());
+        HCCL_PROFILER_DEL_OPDATA(param.tag);
+        HCCL_PROFILER_DEL_GROUPRANK(algoAttr_.identifier);
     }
     HCCL_INFO("tag[%s], Broadcast executor orchestrate success, take time [%lld]us.",
         param.tag.c_str(), DURATION_US(TIME_NOW() - startut));
@@ -105,7 +107,7 @@ HcclResult CollBroadcastExecutor::RunLoop(OpParam &param, AlgResourceResponse &a
         execMem.outputPtr = curInputPtr;
 
         HCCL_DEBUG("[CollBroadcastExecutor] RunLoop tag[%s], inputOffset[%llu], " \
-                "curInputPtr[%p], sendCount[%llu], sendSize[%llu], dataType[%s], realUserRank[%llu]",
+                "curInputPtr[%p], sendCount[%llu], sendSize[%llu], dataType[%s], realUserRank[%u]",
                 param.tag.c_str(), inputOffset, curInputPtr, curCount, curSize,
                 GetDataTypeEnumStr(param.DataDes.dataType).c_str(), topoAttr_.realUserRank);
 
@@ -125,8 +127,8 @@ HcclResult CollBroadcastExecutor::RunLoopInner(OpParam &param, ExecMem &execMem)
     u8 *curPtr = static_cast<u8 *>(execMem.inputPtr);
     auto originalAlgTypeLevel0 = GetLevel0AlgType(algType_);
     bool isMeshTopo = IsAlgTypeLevel0Mesh(originalAlgTypeLevel0);
-    bool isDMAreduceOn91073 = (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE
-                              && (topoAttr_.deviceType == DevType::DEV_TYPE_910_73) && !isMeshTopo);
+    bool isDMAreduceOn91093 = (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE
+                              && (topoAttr_.deviceType == DevType::DEV_TYPE_910_93) && !isMeshTopo);
     HCCL_DEBUG("[CollBroadcastExecutor][RunLoopInner]inputMem[%p], outputMem[%p]" \
         "intputPtr[%p], curCount[%llu], curSize[%llu]",
         execMem.inputMem.ptr(), execMem.outputMem.ptr(), execMem.inputPtr, execMem.count, curSize);
@@ -141,19 +143,16 @@ HcclResult CollBroadcastExecutor::RunLoopInner(OpParam &param, ExecMem &execMem)
     HCCL_INFO("RunLoopInner:curPtr[%p], curCount[%llu], curSize[%llu], isSmallData[%u]," \
               "deviceNumPerAggregation[%u]", curPtr, execMem.count, curSize, isSmallData,
               topoAttr_.deviceNumPerAggregation);
-    /* 记录指令信息用于一致性校验 */
-    CHK_RET(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_BROADCAST, param.tag, execMem.count,
-                                                       param.DataDes.dataType, param.root, inCCLbufferSize, 0));
 
     // 执行
 
     HcclResult ret;
 
-    // isDMAreduceOn91073场景
-    if (isDMAreduceOn91073) {
+    // isDMAreduceOn91093场景
+    if (isDMAreduceOn91093) {
         ret = KernelRun(param, execMem);
         CHK_PRT_RET(ret != HCCL_SUCCESS,
-                HCCL_ERROR("[CollBroadcastExecutor][RunLoop]errNo[0x%016llx] DMA reduce 91073, tag[%s]",
+                HCCL_ERROR("[CollBroadcastExecutor][RunLoop]errNo[0x%016llx] DMA reduce 91093, tag[%s]",
                 HCCL_ERROR_CODE(ret), tag_.c_str()), ret);
     } else {
         // 如果使用in CCL buffer，需要将user buffer in中的结果拷贝到CCL buffer in
@@ -176,7 +175,6 @@ HcclResult CollBroadcastExecutor::RunLoopInner(OpParam &param, ExecMem &execMem)
         execMem.count, param.DataDes.dataType), ret);
     }
 
-    CHK_RET(RankConsistent::GetInstance().DelOpPara(param.tag));
     CHK_RET(LaunchTaskExtend(dispatcher_, param.stream, algResResp_->slaveStreams));
     return ret;
 }
@@ -218,7 +216,7 @@ bool CollBroadcastExecutor::IsBroadcastSmallData(u64 size)
 
 HcclResult CollBroadcastExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_INPUT;
     } else {

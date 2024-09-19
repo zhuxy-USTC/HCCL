@@ -32,9 +32,8 @@ void CollReduceScatterMeshExecutor::ParseParam(const OpParam& param)
 
     // 是否需要scratch memory
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        (topoAttr_.deviceType == DevType::DEV_TYPE_910B || topoAttr_.deviceType == DevType::DEV_TYPE_910_73) &&
-        IsSupportSDMAReduce(param.inputPtr, param.outputPtr, param.DataDes.dataType, param.reduceType) &&
-        IsSupportRDMAReduce(param.DataDes.dataType, param.reduceType)) {
+        (topoAttr_.deviceType == DevType::DEV_TYPE_910B || topoAttr_.deviceType == DevType::DEV_TYPE_910_93) &&
+        isSupportSDMAReduce_ && IsSupportRDMAReduce(param.DataDes.dataType, param.reduceType)) {
         scratchMemFlag_ = false;
     } else {
         scratchMemFlag_ = true;
@@ -56,7 +55,7 @@ HcclResult CollReduceScatterMeshExecutor::CalcScratchMemSize(u64& scratchMemSize
     } else {
         scratchMemSize = 0U;
     }
-    HCCL_INFO("[CollReduceScatterMeshExecutor][CalcScratchMemSize] tag[%s] scratchMemSize[%u]",
+    HCCL_INFO("[CollReduceScatterMeshExecutor][CalcScratchMemSize] tag[%s] scratchMemSize[%llu]",
         tag_.c_str(), scratchMemSize);
     return HCCL_SUCCESS;
 }
@@ -153,7 +152,6 @@ HcclResult CollReduceScatterMeshExecutor::KernelRun(const OpParam &param, ExecMe
             HCCL_INFO("reducescatter mesh: using ring algo inter-server.");
             u64 ringSize = execMem.inputMem.size() / innerRankSize;
             u64 ringCount = ringSize / perDataSize;
-            // 申请临时内存作为scratch内存
             CHK_RET(innerExecutor->Prepare(execMem.inputMem, execMem.inputMem, execMem.scratchMem, ringCount,
                 param.DataDes.dataType, param.stream, param.reduceType, OUTER_BRIDGE_RANK_ID, std::vector<Slice>(0)));
         } else if (UseInterServerNHRAlgo(algType_)) {
@@ -162,7 +160,6 @@ HcclResult CollReduceScatterMeshExecutor::KernelRun(const OpParam &param, ExecMe
             CHK_SMART_PTR_NULL(innerExecutor);
             u64 ringSize = execMem.inputMem.size() / innerRankSize;
             u64 ringCount = ringSize / perDataSize;
-            // 申请临时内存作为scratch内存
             CHK_RET(innerExecutor->Prepare(execMem.inputMem, execMem.inputMem, execMem.scratchMem, ringCount,
                 param.DataDes.dataType, param.stream, param.reduceType, OUTER_BRIDGE_RANK_ID, std::vector<Slice>(0)));
         } else if (UseInterServerNHRV1Algo(algType_)) {
@@ -171,7 +168,6 @@ HcclResult CollReduceScatterMeshExecutor::KernelRun(const OpParam &param, ExecMe
             CHK_SMART_PTR_NULL(innerExecutor);
             u64 ringSize = execMem.inputMem.size() / innerRankSize;
             u64 ringCount = ringSize / perDataSize;
-            // 申请临时内存作为scratch内存
             CHK_RET(innerExecutor->Prepare(execMem.inputMem, execMem.inputMem, execMem.scratchMem, ringCount,
                 param.DataDes.dataType, param.stream, param.reduceType, OUTER_BRIDGE_RANK_ID, std::vector<Slice>(0)));
         } else if (UseInterServerNBAlgo(algType_)) {
@@ -180,14 +176,12 @@ HcclResult CollReduceScatterMeshExecutor::KernelRun(const OpParam &param, ExecMe
             CHK_SMART_PTR_NULL(innerExecutor);
             u64 ringSize = execMem.inputMem.size() / innerRankSize;
             u64 ringCount = ringSize / perDataSize;
-            // 申请临时内存作为scratch内存
             CHK_RET(innerExecutor->Prepare(execMem.inputMem, execMem.inputMem, execMem.scratchMem, ringCount,
                 param.DataDes.dataType, param.stream, param.reduceType, OUTER_BRIDGE_RANK_ID, std::vector<Slice>(0)));
         } else {
             innerExecutor.reset(new (std::nothrow) ReduceScatterRecursiveHalvingDoubling(dispatcher_, reduceAttr));
             CHK_SMART_PTR_NULL(innerExecutor);
             HCCL_INFO("reducescatter mesh: using halving-doubling algo inter-server.");
-            // 申请临时内存作为scratch内存
             u64 inputDataCount = execMem.inputMem.size() / perDataSize; // count是output的数据个数
             CHK_RET(innerExecutor->Prepare(execMem.inputMem, execMem.inputMem, execMem.scratchMem, inputDataCount,
                 param.DataDes.dataType, param.stream, param.reduceType, OUTER_BRIDGE_RANK_ID, std::vector<Slice>(0)));

@@ -58,6 +58,7 @@ using RankInfo_t = struct tagRankInfo {
     u32 serverIdx = INVALID_UINT;       // Server在ranktable中的自然顺序（用户指定）
     u32 superDeviceId = INVALID_UINT;   // 超节点device id，超节点内唯一
     std::string superPodId;             // 超节点标识
+    u32 superPodIdx = INVALID_UINT;     // SuperPod在ranktable中的自然顺序（用户指定）
     HcclIpAddress hostIp;               // 本server的host ip，用于host rdma通信
     u32 hostPort = INVALID_UINT;        // 本rank进行host socket通信使用的端口
     u32 nodeId = INVALID_UINT;          // 离线编译逻辑ranktable 和NumaConfig中的node id相同

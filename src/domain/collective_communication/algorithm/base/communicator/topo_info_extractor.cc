@@ -25,6 +25,10 @@ TopoInfoExtractor::TopoInfoExtractor(HcclAlgoAttr &algoAttr, HcclTopoAttr &topoA
       topoType_(topoType), deviceType_(topoAttr.deviceType), rankVector_(topoAttr.rankInfoList),
       meshAggregationRankSize_(topoAttr.meshAggregationRankSize), isUsedRdmaOuter_(algoAttr.isUsedRdmaOuter),
       isUsedInterHccsMode_(algoAttr.isUsedInterHccsMode), isDiffAggregation_(topoAttr.isDiffDeviceModule),
+      isConfigAHC_(false),
+      isConfigNULL_(false),
+      isAsymPlanVector_(COMM_LEVEL_RESERVED),
+      CommPlaneSubGroupVector_(COMM_LEVEL_RESERVED),
       CommPlaneVector_(COMM_LEVEL_RESERVED)
 { };
 
@@ -36,7 +40,11 @@ TopoInfoExtractor::TopoInfoExtractor(std::string identifier, u32 userRank, u32 u
     : identifier_(identifier), userRank_(userRank), userRankSize_(userRankSize), topoType_(topoType),
       deviceType_(deviceType), rankVector_(rankVector), meshAggregationRankSize_(meshAggregationRankSize),
       isUsedRdmaOuter_(isUsedRdmaOuter), isUsedInterHccsMode_(isUsedInterHccsMode), isDiffAggregation_(false),
-      CommPlaneVector_(COMM_LEVEL_RESERVED)
+      isConfigAHC_(false),
+      isConfigNULL_(false),
+      CommPlaneVector_(COMM_LEVEL_RESERVED),
+      isAsymPlanVector_(COMM_LEVEL_RESERVED),
+      CommPlaneSubGroupVector_(COMM_LEVEL_RESERVED)
 {};
 #endif
 
@@ -52,6 +60,9 @@ HcclResult TopoInfoExtractor::Init()
 
     // 参数有效性校验
     CHK_RET(CheckInitInfo());
+
+    // 初始化 AHC 相关标记
+    InitAHCConfig();
 
     // 填充必要数据结构
     CHK_RET(SetRankInfo());
@@ -119,7 +130,7 @@ HcclResult TopoInfoExtractor::CheckInitInfo()
 
     // 入参组合有效性检查:不支持4P_RING
     if ((deviceType_ == DevType::DEV_TYPE_910 || deviceType_ == DevType::DEV_TYPE_910B ||
-         deviceType_ == DevType::DEV_TYPE_910_73) && (topoType_ == TopoType::TOPO_TYPE_4P_RING)) {
+         deviceType_ == DevType::DEV_TYPE_910_93) && (topoType_ == TopoType::TOPO_TYPE_4P_RING)) {
         HCCL_ERROR("[Check][InitInfo]Not support the scenes: TopoType[%d] with deviceType[%d] is invalid.", topoType_,
             deviceType_);
         return HCCL_E_PARA;
@@ -133,8 +144,8 @@ HcclResult TopoInfoExtractor::SetRankInfo()
     for (u32 index = 0; index < rankVector_.size(); index++) {
         if (userRank_ == rankVector_[index].userRank) {
             rankData_ = rankVector_[index];
-            HCCL_INFO("[SetRankInfo]rankData_: userRank[%u], devicePhyId[%d], serverIdx[%u], superPodId[%s]",
-                rankData_.userRank, rankData_.devicePhyId, rankData_.serverIdx, rankData_.superPodId.c_str());
+            HCCL_INFO("[SetRankInfo]rankData_: userRank[%u], devicePhyId[%d], serverIdx[%u], superPodId[%s], superPodIdx[%u]",
+                rankData_.userRank, rankData_.devicePhyId, rankData_.serverIdx, rankData_.superPodId.c_str(), rankData_.superPodIdx);
             break;
         }
     }
@@ -143,13 +154,13 @@ HcclResult TopoInfoExtractor::SetRankInfo()
     std::set<u32> moduleIdxs;
     for (u32 index = 0; index < rankVector_.size(); index++) {
         // 填充superPodRankMap_, 记录superPodId -> rankInfo
-        auto itSuperPod = superPodToRank_.find(rankVector_[index].superPodId);
+        auto itSuperPod = superPodToRank_.find(rankVector_[index].superPodIdx);
         if (itSuperPod != superPodToRank_.end()) {
             itSuperPod->second.push_back(rankVector_[index]);
         } else {
             std::vector<RankInfo> rankVecTmp;
             rankVecTmp.push_back(rankVector_[index]);
-            superPodToRank_.insert(std::make_pair(rankVector_[index].superPodId, rankVecTmp));
+            superPodToRank_.insert(std::make_pair(rankVector_[index].superPodIdx, rankVecTmp));
         }
 
         u32 moduleIdx = 0;
@@ -165,6 +176,16 @@ HcclResult TopoInfoExtractor::SetRankInfo()
                 rankVecTmp.push_back(rankVector_[index]);
                 serverToRank_.insert(std::make_pair(moduleIdx, rankVecTmp));
             }
+        }
+
+        // 填充 serverToRankMerge_, server 和 superPod 两层合并的通信域内所有 rank 信息
+        auto itServer = serverToRankMerge_.find(moduleIdx);
+        if (itServer != serverToRankMerge_.end()) { // 存在该服务器内相关rank的对应信息
+            itServer->second.push_back(rankVector_[index]);
+        } else { // 不存在则新增一条map记录
+            std::vector<RankInfo> rankVecTmp;
+            rankVecTmp.push_back(rankVector_[index]);
+            serverToRankMerge_.insert(std::make_pair(moduleIdx, rankVecTmp));
         }
 
         // 同一个server内, 记录本rank和其他rank的链路
@@ -200,6 +221,23 @@ HcclResult TopoInfoExtractor::SetRankInfo()
         }
     }
 
+    // 调整多个 superPod 合并的 user_rank 排序，按照 serverIdx 从小到大、device id 从小到大排序
+    for (auto iterMap = serverToRankMerge_.begin(); iterMap!= serverToRankMerge_.end(); iterMap++) {
+        if (!(iterMap->second).empty()) {
+            std::sort(iterMap->second.begin(), iterMap->second.end(), Ascending);
+        }
+    }
+
+    for (auto it = serverToRankMerge_.begin(); it != serverToRankMerge_.end(); it++) {
+        HCCL_DEBUG("[SetRankInfo][AHC_DEBUG] serverID[%u]", it->first);
+        for (auto index = it->second.begin(); index != it->second.end(); index++) {
+            HCCL_DEBUG("[SetRankInfo][AHC_DEBUG] userRank[%u], devicePhyId[%d], serverIdx[%u], superPodId[%s]",
+                index->userRank, index->devicePhyId, index->serverIdx, index->superPodId.c_str());
+        }
+    }
+    HCCL_DEBUG("[SetRankInfo][AHC_DEBUG] rankNumPerAggregation[%u] moduleIdxs.size()=[%u]",
+        rankNumPerAggregation, moduleIdxs.size());
+
     ranksOneNode_ = { 0, 8, 4, 2, 1, 4, rankNumPerAggregation, 0, rankNumPerAggregation, rankNumPerAggregation};
 
     // 校验每个server内的设备个数与topo类型的组合是否正确
@@ -217,10 +255,19 @@ HcclResult TopoInfoExtractor::CheckSuperPodInfo()
     for (auto iter = superPodToRank_.begin(); iter != superPodToRank_.end(); iter++) {
         u32 devNum = superPodToRank_.begin()->second.size();
         u32 curDevNum = iter->second.size();
-        CHK_PRT_RET(devNum != curDevNum,
-            HCCL_ERROR("[Check][SuperPodInfo]devNum[%u] in superPod[%s] is inconsistent with "\
-            "devNum[%u] in superPod[%s].", devNum, superPodToRank_.begin()->first.c_str(),
-            curDevNum, iter->first.c_str()), HCCL_E_INTERNAL);
+        if (isConfigAHC_ || isConfigNULL_) {
+            if (devNum != curDevNum) {
+                isAsymPlanVector_[COMM_LEVEL2] = true;
+                HCCL_INFO("[Check][SuperPodInfo]devNum[%u] in superPodIdx[%u] is inconsistent with "\
+                "devNum[%u] in superPodIdx[%u].", devNum, superPodToRank_.begin(),
+                curDevNum, iter->first);
+            }
+        } else {
+            CHK_PRT_RET(devNum != curDevNum,
+                HCCL_ERROR("[Check][SuperPodInfo]devNum[%u] in superPodIdx[%u] is inconsistent with "\
+                "devNum[%u] in superPodIdx[%u].", devNum, superPodToRank_.begin(),
+                curDevNum, iter->first), HCCL_E_INTERNAL);
+        }
     }
     return HCCL_SUCCESS;
 }
@@ -411,17 +458,29 @@ HcclResult TopoInfoExtractor::SetTopoInfoForLevel0()
         CHK_RET(SetSingleOuter());
     } else {    // 8p-ring/np ring 环场景
         u32 ringNum = multiOuterOrder_.size();
-        CHK_RET(SetMultiOuter(ringNum)); // 8P_RING场景下，外层拓扑中有四个环; 910_73场景中适配双环
+        CHK_RET(SetMultiOuter(ringNum)); // 8P_RING场景下，外层拓扑中有四个环; 910_93场景中适配双环
     }
+
+    if (isConfigAHC_) {
+        AHCCommSubgroupInit(); // 准备 AHC COMM 场景下的测试分组
+    }
+    
     return HCCL_SUCCESS;
 }
 
 HcclResult TopoInfoExtractor::SetTopoInfoForLevel1()
 {
+    // 判断对称且非静态 AHC 配置走原始流程，其他场景走 AHC 流程，合并 level1 和 level2 通信域为同个 level
+    std::map<u32, std::vector<RankInfo>> &serverToRank =
+        (!isConfigAHC_ && !isAsymPlanVector_[COMM_LEVEL2]) ? serverToRank_ : serverToRankMerge_;
+
+    HCCL_INFO("[Set][TopoInfoForLevel1] select serverToRank_ info [%u]",
+        (!isConfigAHC_ && !isAsymPlanVector_[COMM_LEVEL2]));
+
     u32 moduleIdx = 0;
     CHK_RET(GetModuleIdx(rankData_, moduleIdx));
-    auto iterRank = serverToRank_.find(moduleIdx); // 查询本rank所在服务器
-    bool check = (iterRank == serverToRank_.end());
+    auto iterRank = serverToRank.find(moduleIdx); // 查询本rank所在服务器
+    bool check = (iterRank == serverToRank.end());
     CHK_PRT_RET(check, HCCL_ERROR("[Set][TopoInfoForLevel1]can't find serverId[%s] in rank map",
                                   rankData_.serverId.c_str()), HCCL_E_NOT_FOUND);
 
@@ -433,6 +492,11 @@ HcclResult TopoInfoExtractor::SetTopoInfoForLevel1()
     } else { // 其他场景下内层拓扑平面为每个module中的device数量
         ringSize = ranksOneNode_[static_cast<u32>(topoType_)];
     }
+    HCCL_INFO("[Set][TopoInfoForLevel1] topoType_[%u] ringSize[%u]",topoType_, ringSize);
+
+    // 计算每个 level 环的超节点分组，每个环都一致，只计算一次
+    std::map<std::string, std::vector<u32>> superPodGroup;
+    bool calcGroupDone = false;
 
     // 内层拓扑的每层环
     for (u32 ringIndex = 0; ringIndex < ringSize; ringIndex++) {
@@ -445,7 +509,8 @@ HcclResult TopoInfoExtractor::SetTopoInfoForLevel1()
         outLogInfo.append("userRank/serverId/devicePhyId/nicIp/isBridgeRank: ");
 
         // 2、填充bridge_rank_vector_的内层vector和is_bridge_vector_
-        for (auto iterMap = serverToRank_.begin(); iterMap != serverToRank_.end(); iterMap++) {
+        u32 subGroupIndex = 0;
+        for (auto iterMap = serverToRank.begin(); iterMap != serverToRank.end(); iterMap++) {
             if (!(iterMap->second).empty()) {
                 RankInfo tmpBridgePara;
                 u32 bridgeUserRank = (iterMap->second)[ringIndex].userRank;
@@ -473,12 +538,48 @@ HcclResult TopoInfoExtractor::SetTopoInfoForLevel1()
                 outLogInfo.append("/");
                 outLogInfo.append(std::to_string(bridgeRankFlag));
                 outLogInfo.append("; ");
+
+                // 环内填充 superPodGroup，记录 superPodId-> subGroupIndex 用于生成分组信息
+                if (!calcGroupDone && (deviceType_ == DevType::DEV_TYPE_910_93)) {
+                    std::string superPodId = (iterMap->second)[ringIndex].superPodId;
+                    auto itSuperPod = superPodGroup.find(superPodId);
+                    if (itSuperPod != superPodGroup.end()) {
+                        itSuperPod->second.push_back(subGroupIndex);
+                    } else {
+                        std::vector<u32> subGroup;
+                        subGroup.push_back(subGroupIndex);
+                        superPodGroup.insert(std::make_pair(superPodId, subGroup));
+                    }
+                    HCCL_INFO("[Set][TopoInfoForLevel1] calc subGroup superPodId[%s] subIndex[%u]",
+                        superPodId.c_str(), subGroupIndex);
+                }
+
+                subGroupIndex = subGroupIndex + 1;
             }
+        }
+
+        for (auto it = superPodGroup.begin(); it != superPodGroup.end(); it++) {
+            HCCL_DEBUG("[Set][TopoInfoForLevel1][AHC_DEBUG] superPodId[%s]", it->first.c_str());
+            for (auto index = it->second.begin(); index != it->second.end(); index++) {
+                HCCL_DEBUG("[Set][TopoInfoForLevel1][AHC_DEBUG] groupIndex[%u]", (*index));
+            }
+        }
+
+        for (auto it = tmpBridgeVector.begin(); it != tmpBridgeVector.end(); it++) {
+            HCCL_DEBUG("[Set][TopoInfoForLevel1][AHC_DEBUG] ringIndex[%u] tmpBridgevector userRank[%u]", ringIndex, it->userRank);
         }
 
         // 3、填充bridge_rank_vector_、isBridgeVector_
         isBridgeVector_.push_back(bridgeRankFlag);
         CommPlaneVector_[COMM_LEVEL1].push_back(tmpBridgeVector);
+
+        // 4、填充当前 level 的通信域内分组信息（用于层次化算法）
+        if (!calcGroupDone) {
+            for (auto iterMap = superPodGroup.begin(); iterMap != superPodGroup.end(); iterMap++) {
+                CommPlaneSubGroupVector_[COMM_LEVEL1].push_back(iterMap->second);
+            }
+            calcGroupDone = true;
+        }
 
         if (GetExternalInputEnableRdmaSdmaConcurrent()) {
             CommPlaneVector_[COMM_LEVEL1_RDMA].push_back(tmpBridgeVector);
@@ -493,47 +594,53 @@ HcclResult TopoInfoExtractor::SetTopoInfoForLevel1()
 
 HcclResult TopoInfoExtractor::SetTopoInfoForLevel2()
 {
-    // 找到当前rank在本超节点内部的序号
-    auto it = superPodToRank_.find(rankData_.superPodId);
-    CHK_PRT_RET(it == superPodToRank_.end(),
-        HCCL_ERROR("[Set][TopoInfoForLevel2]superPodId[%s] is not exist in superPodRankMap",
-        rankData_.superPodId.c_str()), HCCL_E_INTERNAL);
+    // 对称场景需要初始化多个平面，非对称 level1 和 level2 合并无需切分平面
+    if (!isAsymPlanVector_[COMM_LEVEL2]) {
+        HCCL_INFO("[Set][TopoInfoForLevel2] select origin proc");
 
-    u32 index = 0;
-    for (; index < it->second.size(); ++index) {
-        if (userRank_ == it->second[index].userRank) {
-            break;
+        // 找到当前rank在本超节点内部的序号
+        auto it = superPodToRank_.find(rankData_.superPodIdx);
+        CHK_PRT_RET(it == superPodToRank_.end(),
+            HCCL_ERROR("[Set][TopoInfoForLevel2]superPodIdx[%u] is not exist in superPodRankMap",
+            rankData_.superPodIdx), HCCL_E_INTERNAL);
+
+        u32 index = 0;
+        for (; index < it->second.size(); ++index) {
+            if (userRank_ == it->second[index].userRank) {
+                break;
+            }
         }
+        CHK_PRT_RET(index >= it->second.size(),
+            HCCL_ERROR("[Set][TopoInfoForLevel2]userRank_[%u] superPodId[%s] superPodIdx[%u] not exist in superPodRankMap",
+            userRank_, rankData_.superPodId.c_str(), rankData_.superPodIdx), HCCL_E_INTERNAL);
+
+        std::vector<RankInfo> tmpRankVec;
+        for (auto iterMap = superPodToRank_.begin(); iterMap != superPodToRank_.end(); iterMap++) {
+            CHK_PRT_RET(iterMap->second.size() <= index,
+                HCCL_ERROR("[Set][TopoInfoForLevel2]index[%u] is bigger than rank vector size[%u]",
+                index, iterMap->second.size()), HCCL_E_INTERNAL);
+
+            RankInfo& tempRankData = iterMap->second[index];
+            tmpRankVec.push_back(tempRankData);
+
+            // 维护topo输出的信息
+            std::string outLogInfo = "userRank/devicePhyId/serverIdx/superPodId: ";
+            outLogInfo.append(std::to_string(tempRankData.userRank));
+            outLogInfo.append("/");
+            outLogInfo.append(std::to_string(tempRankData.devicePhyId));
+            outLogInfo.append("/");
+            outLogInfo.append(std::to_string(tempRankData.serverIdx));
+            outLogInfo.append("/");
+            outLogInfo.append(tempRankData.superPodId);
+            outLogInfo.append("; ");
+            HCCL_INFO("SetTopoInfoForLevel2: topoRankInfo[%s]", outLogInfo.c_str());
+        }
+
+        CommPlaneVector_[COMM_LEVEL2].push_back(tmpRankVec);
+        HCCL_RUN_INFO("SetTopoInfoForLevel2: identifier[%s], userRank[%u], userRankSize[%u], plane size[%u]",
+            identifier_.c_str(), userRank_, userRankSize_, CommPlaneVector_[COMM_LEVEL2].size());
     }
-    CHK_PRT_RET(index >= it->second.size(),
-        HCCL_ERROR("[Set][TopoInfoForLevel2]userRank_[%u] superPodId[%s] is not exist in superPodRankMap",
-        userRank_, rankData_.superPodId.c_str()), HCCL_E_INTERNAL);
-
-    std::vector<RankInfo> tmpRankVec;
-    for (auto iterMap = superPodToRank_.begin(); iterMap != superPodToRank_.end(); iterMap++) {
-        CHK_PRT_RET(iterMap->second.size() <= index,
-            HCCL_ERROR("[Set][TopoInfoForLevel2]index[%u] is bigger than rank vector size[%u]",
-            index, iterMap->second.size()), HCCL_E_INTERNAL);
-
-        RankInfo& tempRankData = iterMap->second[index];
-        tmpRankVec.push_back(tempRankData);
-
-        // 维护topo输出的信息
-        std::string outLogInfo = "userRank/devicePhyId/serverIdx/superPodId: ";
-        outLogInfo.append(std::to_string(tempRankData.userRank));
-        outLogInfo.append("/");
-        outLogInfo.append(std::to_string(tempRankData.devicePhyId));
-        outLogInfo.append("/");
-        outLogInfo.append(std::to_string(tempRankData.serverIdx));
-        outLogInfo.append("/");
-        outLogInfo.append(tempRankData.superPodId);
-        outLogInfo.append("; ");
-        HCCL_INFO("SetTopoInfoForLevel2: topoRankInfo[%s]", outLogInfo.c_str());
-    }
-
-    CommPlaneVector_[COMM_LEVEL2].push_back(tmpRankVec);
-    HCCL_RUN_INFO("SetTopoInfoForLevel2: identifier[%s], userRank[%u], userRankSize[%u], plane size[%u]",
-        identifier_.c_str(), userRank_, userRankSize_, CommPlaneVector_[COMM_LEVEL2].size());
+    
     return HCCL_SUCCESS;
 }
 
@@ -882,6 +989,7 @@ HcclResult TopoInfoExtractor::GetCommPlaneRanks(std::vector<std::vector<std::vec
             for (u32 rankIndex = 0 ; rankIndex < rankSize; rankIndex ++) {
                 u32 userRank = CommPlaneVector_[level][ringIndex][rankIndex].userRank;
                 CommPlaneRanks[level][ringIndex][rankIndex] = userRank;
+                HCCL_DEBUG("GetCommPlaneRanks CommPlaneRanks[%u][%u][%u]=%u", level, ringIndex, rankIndex, userRank);
             }
         }
     }
@@ -948,6 +1056,7 @@ HcclResult TopoInfoExtractor::GetRankVecInfo(std::vector<std::vector<std::vector
             superPodToRank[podFirstIdx].resize((iterMap->second).size());
             for (u32 i = 0; i < (iterMap->second).size(); i++) {
                 superPodToRank[podFirstIdx][i] = (iterMap->second)[i].userRank;
+                HCCL_DEBUG("GetRankVecInfo superPodToRank[%u][%u]=%u", podFirstIdx, i, superPodToRank[podFirstIdx][i]);
             }
         }
         podFirstIdx++;
@@ -963,6 +1072,85 @@ void TopoInfoExtractor::GetCommPlaneVector(std::vector<std::vector<std::vector<R
     return;
 }
 
+void TopoInfoExtractor::InitAHCConfig()
+{
+    for (u32 opType = 0; opType < static_cast<u32>(HcclCMDType::HCCL_CMD_MAX); opType++) {
+        isConfigAHC_ = (GetExternalInputHcclAlgoConfig(static_cast<HcclCMDType>(opType))[HCCL_ALGO_LEVEL_1] == HcclAlgoType::HCCL_ALGO_TYPE_AHC ||
+                        GetExternalInputHcclAlgoConfig(static_cast<HcclCMDType>(opType))[HCCL_ALGO_LEVEL_1] == HcclAlgoType::HCCL_ALGO_TYPE_AHC_BROKE);
+        if (isConfigAHC_) {
+            HCCL_INFO("[InitAHCConfig] set AHC alg, opType[%u]", opType);
+            break;
+        }
+    }
+
+    for (u32 opType = 0; opType < static_cast<u32>(HcclCMDType::HCCL_CMD_MAX); opType++) {
+        isConfigNULL_ = GetExternalInputHcclAlgoConfig(static_cast<HcclCMDType>(opType))[HCCL_ALGO_LEVEL_0] == HcclAlgoType::HCCL_ALGO_TYPE_NULL;
+        if (isConfigNULL_) {
+            HCCL_INFO("[InitAHCConfig] set NULL alg, opType[%u]", opType);
+            break;
+        }
+    }
+    return;
+}
+
+void TopoInfoExtractor::AHCCommSubgroupInit()
+{
+    if (deviceType_ != DevType::DEV_TYPE_910_93) {
+        // 用于910B AHC COMM_COMBINE 通信域分组场景测试
+        std::map<std::string, std::vector<u32>> serverIDGroup;
+        for (u32 i = 0; i < rankVector_.size(); i++) {
+            auto itServerID = serverIDGroup.find(rankVector_[i].serverId);
+            if (itServerID != serverIDGroup.end()) {
+                itServerID->second.push_back(i);
+            } else {
+                std::vector<u32> subGroup;
+                subGroup.push_back(i);
+                serverIDGroup.insert(std::make_pair(rankVector_[i].serverId, subGroup));
+            }
+        }
+        for (auto iterMap = serverIDGroup.begin(); iterMap != serverIDGroup.end(); iterMap++) {
+            CommPlaneSubGroupVector_[COMM_COMBINE].push_back(iterMap->second);
+            HCCL_DEBUG("[SetTopoInfoForLevel0][AHC_DEBUG 910B] serverID[%s]", iterMap->first.c_str());
+            for (auto index = iterMap->second.begin(); index != iterMap->second.end(); index++) {
+                HCCL_DEBUG("[SetTopoInfoForLevel0][AHC_DEBUG 910B] groupIdx[%u]", (*index));
+            }
+        }
+    } else {
+        // 用于910_93 AHC COMM_COMBINE_ORDER 通信域分组场景测试
+        std::map<std::string, std::vector<u32>> superPodIdGroup;
+        for (u32 i = 0; i < rankVector_.size(); i++) {
+            auto itSuperPodID = superPodIdGroup.find(rankVector_[i].superPodId);
+            if (itSuperPodID != superPodIdGroup.end()) {
+                itSuperPodID->second.push_back(i);
+            } else {
+                std::vector<u32> subGroup;
+                subGroup.push_back(i);
+                superPodIdGroup.insert(std::make_pair(rankVector_[i].superPodId, subGroup));
+            }
+        }
+        for (auto iterMap = superPodIdGroup.begin(); iterMap != superPodIdGroup.end(); iterMap++) {
+            CommPlaneSubGroupVector_[COMM_COMBINE_ORDER].push_back(iterMap->second);
+            HCCL_DEBUG("[SetTopoInfoForLevel0][AHC_DEBUG 910_93] superPodId[%s]", iterMap->first.c_str());
+            for (auto index = iterMap->second.begin(); index != iterMap->second.end(); index++) {
+                HCCL_DEBUG("[SetTopoInfoForLevel0][AHC_DEBUG 910_93] groupIdx[%u]", (*index));
+            }
+        }
+    }
+    return;
+}
+
+void TopoInfoExtractor::GetCommPlaneSubGroupVector(std::vector<std::vector<std::vector<u32>>> &CommPlaneSubGroupVector)
+{
+    CommPlaneSubGroupVector = CommPlaneSubGroupVector_;
+    return;
+}
+
+void TopoInfoExtractor::GetIsAsymPlanVector(std::vector<bool> &isAsymPlanVector)
+{
+    isAsymPlanVector = isAsymPlanVector_;
+    return;
+}
+                    
 void TopoInfoExtractor::GetRankData(RankInfo &rankData)
 {
     rankData = rankData_;
@@ -975,7 +1163,7 @@ void TopoInfoExtractor::GetServerToRank(std::map<u32, std::vector<RankInfo>> &se
     return;
 }
 
-void TopoInfoExtractor::GetSuperPodToRank(std::map<std::string, std::vector<RankInfo>> &superPodToRank)
+void TopoInfoExtractor::GetSuperPodToRank(std::map<u32, std::vector<RankInfo>> &superPodToRank)
 {
     superPodToRank = superPodToRank_;
     return;

@@ -22,7 +22,7 @@ HcclResult CollScatterMeshExecutor::CalcLevel0CommInfo(TransportMemType inputTyp
     TransportMemType outputType,
     std::vector<LevelNSubCommTransport>& opTransport)
 {
-    HCCL_INFO("[CollScatterMeshExecutor][CalcLevel0CommInfo]tag[%s ]start", tag_.c_str());
+    HCCL_INFO("[CollScatterMeshExecutor][CalcLevel0CommInfo]tag[%s] start", tag_.c_str());
     CommParaInfo commParaLevel0(COMM_LEVEL0, CommType::COMM_TAG_MESH);
 
     CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel0, opTransport[COMM_LEVEL0], inputType, outputType));
@@ -62,7 +62,7 @@ HcclResult CollScatterMeshExecutor::KernelRun(const OpParam &param, ExecMem &exe
     u32 subRoot = INVALID_VALUE_RANKID;
     CHK_RET(topoMatcher_->GetSubRootForScatter(param.root, subRoot));
     CHK_PRT_RET(subRoot == INVALID_VALUE_RANKID,
-        HCCL_ERROR("[CollScatterMeshExecutor][KernelRun]GetSubRootForScatter failed, ",
+        HCCL_ERROR("[CollScatterMeshExecutor][KernelRun]GetSubRootForScatter failed, "\
         "userRank[%u], root[%u], subRoot[%u]", topoAttr_.userRank, param.root, subRoot), HCCL_E_INTERNAL);
     HCCL_DEBUG("[CollScatterMeshExecutor][KernelRun]GetSubRootForScatter, userRank[%u], root[%u], subRoot[%u]",
         topoAttr_.userRank, param.root, subRoot);
@@ -91,7 +91,7 @@ HcclResult CollScatterMeshExecutor::KernelRun(const OpParam &param, ExecMem &exe
 
     // 偏移需要带入prepare
     u32 rootRankOuter = 0;
-    CHK_RET(GetRankByUserRank(COMM_LEVEL0, COMM_INDEX_0, param.root, rootRankOuter));
+    CHK_RET(GetRankByUserRank(COMM_LEVEL0, COMM_INDEX_0, subRoot, rootRankOuter));
     CHK_PRT_RET(rootRankOuter == INVALID_VALUE_RANKID,
         HCCL_ERROR("[CollScatterMeshExecutor][KernelRun]rootRankOuter[%u] is invalid, userRank[%u], subRoot[%u]",
         rootRankOuter, topoAttr_.userRank, subRoot), HCCL_E_INTERNAL);
@@ -113,4 +113,3 @@ HcclResult CollScatterMeshExecutor::KernelRun(const OpParam &param, ExecMem &exe
 REGISTER_EXEC("ScatterMeshExecutor", ScatterMesh, CollScatterMeshExecutor);
 
 }
-

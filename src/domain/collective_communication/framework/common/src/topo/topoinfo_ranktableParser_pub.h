@@ -113,6 +113,7 @@ protected:
     HcclResult CheckUniqueAndInsertPool(const JsonUniqueInfoType &type, const std::string &value,
         const JsonCheckOpType &opType);
     void GenerateServerIdx(const std::string &serverId, u32 &serverIdx);
+    void GenerateSuperPodIdx(const std::string &superPodId, u32 &superPodIdx);
     HcclResult CheckUniqueIntegerAndInsertPool(const std::string &serverId);
     HcclResult ConvertIpAddress(const std::string &ipStr, HcclIpAddress &ipAddr);
     // 所有集群信息
@@ -120,6 +121,7 @@ protected:
     hccl::RankTable_t rankTable_;
 
     std::vector<std::string> ServerIdRecord_;
+    std::vector<std::string> superPodRecord_;
 
 private:
     TopoInfoRanktableParser(const TopoInfoRanktableParser&);

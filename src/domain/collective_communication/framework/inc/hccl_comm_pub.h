@@ -169,8 +169,8 @@ public:
     HcclResult ReduceScatterOutPlace(const std::string &tag, void *inputPtr, void *outputPtr, u64 recvCount,
         HcclDataType dataType, HcclReduceOp op, rtStream_t stream);
 
-    HcclResult ProcessSendRecvTasks(const std::string &tag, std::vector<struct HcclSendRecvItemDef *> &orderedList,
-        u32 itemNum, u32 startIndex, rtStream_t stream);
+    HcclResult BatchSendRecv(const std::string &tag, struct HcclSendRecvItemDef* sendRecvItemsPtr,
+        u32 itemNum, rtStream_t stream);
 
     HcclResult send(const std::string &tag, void *inputPtr, u64 count, HcclDataType dataType, u32 destRank,
         rtStream_t stream);
@@ -246,6 +246,7 @@ public:
     HcclResult HcclTest(HcclRequest hcclRequest, s32 &flag, HcclStatus &compState) const;
     // 获取溢出Flag内存传给RTS
     HcclResult SetGlobalWorkSpace(std::vector<void *> &globalWorkSpaceAddr);
+    HcclResult SetAttachedStream(const std::vector<rtStream_t> &streams);
     // 获取rdma with reduce算子溢出的task信息，然后清除
     HcclResult GetandClearOverFlowTasks(std::vector<HcclDumpInfo> &hcclDumpInfo);
     HcclResult SupportDeterministicOptim(bool &isDeterministicOptim);
@@ -280,6 +281,9 @@ public:
     HcclResult SetDeterministicConfig(const u8 deterministic);  // 设置确定性计算配置
     u64 GetConfigInCCLbufferSize();     // 获取通信域配置的输入buffer大小
     u64 GetConfigOutCCLbufferSize();    // 获取通信域配置的输出buffer大小
+    u32 GetRankTableCrc();
+    HcclResult GetCommParams(HcclCommParams &params);       // 逆向解析获取HcclCommParams参数
+    HcclResult GetCommRankTable(RankTable_t &rankTable);    // 逆向解析获取RankTable_t参数
 
     void* barrierSendBuf;
     void* barrierRecvBuf;
@@ -294,6 +298,7 @@ private:
     HcclResult InitImpl(DevType deviceType);
     void UpdateIsHaveCpuRank(const RankTable_t &rankTable);
     void UpdateIsHaveCpuRank(const std::vector<RankInfo> &rankList);
+    void PrintSubmittedOpCnt(const std::string &tag, HcclResult ret);
     DeviceMem indirectInCCLbuffer_; /* 保存inCCLbuffer指针的地址 */
     DeviceMem indirectOutCCLbuffer_; /* 保存outCCLbuffer_指针的地址 */
     u64 inCCLbufferSize_;

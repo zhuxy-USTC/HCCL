@@ -44,7 +44,7 @@ HcclResult CollReceiveExecutor::Orchestrate(OpParam& param, AlgResourceResponse&
 
 HcclResult CollReceiveExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_OUTPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -59,7 +59,7 @@ HcclResult CollReceiveExecutor::CalcTransportMemType(TransportMemType &inputType
 HcclResult CollReceiveExecutor::CalcP2PCommInfo(TransportMemType inputType,
     TransportMemType outputType, std::vector<LevelNSubCommTransport>& opTransport, u32 srcRank)
 {
-    HCCL_INFO("[CollRecvExecutor][CalcOuterCommInfo]tag[%s ]start", tag_.c_str());
+    HCCL_INFO("[CollRecvExecutor][CalcOuterCommInfo]tag[%s] start", tag_.c_str());
     CommParaInfo commP2P(COMM_COMBINE, CommType::COMM_TAG_P2P);
     commP2P.peerUserRank = srcRank;
     CHK_RET(CalcCommPlaneInfo(tag_, commP2P, opTransport[COMM_COMBINE], inputType, outputType));
@@ -88,9 +88,9 @@ HcclResult CollReceiveExecutor::CalcResRequest(const OpParam& param, AlgResource
         std::vector<LevelNSubCommTransport>(static_cast<u32>(COMM_LEVEL_RESERVED))
     };
 
-    CalcCommInfo(opTransport, param.srcRank);
+    CHK_RET(CalcCommInfo(opTransport, param.srcRank));
 
-    BuildResourceRequest(scratchMemSize, streamNum, notifyNum, needAivBuffer, opTransport, resourceRequest);
+    CHK_RET(BuildResourceRequest(scratchMemSize, streamNum, notifyNum, needAivBuffer, opTransport, resourceRequest));
     HCCL_INFO("streamNum[%u], notifyNum[%u], sctrachMemSize[%llu], needAivBuffer[%u]",
         resourceRequest.streamNum, resourceRequest.notifyNum, resourceRequest.scratchMemSize,
         resourceRequest.needAivBuffer);
@@ -121,23 +121,12 @@ HcclResult CollReceiveExecutor::RunLoop(OpParam &param, AlgResourceResponse &alg
         u64 curSize = curCount * unitSize; // 单位 byte
         HCCL_DEBUG("RecvOutPlace:curOutputPtr[%p], curCount[%llu], curSize[%llu]", curOutputPtr, curCount, curSize);
 
-        /* 记录指令信息用于一致性校验 */
-        ret = RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_RECEIVE, param.tag, curCount,
-            param.DataDes.dataType, commOutputSize, 0, HCCL_WORLD_GROUP);
-        CHK_PRT_RET(ret != HCCL_SUCCESS,
-            HCCL_ERROR("errNo[0x%016llx] record CMD with parameter error", HCCL_ERROR_CODE(ret)), ret);
-
         DeviceMem cclOutputMem(algRes.cclOutputMem.ptr(), curSize);
         ret = RunTemplate(param, cclOutputMem);
         CHK_PRT_RET(ret != HCCL_SUCCESS,
             HCCL_ERROR("errNo[0x%016llx] RecvOutPlace: recv error, tag[%s], ptr[%p], count[%llu], dataType[%d]",
             HCCL_ERROR_CODE(ret), param.tag.c_str(), curOutputPtr, curCount, param.DataDes.dataType),
             ret);
-
-        ret = RankConsistent::GetInstance().DelOpPara(param.tag);
-        CHK_PRT_RET(ret != HCCL_SUCCESS,
-            HCCL_ERROR("errNo[0x%016llx] delete CMD with parameters error. tag[%s]", HCCL_ERROR_CODE(ret),
-            param.tag.c_str()), ret);
 
         DeviceMem outCommMem(cclOutputMem.ptr(), curSize);
         DeviceMem outMem(curOutputPtr, curSize);
@@ -161,8 +150,8 @@ HcclResult CollReceiveExecutor::RunTemplate(const OpParam &param, DeviceMem &out
     LINK transportLink = commInfo.links[0];
 
     SendReceive ReceiveExecutor(dispatcher_, transportLink);
-    ReceiveExecutor.ReceivePrepare(outputMem, param.srcRank, param.stream);
-    ReceiveExecutor.RegisterProfiler(0, PROF_STAGE_0, HCCL_EXEC_STEP_NOT_SET, param.stream);
+    CHK_RET(ReceiveExecutor.ReceivePrepare(outputMem, param.srcRank, param.stream));
+    CHK_RET(ReceiveExecutor.RegisterProfiler(0, PROF_STAGE_0, HCCL_EXEC_STEP_NOT_SET, param.stream));
     CHK_RET(ReceiveExecutor.ReceiveRunAsync());
 
     return HCCL_SUCCESS;

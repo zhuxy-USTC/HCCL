@@ -129,7 +129,9 @@ HcclResult TransportManager::Alloc(const std::string &tag, const TransportIOMem 
 
             u32 linkIdx = 0;
             for (auto &transportRequest : singleSubCommTransport.transportRequests) {
-                singleSubCommTransport.links.emplace_back(std::make_shared<Transport>(nullptr));
+                std::shared_ptr<Transport> subTrans;
+                EXECEPTION_CATCH((subTrans = std::make_shared<Transport>(nullptr)), return HCCL_E_PTR);
+                singleSubCommTransport.links.emplace_back(subTrans);
                 if (transportRequest.isValid) {
                     DeviceMem inputMem;
                     DeviceMem outputMem;
@@ -220,6 +222,7 @@ HcclResult TransportManager::IncreAlloc(const std::string &tag, const TransportI
                     continue;
                 }
                 if (transportRequest.isValid) {
+                    respSingleSubComm.transportRequests[rankIndex] = transportRequest;
                     DeviceMem inputMem;
                     DeviceMem outputMem;
                     GetIOMem(transMem, transportRequest.inputMemType, transportRequest.outputMemType,
@@ -380,7 +383,7 @@ u32 TransportManager::GetSocketsPerLink(u64 taskNum)
 {
     if (GetExternalInputQpsPerConnection() != HCCL_QPS_PER_CONNECTION_DEFAULT &&
         GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
-        return 2;
+        return 2; // 2：多QP方式下额外创建一个socket用于同步QP状态迁移完成状态
     }
     u32 socketsPerLink = 1;
     if (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
@@ -506,7 +509,7 @@ TransportType TransportManager::GetTransportType(const u32 dstRank, bool isUsedR
             hrtGetPairDeviceLinkType(rankInfoList_[userRank_].devicePhyId, rankInfoList_[dstRank].devicePhyId,
                 linkType);
             if (linkType == LinkTypeInServer::SIO_TYPE && GetExternalInputEnableRdmaSdmaConcurrent() && isUsedRdma
-                && rankInfoList_[userRank_].deviceType == DevType::DEV_TYPE_910_73) {
+                && rankInfoList_[userRank_].deviceType == DevType::DEV_TYPE_910_93) {
                 transportType = TransportType::TRANS_TYPE_P2P;
             // Server内判断是否使用rdma
             } else if (isUsedRdma) {
@@ -523,7 +526,7 @@ TransportType TransportManager::GetTransportType(const u32 dstRank, bool isUsedR
             transportType = TransportType::TRANS_TYPE_ROCE;
         } else if (isHaveCpuRank_) {
             transportType = TransportType::TRANS_TYPE_HETEROG_ROCE;
-        } else if (IsSupportInterHccs(dstRank)) {
+        } else if ((!isUsedRdma) && IsSupportInterHccs(dstRank)) {
             // 超节点内节点间走HCCS通信
             transportType = TransportType::TRANS_TYPE_P2P;
         } else {
@@ -613,13 +616,13 @@ void TransportManager::UpdateIsInterRdma(const u32 remoteRank, bool &isInterRdma
     bool isConcurrent = GetExternalInputEnableRdmaSdmaConcurrent();
     LinkTypeInServer linkType;
     hrtGetPairDeviceLinkType(rankInfoList_[userRank_].devicePhyId, rankInfoList_[remoteRank].devicePhyId, linkType);
-    if (isConcurrent && forceRdma && rankInfoList_[userRank_].deviceType == DevType::DEV_TYPE_910_73) {
+    if (isConcurrent && forceRdma && rankInfoList_[userRank_].deviceType == DevType::DEV_TYPE_910_93) {
         if (linkType == LinkTypeInServer::SIO_TYPE) {
             isInterRdma = false;
         } else {
             isInterRdma = true;
         }
-    } else if (isInterHccs) {
+    } else if (isInterHccs && (!forceRdma)) {
         isInterRdma = false;
     } else {
         isInterRdma = rankInfoList_[userRank_].serverId != rankInfoList_[remoteRank].serverId ||

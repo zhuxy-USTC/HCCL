@@ -7,6 +7,7 @@
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
+
 #ifndef COLL_RUN_ALLTOALLV_TWO_LEVEL_PIPELINE_H
 #define COLL_RUN_ALLTOALLV_TWO_LEVEL_PIPELINE_H
 #include "coll_all_to_all_executor.h"
@@ -30,6 +31,7 @@ private:
     HcclResult CalNoScratchAlltoallCommInfo(TransportMemType inputType, TransportMemType outputType,
         std::vector<LevelNSubCommTransport>& opTransport);
     HcclResult CalcCommInfo(std::vector<LevelNSubCommTransport>& opTransport) override;
+    HcclOpMetaInfo GetOpMeta(HcclCMDType opType, const u64 size) override;
     HcclResult KernelRun(const OpParam &param, ExecMem &execMem) override;
 };
 

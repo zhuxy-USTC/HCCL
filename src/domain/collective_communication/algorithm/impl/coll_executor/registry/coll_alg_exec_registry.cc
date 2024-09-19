@@ -12,9 +12,9 @@
 
 namespace hccl {
 
-CollAlgExecRegistry *CollAlgExecRegistry::Instance()
+CollAlgExecRegistry &CollAlgExecRegistry::Instance()
 {
-    static CollAlgExecRegistry *globalExecRegistry = new CollAlgExecRegistry;
+    static CollAlgExecRegistry globalExecRegistry;
     return globalExecRegistry;
 }
 

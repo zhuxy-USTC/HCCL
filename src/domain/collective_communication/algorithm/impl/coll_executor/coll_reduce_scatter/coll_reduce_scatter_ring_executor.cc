@@ -17,7 +17,7 @@ CollReduceScatterRingExecutor::CollReduceScatterRingExecutor(const HcclDispatche
     : CollReduceScatterExecutor(dispatcher, topoMatcher)
 {
     DMAReduceFlag_ = (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        topoAttr_.deviceType == DevType::DEV_TYPE_910_73);
+        topoAttr_.deviceType == DevType::DEV_TYPE_910_93);
 }
 
 void CollReduceScatterRingExecutor::ParseParam(const OpParam& param)
@@ -26,9 +26,8 @@ void CollReduceScatterRingExecutor::ParseParam(const OpParam& param)
 
     // 是否需要scratch memory
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        (topoAttr_.deviceType == DevType::DEV_TYPE_910B || topoAttr_.deviceType == DevType::DEV_TYPE_910_73) &&
-        IsSupportSDMAReduce(param.inputPtr, param.outputPtr, param.DataDes.dataType, param.reduceType) &&
-        IsSupportRDMAReduce(param.DataDes.dataType, param.reduceType)) {
+        (topoAttr_.deviceType == DevType::DEV_TYPE_910B || topoAttr_.deviceType == DevType::DEV_TYPE_910_93) &&
+        isSupportSDMAReduce_ && IsSupportRDMAReduce(param.DataDes.dataType, param.reduceType)) {
         scratchMemFlag_ = false;
     } else {
         scratchMemFlag_ = true;
@@ -50,7 +49,7 @@ HcclResult CollReduceScatterRingExecutor::CalcScratchMemSize(u64& scratchMemSize
     } else {
         scratchMemSize = 0U;
     }
-    HCCL_INFO("[CollReduceScatterRingExecutor][CalcScratchMemSize] tag[%s] scratchMemSize[%u]",
+    HCCL_INFO("[CollReduceScatterRingExecutor][CalcScratchMemSize] tag[%s] scratchMemSize[%llu]",
         tag_.c_str(), scratchMemSize);
     return HCCL_SUCCESS;
 }
@@ -69,7 +68,7 @@ HcclResult CollReduceScatterRingExecutor::CalcStreamNum(u32& streamNum)
             break;
         case AlgType::ALG_NP_SINGLE_RING_PLUS_RING:
         case AlgType::ALG_NP_SINGLE_RING_PLUS_HD:
-            if (topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
+            if (topoAttr_.deviceType == DevType::DEV_TYPE_910_93) {
                 if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
                     totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
                 } else {
@@ -122,7 +121,7 @@ HcclResult CollReduceScatterRingExecutor::CalcLevel0CommInfo(TransportMemType in
     TransportMemType outputType,
     std::vector<LevelNSubCommTransport>& opTransport)
 {
-    HCCL_INFO("[CollReduceScatterRingExecutor][CalcLevel0CommInfo]tag[%s ]start", tag_.c_str());
+    HCCL_INFO("[CollReduceScatterRingExecutor][CalcLevel0CommInfo]tag[%s] start", tag_.c_str());
     CommParaInfo commParaLevel0(COMM_LEVEL0, CommType::COMM_TAG_RING_INNER);
     CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel0, opTransport[COMM_LEVEL0], inputType, outputType));
     HCCL_INFO("[CollReduceScatterRingExecutor][CalcLevel0CommInfo]tag[%s] Calc RingComm finish", tag_.c_str());
@@ -181,7 +180,7 @@ HcclResult CollReduceScatterRingExecutor::KernelRun(const OpParam &param, ExecMe
         CHK_RET(ExecutorBase::PrepareSliceData(inputDataCount, perDataSize, sliceNum, 0, dataSegsSlice));
         multiStreamSlice = PrepareMultiRingSlice(dataSegsSlice, param.tag);
         CHK_PRT_RET(multiStreamSlice.size() != ringNum,
-            HCCL_ERROR("[CollReduceScatterRingExecutor][KernelRun]ringNum[%u] != multiStreamSlice size[%llu]",
+            HCCL_ERROR("[CollReduceScatterRingExecutor][KernelRun]ringNum[%u] != multiStreamSlice size[%zu]",
                 ringNum, multiStreamSlice.size()), HCCL_E_INTERNAL);
 
         CHK_RET(MultiRingAllReduce(param.tag, execMem.inputMem, execMem.scratchMem, inputDataCount,
@@ -271,7 +270,7 @@ HcclResult CollReduceScatterRingExecutor::KernelRun(const OpParam &param, ExecMe
         dataSegsSlice, param.tag);
     bool bRet = (multiStreamSlice.size() != ringNum);
     CHK_PRT_RET(bRet,
-        HCCL_ERROR("[CollReduceScatterRingExecutor][KernelRun]sliceNum-1[%u] != multiStreamSlice size[%llu]", \
+        HCCL_ERROR("[CollReduceScatterRingExecutor][KernelRun]sliceNum-1[%u] != multiStreamSlice size[%zu]", \
         sliceNum - 1, multiStreamSlice.size()), HCCL_E_INTERNAL);
 
     if (isMultiNic) { // 网口裁剪情况下需要改变slice最终在rank上位置

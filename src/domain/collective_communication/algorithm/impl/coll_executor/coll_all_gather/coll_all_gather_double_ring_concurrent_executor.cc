@@ -22,7 +22,7 @@ CollAllGatherDoubleRingConcurrentExecutor::CollAllGatherDoubleRingConcurrentExec
 HcclResult CollAllGatherDoubleRingConcurrentExecutor::CalcStreamNum(u32& streamNum)
 {
     u32 totalStreamNum = 0U;
-    // DoubleRing只支持910_73场景
+    // DoubleRing只支持910_93场景
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_DOUBLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
     } else {
@@ -194,10 +194,10 @@ HcclResult CollAllGatherDoubleRingConcurrentExecutor::KernelRun(const OpParam &p
             for (u32 i = 0; i < level1RankSize; i++) {
                 Slice sdmaSlice;
                 Slice rdmaSlice;
-                u64 sdmaSliceSize = ((level1DataSegsSlice[i].size <= HCCL_MIN_SLICE_ALIGN_910_73) ||
+                u64 sdmaSliceSize = ((level1DataSegsSlice[i].size <= HCCL_MIN_SLICE_ALIGN_910_93) ||
                     (syncTrans == MAX_SPLIT_VALUE)) ? level1DataSegsSlice[i].size :
                     ((syncTrans * level1DataSegsSlice[i].size / MAX_SPLIT_VALUE) 
-                    / HCCL_MIN_SLICE_ALIGN_910_73) * HCCL_MIN_SLICE_ALIGN_910_73;
+                    / HCCL_MIN_SLICE_ALIGN_910_93) * HCCL_MIN_SLICE_ALIGN_910_93;
                 sdmaSlice.size = sdmaSliceSize;
                 sdmaSlice.offset = level1DataSegsSlice[i].offset;
                 rdmaSlice.size = level1DataSegsSlice[i].size - sdmaSliceSize;
@@ -296,9 +296,9 @@ HcclResult CollAllGatherDoubleRingConcurrentExecutor::KernelRun(const OpParam &p
             for (u32 segsIndex = 0; segsIndex < multRingsSlice[ringIndex].size(); segsIndex++) {
                 auto totalSize = multRingsSlice[ringIndex][segsIndex].size;
                 auto sdmaSliceOffset = multRingsSlice[ringIndex][segsIndex].offset;
-                auto sdmaSliceSize = ((totalSize <= HCCL_MIN_SLICE_ALIGN_910_73) || (syncTrans == MAX_SPLIT_VALUE)) ? 
-                    totalSize : ((syncTrans * totalSize / MAX_SPLIT_VALUE) / HCCL_MIN_SLICE_ALIGN_910_73) *
-                    HCCL_MIN_SLICE_ALIGN_910_73;
+                auto sdmaSliceSize = ((totalSize <= HCCL_MIN_SLICE_ALIGN_910_93) || (syncTrans == MAX_SPLIT_VALUE)) ? 
+                    totalSize : ((syncTrans * totalSize / MAX_SPLIT_VALUE) / HCCL_MIN_SLICE_ALIGN_910_93) *
+                    HCCL_MIN_SLICE_ALIGN_910_93;
                 Slice sdmaSliceTmp;
                 sdmaSliceTmp.offset = sdmaSliceOffset;
                 sdmaSliceTmp.size = sdmaSliceSize;

@@ -74,6 +74,26 @@ HcclResult TopoMatcher::CalcCommPlaneInfo(const std::string &tag, const CommPara
                 isBridgeVector_, userRank_));
             break;
         }
+        case CommType::COMM_TAG_ASYMMETRIC_HIERARCHICAL_CONCATENATE:
+        case CommType::COMM_TAG_WHOLE_AHC: {
+            CHK_PRT_RET(static_cast<u32>(topoInfo_.CommPlaneSubGroupVector.size()) <
+                (static_cast<u32>(commParaInfo.commPlane) + 1) ||
+                topoInfo_.CommPlaneSubGroupVector[commParaInfo.commPlane].size() == 0,
+                HCCL_ERROR("[TopoMatcher][CalcCommPlaneInfo] CommPlaneSubGroupVector para init error."), HCCL_E_PARA);
+            calcTransportReq.reset(new (std::nothrow) CalcAHCTransportReq(CommPlaneVector_[commParaInfo.commPlane],
+                isBridgeVector_, userRank_, topoInfo_.CommPlaneSubGroupVector[commParaInfo.commPlane]));
+            break;
+        }
+        case CommType::COMM_TAG_ASYMMETRIC_HIERARCHICAL_CONCATENATE_BROKE:
+        case CommType::COMM_TAG_WHOLE_AHC_BROKE: {
+            CHK_PRT_RET(static_cast<u32>(topoInfo_.CommPlaneSubGroupVector.size()) <
+                (static_cast<u32>(commParaInfo.commPlane) + 1) ||
+                topoInfo_.CommPlaneSubGroupVector[commParaInfo.commPlane].size() == 0,
+                HCCL_ERROR("[TopoMatcher][CalcCommPlaneInfo] CommPlaneSubGroupVector para init error."), HCCL_E_PARA);
+            calcTransportReq.reset(new (std::nothrow) CalcAHCBrokeTransportReq(CommPlaneVector_[commParaInfo.commPlane],
+                isBridgeVector_, userRank_, topoInfo_.CommPlaneSubGroupVector[commParaInfo.commPlane]));
+            break;
+        }
         case CommType::COMM_TAG_NONUNIFORM_BRUCK:
         case CommType::COMM_TAG_WHOLE_NB: {
             calcTransportReq.reset(new (std::nothrow) CalcNBTransportReq(CommPlaneVector_[commParaInfo.commPlane],
@@ -174,6 +194,11 @@ HcclResult TopoMatcher::GetIsUsedRdma(const CommParaInfo &commParaInfo, bool &is
         commP2PRankVec.push_back(topoInfo_.userRank);
         commP2PRankVec.push_back(commParaInfo.peerUserRank);
         commP2PPlaneVec.push_back(commP2PRankVec);
+    } else if (commParaInfo.commType == CommType::COMM_TAG_WHOLE_AHC ||
+               commParaInfo.commType == CommType::COMM_TAG_WHOLE_AHC_BROKE) {
+        // COMM 场景，支持 HCCS 和 ROH 混合链路
+        isUsedRdma = false;
+        return HCCL_SUCCESS;
     }
 
     std::vector<std::vector<u32> > &commPlaneVec = (commParaInfo.commType == CommType::COMM_TAG_P2P) ?
@@ -196,7 +221,7 @@ HcclResult TopoMatcher::SetIsUsedRdma(const CommParaInfo &commParaInfo,
 {
     bool isUsedRdma = false;
     CHK_RET(GetIsUsedRdma(commParaInfo, isUsedRdma));
-    isUsedRdma = (GetExternalInputEnableRdmaSdmaConcurrent() && topoInfo_.deviceType == DevType::DEV_TYPE_910_73) ?
+    isUsedRdma = (GetExternalInputEnableRdmaSdmaConcurrent() && topoInfo_.deviceType == DevType::DEV_TYPE_910_93) ?
         commParaInfo.forceRdma : isUsedRdma;
     u32 ringSize = commTransport.size();
 
@@ -396,6 +421,38 @@ u32 TopoMatcher::GetSubRootUserRankWithSuperPod(const u32 userRank, const u32 ro
     if (superPodIdx != INVALID_VALUE_RANKID && rankIdx != INVALID_VALUE_RANKID) {
         tmpUserRank = serverAndsuperPodToRank_[1][superPodIdx][rankIdx];
     }
+    HCCL_DEBUG("GetSubRootUserRankWithSuperPod userRank[%u], rootUserRank[%u], ret[%u]",
+        userRank, rootUserRank, tmpUserRank);
+    return tmpUserRank;
+}
+
+u32 TopoMatcher::GetSubRootWithSuperPod(const u32 userRank, const u32 rootUserRank)
+{
+    u32 tmpUserRank = INVALID_VALUE_RANKID;
+
+    u32 superPodIdx = INVALID_VALUE_RANKID;
+    for (u32 i = 0; i < serverAndsuperPodToRank_[1].size(); i++) {
+        for (u32 j = 0; j < serverAndsuperPodToRank_[1][0].size(); j++) {
+            if (serverAndsuperPodToRank_[1][i][j] == userRank) {
+                superPodIdx = i;
+                break;
+            }
+        }
+    }
+    u32 rankIdx = INVALID_VALUE_RANKID;
+    for (u32 i = 0; i < serverAndsuperPodToRank_[1].size(); i++) {
+        for (u32 j = 0; j < serverAndsuperPodToRank_[1][0].size(); j++) {
+            if (serverAndsuperPodToRank_[1][i][j] == rootUserRank) {
+                rankIdx = j;
+                break;
+            }
+        }
+    }
+
+    if (superPodIdx != INVALID_VALUE_RANKID && rankIdx != INVALID_VALUE_RANKID) {
+        tmpUserRank = serverAndsuperPodToRank_[1][superPodIdx][rankIdx];
+    }
+    HCCL_DEBUG("GetSubRootWithSuperPod superPodIdx[%u], rankIdx[%u], ret[%u]", superPodIdx, rankIdx, tmpUserRank);
     return tmpUserRank;
 }
 
@@ -412,6 +469,23 @@ HcclResult TopoMatcher::SetDeterministicConfig(const u8 deterministic)
 u8 TopoMatcher::GetDeterministicConfig() const
 {
     return externalEnable_.deterministic;
+}
+
+bool TopoMatcher::GetLevelAsymType(const CommPlane level) const
+{
+    return topoInfo_.isAsymPlanVector[level];
+}
+
+HcclResult TopoMatcher::GetLevelSubGroups(const CommPlane level, std::vector<std::vector<u32>> &subGroups)
+{
+    subGroups = topoInfo_.CommPlaneSubGroupVector[level];
+    return HCCL_SUCCESS;
+}
+
+HcclResult TopoMatcher::SetLevelSubGroups(const CommPlane level, std::vector<std::vector<u32>> &subGroups)
+{
+    topoInfo_.CommPlaneSubGroupVector[level] = subGroups;
+    return HCCL_SUCCESS;
 }
 
 }

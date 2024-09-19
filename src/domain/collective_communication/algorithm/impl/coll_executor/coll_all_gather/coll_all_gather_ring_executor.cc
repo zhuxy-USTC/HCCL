@@ -32,7 +32,7 @@ HcclResult CollAllGatherRingExecutor::CalcStreamNum(u32& streamNum)
             break;
         case AlgType::ALG_NP_SINGLE_RING_PLUS_RING:
         case AlgType::ALG_NP_SINGLE_RING_PLUS_HD:
-            if (topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
+            if (topoAttr_.deviceType == DevType::DEV_TYPE_910_93) {
                 if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
                     totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
                 } else {
@@ -77,7 +77,7 @@ HcclResult CollAllGatherRingExecutor::CalcLevel0CommInfo(TransportMemType inputT
     TransportMemType outputType,
     std::vector<LevelNSubCommTransport>& opTransport)
 {
-    HCCL_INFO("[CollAllGatherRingExecutor][CalcOuterCommInfo]tag[%s ]start", tag_.c_str());
+    HCCL_INFO("[CollAllGatherRingExecutor][CalcOuterCommInfo]tag[%s] start", tag_.c_str());
     CommParaInfo commParaLevel0(COMM_LEVEL0, CommType::COMM_TAG_RING_INNER);
     CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel0, opTransport[COMM_LEVEL0], inputType, outputType));
     HCCL_INFO("[CollAllGatherRingExecutor][CalcOuterCommInfo]tag[%s] Calc RingComm finish", tag_.c_str());
@@ -137,7 +137,7 @@ HcclResult CollAllGatherRingExecutor::KernelRun(const OpParam &param, ExecMem &e
         multRingsSliceZero.push_back(dataSegsSlice);
     }
     CHK_PRT_RET(multRingsSliceZero.size() != ringNum,
-        HCCL_ERROR("[CollAllGatherRingExecutor][KernelRun]ringNum[%u] != multRingsSliceZero size[%llu]",
+        HCCL_ERROR("[CollAllGatherRingExecutor][KernelRun]ringNum[%u] != multRingsSliceZero size[%zu]",
             ringNum, multRingsSliceZero.size()), HCCL_E_INTERNAL);
 
     //  抽取当前用于多环all gather 的output内存数据
@@ -205,7 +205,7 @@ HcclResult CollAllGatherRingExecutor::KernelRun(const OpParam &param, ExecMem &e
         CHK_RET(ExecutorBase::PrepareSliceData(tempCount, perDataSize, sliceNum, 0, dataSegsSlice));
         multRingsSliceZero = PrepareMultiRingSlice(dataSegsSlice, param.tag, false, nicList);
         CHK_PRT_RET(multRingsSliceZero.size() != ringNum, HCCL_ERROR("[CollAllGatherRingExecutor][KernelRun]"\
-            "ringNum[%u] != multRingsSliceZero size[%llu]", ringNum, multRingsSliceZero.size()), HCCL_E_INTERNAL);
+            "ringNum[%u] != multRingsSliceZero size[%zu]", ringNum, multRingsSliceZero.size()), HCCL_E_INTERNAL);
 
         CHK_RET(MultiRingAllGather(param.tag, execMem.outputMem, execMem.outputMem, tempCount / DEVICE_EIGHT,
             param.DataDes.dataType, multRingsSliceZero, param.stream, PROF_STAGE_1));

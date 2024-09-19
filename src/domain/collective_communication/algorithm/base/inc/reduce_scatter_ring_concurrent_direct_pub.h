@@ -33,11 +33,20 @@ public:
 protected:
 private:
     HcclResult CheckParameters(const u32 rank, const u32 rankSize, const std::vector<LINK> &links);
-    HcclResult MemcpyByOneRank();
+    HcclResult OneRankMemcpy();
     HcclResult InitSenderReducer();
     HcclResult GetInitializedNeighborLinks(const u32 rank, const u32 rankSize, const std::vector<LINK> &links);
     HcclResult SetSlices(const u32 rank, const u32 rankSize);
     HcclResult RunInitStep(const u32 rank, const u32 rankSize);
+    HcclResult PreSync();
+    HcclResult ReducerRunSpInlineReduce(
+        const HcclDispatcher dispatcher, const LINK &link,
+        const std::vector<ReducerMemoryInfo> &reducerMems, Stream &stream);
+    HcclResult ReducerRunNoSpInlineReduce(
+        const HcclDispatcher dispatcher, const LINK &link,
+        const std::vector<ReducerMemoryInfo> &reducerMems, Stream &stream);
+    HcclResult ReducerRun(const HcclDispatcher dispatcher, const LINK &link,
+        const std::vector<ReducerMemoryInfo> &reducerMems, Stream &stream);
     HcclResult RunMainStream(const u32 step, std::vector<Slice> txSliceVector, std::vector<Slice> rxSliceVector,
                              const u32 rank, const u32 rankSize);
     HcclResult RunSubStream(const u32 step, std::vector<Slice> subSliceVector, std::vector<Slice> cclSliceVector,

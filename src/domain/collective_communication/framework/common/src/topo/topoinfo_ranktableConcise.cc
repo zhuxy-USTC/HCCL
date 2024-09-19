@@ -337,13 +337,13 @@ HcclResult TopoinfoRanktableConcise::GetSingleDevice(const nlohmann::json &devic
     CHK_RET(SalStrToULong(strDevid, HCCL_BASE_DECIMAL, devicePhyId));
 
     if ((deviceType == DevType::DEV_TYPE_310P3 || deviceType == DevType::DEV_TYPE_910B ||
-        deviceType == DevType::DEV_TYPE_910_73) &&  devicePhyId > (MAX_MODULE_DEVICE_NUM - 1)) {
+        deviceType == DevType::DEV_TYPE_910_93) &&  devicePhyId > (MAX_MODULE_DEVICE_NUM - 1)) {
         // deviceid in 0 ~ 15
         HCCL_ERROR("[Get][SingleDevice]errNo[0x%016llx] device_id[%u] more than 15 is invalid",
             HCOM_ERROR_CODE(HCCL_E_PARA), devicePhyId);
         return HCCL_E_PARA;
     } else if ((deviceType != DevType::DEV_TYPE_310P3 && deviceType != DevType::DEV_TYPE_910B &&
-        deviceType != DevType::DEV_TYPE_910_73) && devicePhyId > (HCCL_AISERVER_DEVICE_NUM - 1)) {
+        deviceType != DevType::DEV_TYPE_910_93) && devicePhyId > (HCCL_AISERVER_DEVICE_NUM - 1)) {
         // deviceid in 0 ~ 7
         HCCL_ERROR("[Get][SingleDevice]errNo[0x%016llx] device_id[%u] more than 7 is invalid",
             HCOM_ERROR_CODE(HCCL_E_PARA), devicePhyId);
@@ -580,10 +580,14 @@ HcclResult TopoinfoRanktableConcise::GetSingleSuperPodSever(const nlohmann::json
         return ret;
     }
 
+    u32 superPodIdx = INVALID_UINT;
+    GenerateSuperPodIdx(superPodId, superPodIdx);
+
     bool isFound = false;
     for (RankInfo_t& rankInfo : clusterInfo.rankList) {
         if (rankInfo.serverId == serverId) {
             rankInfo.superPodId = superPodId;
+            rankInfo.superPodIdx = superPodIdx;
             isFound = true;
         }
     }
