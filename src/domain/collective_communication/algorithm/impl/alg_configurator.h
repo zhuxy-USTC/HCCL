@@ -51,12 +51,8 @@ public:
     void GetTopoType(TopoType &topoType);
     void GetAlgTypeDirect(AlgType &algType, HcclCMDType opType);
     HcclResult GetAlgoLevel1DefaultSwitch(bool &isAlgoLevel1Default, HcclCMDType opType);
-
-    bool Is310P3Common()
-    {
-        return !algoAttr_.isHaveCpuRank && !Is310PDevice() && topoAttr_.deviceType == DevType::DEV_TYPE_310P3;
-    }
-
+    const HcclTopoAttr& GetTopoAttr();
+    const HcclAlgoAttr& GetAlgoAttr();
 private:
     HcclAlgoAttr &algoAttr_;
     HcclTopoAttr &topoAttr_;

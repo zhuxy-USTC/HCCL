@@ -33,7 +33,7 @@ HcclResult CollBroadcastMeshExecutor::CalcStreamNum(u32& streamNum)
             if ((workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) &&
                 (topoAttr_.deviceType == DevType::DEV_TYPE_910B) && topoAttr_.isSingleMeshAggregation ) {
                 totalStreamNum = topoAttr_.deviceNumPerAggregation;
-            } else if ((topoAttr_.deviceType == DevType::DEV_TYPE_910_73 || aicpuUnfoldMode_)) { // && (isAicpuModeEn == true)
+            } else if ((topoAttr_.deviceType == DevType::DEV_TYPE_910_93 || aicpuUnfoldMode_)) { // && (isAicpuModeEn == true)
                 totalStreamNum = topoAttr_.deviceNumPerAggregation;
             } else if ((workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) &&
                        (topoAttr_.deviceType == DevType::DEV_TYPE_910B) && UseInterServerPipelineAlgo(algType_)) {

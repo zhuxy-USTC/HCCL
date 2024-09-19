@@ -15,9 +15,9 @@
 #include "coll_alg_op_registry.h"
 
 namespace hccl {
-AllGatherOperator::AllGatherOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl,
-    std::unique_ptr<TopoMatcher> &topoMatcher)
-    : CollAlgOperator(algConfigurator, pImpl, topoMatcher, HcclCMDType::HCCL_CMD_ALLGATHER)
+AllGatherOperator::AllGatherOperator(AlgConfigurator* algConfigurator, CCLBufferManager &cclBufferManager,
+    HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAlgOperator(algConfigurator, cclBufferManager, dispatcher, topoMatcher, HcclCMDType::HCCL_CMD_ALLGATHER)
 {
 }
 
@@ -28,8 +28,7 @@ AllGatherOperator::~AllGatherOperator()
 HcclResult AllGatherOperator::SelectAlg(const std::string& tag, const OpParam& param, std::string& algName,
                                         std::string& newTag)
 {
-    if (userRankSize_ == 1 && (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE ||
-        param.aicpuUnfoldMode)) { // aicpu normal
+    if (userRankSize_ == 1 && (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE)) {
         algName = "AllGatherSingleExecutor";
         return HCCL_SUCCESS;
     }
@@ -41,10 +40,10 @@ HcclResult AllGatherOperator::SelectAlg(const std::string& tag, const OpParam& p
     } else if (deviceType_ == DevType::DEV_TYPE_910B) {
         ret = SelectAlgfor910B(param, algName);
     } else {
-        ret = SelectAlgfor91073(param, algName);
+        ret = SelectAlgfor91093(param, algName);
     }
     CHK_PRT_RET(ret != HCCL_SUCCESS,
-        HCCL_ERROR("[AllGatherSelector][SelectAlg]tag[%s], all_gather failed, retrun[%d]", tag.c_str(), ret), ret);
+        HCCL_ERROR("[AllGatherSelector][SelectAlg]tag[%s], all_gather failed, return[%d]", tag.c_str(), ret), ret);
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
         newTag = tag;
     } else if (deviceType_ == DevType::DEV_TYPE_310P3) {
@@ -52,6 +51,8 @@ HcclResult AllGatherOperator::SelectAlg(const std::string& tag, const OpParam& p
     } else {
         AlgTypeLevel1 algType1 = GetLevel1AlgType(algType_);
         auto level1Iter = HCCL_ALGO_LEVEL1_NAME_MAP.find(algType1);
+        CHK_PRT_RET(level1Iter == HCCL_ALGO_LEVEL1_NAME_MAP.end(), HCCL_ERROR("level1: algType1[%u] is invalid.",
+            algType1), HCCL_E_INTERNAL);
         newTag = tag + level1Iter->second + algName;
     }
     HCCL_INFO("[SelectAlg] all_gather newTag is [%s]", newTag.c_str());
@@ -98,6 +99,16 @@ HcclResult AllGatherOperator::SelectAlgfor910B(const OpParam& param, std::string
         }
     }
 
+    // pipeline算法task数量多，如果超出FFTS子图限制，则重定向到HD算法
+    if (GetLevel1AlgType(algType_) == AlgTypeLevel1::ALG_LEVEL1_PIPELINE) {
+        u32 contextNum = CalcContextNumForPipeline(HcclCMDType::HCCL_CMD_ALLGATHER);
+        if (contextNum > HCCL_FFTS_CAPACITY) {
+            CHK_RET(SetInterServerHDAlgo(algType_));
+            HCCL_WARNING("[AllGatherOperator][SelectAlgfor910B] context num[%u] is out of capacityof FFTS+ graph[%u],"
+                "reset algorithm to HD.", contextNum, HCCL_FFTS_CAPACITY);
+        }
+    }
+
     if (isMeshTopo) {
         if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
             if (isSingleMeshAggregation_) {
@@ -118,31 +129,35 @@ HcclResult AllGatherOperator::SelectAlgfor910B(const OpParam& param, std::string
     return HCCL_SUCCESS;
 }
 
-HcclResult AllGatherOperator::SelectAlgfor91073(const OpParam& param, std::string& algName)
+HcclResult AllGatherOperator::SelectAlgfor91093(const OpParam& param, std::string& algName)
 {
     if (GetExternalInputEnableRdmaSdmaConcurrent() && topoType_ == TopoType::TOPO_TYPE_NP_DOUBLE_RING &&
         !param.aicpuUnfoldMode) {
         if (!(UseInterServerRingAlgo(algType_) || UseInterServerNBAlgo(algType_))) {
             HcclResult ret = SetInterServerRingAlgo(algType_);
-            HCCL_WARNING("[AllGatherOperator][SelectAlgfor91073] concurrent only support ring or NB in AlgoLevel1 "\
+            HCCL_WARNING("[AllGatherOperator][SelectAlgfor91093] concurrent only support ring or NB in AlgoLevel1 "\
                 "yet, default is ring.");
             CHK_PRT_RET(ret != HCCL_SUCCESS,
-                HCCL_ERROR("[AllGatherOperator][SelectAlgfor91073]errNo[0x%016llx] tag[%s], AllGather concurrent "\
+                HCCL_ERROR("[AllGatherOperator][SelectAlgfor91093]errNo[0x%016llx] tag[%s], AllGather concurrent "\
                     "set inter server ring algo failed", HCCL_ERROR_CODE(ret), param.tag.c_str()), ret);
         }
         algName = "AllGatherDoubleRingConcurrentExecutor";
     } else {
         if (!(UseInterServerRingAlgo(algType_) || UseInterServerNBAlgo(algType_))) {
             HcclResult ret = SetInterServerNHRAlgo(algType_);
-            HCCL_WARNING("[AllGatherOperator][SelectAlgfor91073] only support ring, NB and NHR in AlgoLevel1 yet, "\
+            HCCL_WARNING("[AllGatherOperator][SelectAlgfor91093] only support ring, NB and NHR in AlgoLevel1 yet, "\
                 "default is algType=NHR.");
             CHK_PRT_RET(ret != HCCL_SUCCESS,
-                HCCL_ERROR("[AllGatherOperator][SelectAlgfor91073]errNo[0x%016llx] tag[%s], AllGather set inter server "\
+                HCCL_ERROR("[AllGatherOperator][SelectAlgfor91093]errNo[0x%016llx] tag[%s], AllGather set inter server "\
                     "nhr algo failed", HCCL_ERROR_CODE(ret), param.tag.c_str()), ret);
         }
-        algName = "AllGatherRingFor91073Executor";
+        if (topoType_ == TopoType::TOPO_TYPE_NP_DOUBLE_RING) {
+            algName = "AlignedAllGatherDoubleRingFor91093Executor";
+        } else {
+            algName = "AllGatherRingFor91093Executor";
+        }
     }
-    HCCL_INFO("[SelectAlgfor91073] all_gather SelectAlgfor91073 is algName [%s]", algName.c_str());
+    HCCL_INFO("[SelectAlgfor91093] all_gather SelectAlgfor91093 is algName [%s]", algName.c_str());
     return HCCL_SUCCESS;
 }
 

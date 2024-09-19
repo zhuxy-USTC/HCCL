@@ -71,11 +71,15 @@ public:
     HcclResult GetCommPlaneRanks(std::vector<std::vector<std::vector<u32>>> &CommPlaneRanks);
     void GetCommPlaneVector(std::vector<std::vector<std::vector<RankInfo>>> &commPlaneVector_);
     void GetIsBridgeVector(std::vector<bool> &isBridgeVector);
+    void InitAHCConfig();
+    void AHCCommSubgroupInit();
+    void GetCommPlaneSubGroupVector(std::vector<std::vector<std::vector<u32>>> &CommPlaneSubGroupVector);
+    void GetIsAsymPlanVector(std::vector<bool> &isAsymPlanVector);
     HcclResult GetRankVecInfo(std::vector<std::vector<std::vector<u32>>> &serverAndsuperPodToRank);
     HcclResult SetRankMap();
     void GetRankData(RankInfo &rankData);
     void GetServerToRank(std::map<u32, std::vector<RankInfo>> &serverToRank);
-    void GetSuperPodToRank(std::map<std::string, std::vector<RankInfo>> &superPodToRank);
+    void GetSuperPodToRank(std::map<u32, std::vector<RankInfo>> &superPodToRank);
     void GetDeviceLinkTypeMap(std::map<s32, LinkTypeInServer> &deviceLinkTypeMap);
 
 private:
@@ -91,8 +95,10 @@ private:
 
     // 通信域在当前superPod内, 按照serverIdx划分的所有rank信息
     std::map<u32, std::vector<RankInfo> > serverToRank_;
-    // 通信域所有rank的信息, 按照superPodId -> RankInfo 的结构划分
-    std::map<std::string, std::vector<RankInfo> > superPodToRank_;
+    // 通信域所有rank的信息, 按照superPodIdx -> RankInfo 的结构划分
+    std::map<u32, std::vector<RankInfo> > superPodToRank_;
+    // 通信域内，按照 serverIdx 划分的 server 层和 superPod 层合并的 rank 信息
+    std::map<u32, std::vector<RankInfo>> serverToRankMerge_;
     // 记录server内, 本rank和其他rank的连接关系
     std::map<s32, LinkTypeInServer> deviceLinkTypeMap_;
 
@@ -110,6 +116,16 @@ private:
     const bool isUsedRdmaOuter_;
     bool isUsedInterHccsMode_;
     bool isDiffAggregation_;
+    
+    // 是否静态配置 AHC 模式
+    bool isConfigAHC_;
+    bool isConfigNULL_;
+
+    // 当前层次是否为非对称
+    std::vector<bool> isAsymPlanVector_;
+
+    // 保存所有 level 的通信分组关系， CommPlaneSubGroupVector_[CommPlane] : 第 CommPlane 级通信域内分组信息
+    std::vector<std::vector<std::vector<u32>>> CommPlaneSubGroupVector_;
 
     // 保存所有级别的通信rank关系, CommPlaneVector_[CommPlane][ringIndex]: 第CommPlane级 第ringIndex个环
     std::vector<std::vector<std::vector<RankInfo> > > CommPlaneVector_;

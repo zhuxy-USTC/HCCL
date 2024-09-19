@@ -32,11 +32,12 @@ protected:
     HcclResult CalculateLevel1AllgatherSlice(u64 inputMemSize, u32 level0RankSize, u32 level1RankSize,
         std::vector<std::vector<Slice>> multRingsSliceZero, std::vector<std::vector<Slice>> &multRingsSlice) const;
 
-    HcclResult CalculateLevel2AllgatherSlice(u64 inputMemSize, u32 level0RankSize, u32 level1RankSize,
-        u32 level2RankSize, std::vector<Slice> dataSegsSlice, std::vector<Slice> &level0DataSlice) const;
+    HcclResult CalculateLevel2AllgatherSlice(u64 inputMemSize, u32 level0RankSize,
+    u32 level1RankSize, u32 level2RankSize, std::vector<std::vector<Slice>> multRingsSliceZero,
+    std::vector<Slice> &level2DataSlice, u32 ringIndex) const;
 
     HcclResult AllGatherLevel2(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-        u64 count, HcclDataType dataType, Stream &stream, const HcomCollOpInfo *opInfo = nullptr);
+        u64 count, HcclDataType dataType, Stream &stream, HcomCollOpInfo *opInfo = nullptr);
 
     bool DMAReduceFlag_{false}; // 是否DMA消减的标志
 };

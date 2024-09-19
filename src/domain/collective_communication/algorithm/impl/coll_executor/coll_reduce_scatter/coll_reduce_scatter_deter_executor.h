@@ -35,8 +35,6 @@ private:
     bool IsHugeData(const u64 curSize) override;
     bool IsSmallData(const u64 totalSize, const u64 curSize) override;
     HcclResult KernelRun(const OpParam &param, ExecMem &execMem) override;
-
-    bool meshSinglePlane_ = false;
 };
 
 } // namespace hccl

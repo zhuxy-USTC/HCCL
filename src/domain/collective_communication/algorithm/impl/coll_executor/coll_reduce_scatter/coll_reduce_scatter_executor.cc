@@ -25,9 +25,9 @@ HcclResult CollReduceScatterExecutor::Orchestrate(OpParam& param, AlgResourceRes
     tag_ = param.tag;
     algResResp_ = &algRes;
     HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, workflowMode_);
-    HCCL_PROFILER_ADD_STREAM(param.stream.id(), param.tag, 0, algType_);
-    HCCL_PROFILER_ADD_OPDATA(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr, param.DataDes.dataType, \
-        INVALID_VALUE_RANKID, algoAttr_.identifier);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(param.stream.id(), param.tag, 0, algType_);
+    HCCL_PROFILER_ADD_OPDATA_OP(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr, param.DataDes.dataType, \
+        INVALID_VALUE_RANKID, algoAttr_.identifier, param.reduceType);
     HCCL_PROFILER_ADD_GROUPRANK(algoAttr_.identifier, topoAttr_.userRankSize, topoAttr_.userRank);
     CHK_RET(AddSubStreamToProfiling());
 
@@ -59,10 +59,10 @@ HcclResult CollReduceScatterExecutor::Orchestrate(OpParam& param, AlgResourceRes
             HCCL_ERROR_CODE(ret)), ret);
 
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
-        HCCL_PROFILER_DEL_STREAM(param.stream.id());
+        HCCL_PROFILER_DEL_STREAM_BY_STREAMID(param.stream.id());
         HCCL_PROFILER_DEL_TAG(param.tag);
         HCCL_PROFILER_DEL_OPDATA(param.tag);
-        HCCL_PROFILER_DEL_GROUPRANK(param.tag);
+        HCCL_PROFILER_DEL_GROUPRANK(algoAttr_.identifier);
     }
     HCCL_INFO("tag[%s], ReduceScatter executor orchestrate success, take time [%lld]us.",
         param.tag.c_str(), DURATION_US(TIME_NOW() - startut));
@@ -116,7 +116,7 @@ HcclResult CollReduceScatterExecutor::RunLoop(OpParam &param, AlgResourceRespons
     CHK_PRT_RET(maxCountPerLoop == 0,
         HCCL_ERROR("[CollReduceScatterExecutor][RunLoop]maxCountPerLoop is zero."),
         HCCL_E_INTERNAL);
-    HCCL_DEBUG("[CollReduceScatterExecutor][RunLoop]tag[%s], userRankSize is [%llu], maxCountPerLoop is [%llu].",
+    HCCL_DEBUG("[CollReduceScatterExecutor][RunLoop]tag[%s], userRankSize is [%u], maxCountPerLoop is [%llu].",
         param.tag.c_str(), topoAttr_.userRankSize, maxCountPerLoop);
 
     HcclResult ret;
@@ -174,9 +174,6 @@ HcclResult CollReduceScatterExecutor::RunLoopInner(OpParam &param, const ReduceT
             param.DataDes.dataType, reduceType, hugeData, smallData);
         opMeta.dataSplit = IsDataSplit(curSize);
         CHK_RET(InitTask(dispatcher_, param.stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
-        CHK_RET(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_REDUCE_SCATTER, param.tag,
-            execMem.count, param.DataDes.dataType, param.reduceType, execMem.inputMem.size(),
-            execMem.outputMem.size()));
     }
 
     if (CCLMemSlice_) {
@@ -218,7 +215,6 @@ HcclResult CollReduceScatterExecutor::RunLoopInner(OpParam &param, const ReduceT
     }
 
     if (!is310P3Common_) {
-        CHK_RET(RankConsistent::GetInstance().DelOpPara(param.tag));
         CHK_RET(LaunchTaskExtend(dispatcher_, param.stream, algResResp_->slaveStreams));
     }
     return ret;

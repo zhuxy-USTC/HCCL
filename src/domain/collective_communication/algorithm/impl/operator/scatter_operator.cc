@@ -17,8 +17,9 @@
 
 namespace hccl {
 
-ScatterOperator::ScatterOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher)
-    : CollAlgOperator(algConfigurator, pImpl, topoMatcher, HcclCMDType::HCCL_CMD_SCATTER)
+ScatterOperator::ScatterOperator(AlgConfigurator* algConfigurator, CCLBufferManager &cclBufferManager,
+    HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAlgOperator(algConfigurator, cclBufferManager, dispatcher, topoMatcher, HcclCMDType::HCCL_CMD_SCATTER)
 {
     // 由于scatter只支持server间ring、nb和nhr，其他算法需要重定向到ring
     if (!UseInterServerNHRAlgo(algType_) && !UseInterServerNBAlgo(algType_) && !UseInterServerRingAlgo(algType_)) {
@@ -69,8 +70,8 @@ HcclResult ScatterOperator::SelectAlg(const std::string& tag, const OpParam& par
     if (isMeshTopo) {
         algName = "ScatterMeshExecutor";
     } else if (isRingTopo) {
-        if (deviceType_ == DevType::DEV_TYPE_910_73) {
-            algName = "ScatterRingFor91073Executor";
+        if (deviceType_ == DevType::DEV_TYPE_910_93) {
+            algName = "ScatterRingFor91093Executor";
         } else {
             algName = "ScatterRingExecutor";
         }

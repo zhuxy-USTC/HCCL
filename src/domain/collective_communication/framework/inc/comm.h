@@ -64,12 +64,13 @@ using HcclCommParams = struct TagHCCLCollectiveParams {
     CommAttr attr;
     WorkMode commWorkMode = WorkMode::HCCL_MODE_NORMAL;
     std::string identifier;
+    u32 ranktableCrc;
     HcclCommConnections commConnections;
     TagHCCLCollectiveParams()
         : id{0}, rank(INVALID_VALUE_RANKID), userRank(INVALID_VALUE_RANKID), totalRanks(0xFFFFFFFF),
           logicDevId(-1), deviceType(DevType::DEV_TYPE_COUNT), profilingMode(HcomProfilingMode::PROFILING_CLOSE),
           profilingInitiated(false), commHandle(nullptr), isHeterogComm(false), hcomGroupNicInit(false),
-          identifier("")
+          identifier(""), ranktableCrc(0)
     {
     }
 };

@@ -86,7 +86,7 @@ bool CollReduceScatterMeshDmaEliminationExecutor::IsHugeData(const u64 curSize)
 
 bool CollReduceScatterMeshDmaEliminationExecutor::IsSmallData(const u64 totalSize, const u64 curSize)
 {
-    bool smallData = curSize <= HCCL_SMALL_COUNT_32_KB;
+    bool smallData = totalSize <= HCCL_SMALL_COUNT_32_KB;
     return smallData;
 }
 

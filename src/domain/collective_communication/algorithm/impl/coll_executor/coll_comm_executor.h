@@ -26,11 +26,11 @@ public:
                                     const HcclReduceOp reductionOp,
                                     const std::vector<std::vector<Slice>> &multRingsSliceZero, Stream stream,
                                     s32 profStage, const u64 baseOffset = 0);
-    HcclResult CollectMultiRingsUserMemInputSlices(u32 ringNum, const HcclDataType dataType,
+    HcclResult CollectMultiRingsUserMemSlices(u32 ringNum, const HcclDataType dataType,
         const HcomCollOpInfo *opInfo, const std::vector<std::vector<Slice>> &multRingsSliceZero,
         const std::vector<std::vector<u32>> &multiRingsOrder,
         const std::vector<std::vector<Slice>> &multRingsUserMemSlice,
-        std::vector<std::vector<Slice>> &userMemInputSlicesOfMultiRings);
+        std::vector<std::vector<Slice>> &userMemSlicesOfMultiRings);
     HcclResult CollectMultiRingsRankOrder(u32 ringNum,
         const std::vector<std::vector<u32>> &multiRingsOrder,
         std::vector<std::vector<u32>> &rankOrders);

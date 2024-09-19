@@ -69,7 +69,6 @@ HcclResult QueueNotifyManager::AllocNotifies(const NotifyLoadType type, NotifyPo
 HcclResult QueueNotifyManager::CreateNotify(std::shared_ptr<LocalNotify> &localNotify, const NotifyLoadType type)
 {
     EXECEPTION_CATCH((localNotify = std::make_shared<LocalNotify>()), return HCCL_E_PTR);
-    CHK_SMART_PTR_NULL(localNotify);
 
     HcclResult ret = HCCL_SUCCESS;
     bool errorFlag = false;

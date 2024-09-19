@@ -12,8 +12,9 @@
 
 namespace hccl {
 
-ReduceOperator::ReduceOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher)
-    : CollAlgOperator(algConfigurator, pImpl, topoMatcher, HcclCMDType::HCCL_CMD_REDUCE)
+ReduceOperator::ReduceOperator(AlgConfigurator* algConfigurator, CCLBufferManager &cclBufferManager,
+    HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAlgOperator(algConfigurator, cclBufferManager, dispatcher, topoMatcher, HcclCMDType::HCCL_CMD_REDUCE)
 {
     if (UseInterServerNHRAlgo(algType_) || UseInterServerNHRV1Algo(algType_) || UseInterServerNBAlgo(algType_) ||
         UseInterServerPipelineAlgo(algType_)) {
@@ -42,24 +43,26 @@ HcclResult ReduceOperator::SelectAlg(const std::string &tag, const OpParam &para
         ret = SelectAlgfor910A(param, algName);
     } else if (deviceType_ == DevType::DEV_TYPE_910B) {
         ret = SelectAlgfor910B(param, algName);
-    } else if (deviceType_ == DevType::DEV_TYPE_910_73) {
-        ret = SelectAlgfor91073(param, algName);
+    } else if (deviceType_ == DevType::DEV_TYPE_910_93) {
+        ret = SelectAlgfor91093(param, algName);
     } else {
         HCCL_ERROR("[SelectAlg] device type[%d] is out of range for selector.", deviceType_);
         return HCCL_E_NOT_SUPPORT;
     }
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[ReduceSelector][SelectAlg]tag[%s], reduce failed, return[%d]", tag.c_str(), ret), ret);
 
     if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         AlgTypeLevel1 algType1 = GetLevel1AlgType(algType_);
         auto level1Iter = HCCL_ALGO_LEVEL1_NAME_MAP.find(algType1);
+        CHK_PRT_RET(level1Iter == HCCL_ALGO_LEVEL1_NAME_MAP.end(), HCCL_ERROR("level1: algType1[%u] is invalid.",
+            algType1), HCCL_E_INTERNAL);
         newTag = tag + level1Iter->second + algName;
     } else {
         newTag = tag;
     }
 
-    HCCL_INFO("[SelectAlg] reduce newTag is [%s]", newTag.c_str());
-    CHK_PRT_RET(ret != HCCL_SUCCESS,
-        HCCL_ERROR("[ReduceSelector][SelectAlg]tag[%s], reduce failed, return[%d]", tag.c_str(), ret), ret);
+    HCCL_INFO("[SelectAlg] reduce newTag is [%s].", newTag.c_str());
     return ret;
 }
 
@@ -76,7 +79,7 @@ HcclResult ReduceOperator::SelectAlgfor910A(const OpParam& param, std::string& a
         algName = "ReduceComm";
     }
 
-    HCCL_INFO("[SelectAlgfor910A] reduce SelectAlgfor910A is algName[%s]", algName.c_str());
+    HCCL_INFO("[SelectAlgfor910A] reduce SelectAlgfor910A is algName[%s].", algName.c_str());
     return HCCL_SUCCESS;
 }
 
@@ -94,23 +97,26 @@ HcclResult ReduceOperator::SelectAlgfor910B(const OpParam& param, std::string& a
         algName = "ReduceComm";
     }
 
-    HCCL_INFO("[SelectAlgfor910B] reduce SelectAlgfor910B is algName [%s]", algName.c_str());
+    HCCL_INFO("[SelectAlgfor910B] reduce SelectAlgfor910B is algName [%s].", algName.c_str());
     return HCCL_SUCCESS;
 }
 
-HcclResult ReduceOperator::SelectAlgfor91073(const OpParam& param, std::string& algName)
+HcclResult ReduceOperator::SelectAlgfor91093(const OpParam& param, std::string& algName)
 {
     bool isRingTopo = topoType_ == TopoType::TOPO_TYPE_NP_SINGLE_RING;
     bool isDoubleRingTopo = topoType_ == TopoType::TOPO_TYPE_NP_DOUBLE_RING;
-
-    if (isRingTopo) {
-        algName = "ReduceRingPlusHd";
-    } else if (isDoubleRingTopo) {
-        algName = "ReduceDoubleRingExecutor";
+	
+    if (isRingTopo || isDoubleRingTopo) {
+        algName = "ReduceRingFor91093Executor";
     } else {
         algName = "ReduceComm";
     }
-    HCCL_INFO("[SelectAlgfor91073] reduce SelectAlgfor91073 is algName [%s]", algName.c_str());
+    if (!(UseInterServerRingAlgo(algType_) && topoMatcher_->GetTopoInfo().devNumInLevel2 > 1)) {
+        SetInterServerRingAlgo(algType_);
+        HCCL_WARNING("[ReduceOperator][SelectAlgfor91093][Superpod] inter-server only support ring yet, "\
+            "default is algType=RING.");
+    }
+    HCCL_INFO("[SelectAlgfor91093] reduce SelectAlgfor91093 is algName [%s].", algName.c_str());
     return HCCL_SUCCESS;
 }
 

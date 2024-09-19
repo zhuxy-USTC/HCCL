@@ -202,7 +202,7 @@ HcclResult ThreadManage::Prepare(DeviceMem &inputMem, DeviceMem &outputMem, Devi
     tag_.assign(tag.begin(), tag.end());
     slices_.assign(slices.begin(), slices.end());
     nicRankList_.assign(nicRankList.begin(), nicRankList.end());
-    HCCL_PROFILER_ADD_STREAM(stream.id(), tag_, 0, AlgType::ALG_RESERVED);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(stream.id(), tag_, 0, AlgType::ALG_RESERVED);
     return HCCL_SUCCESS;
 }
 

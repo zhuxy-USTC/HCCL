@@ -30,7 +30,7 @@ HcclResult CollAllReduceCommExecutor::CalcCommInfo(std::vector<LevelNSubCommTran
 
 HcclResult CollAllReduceCommExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -46,17 +46,26 @@ HcclResult CollAllReduceCommExecutor::CalcCombinedCommInfo(TransportMemType inpu
     TransportMemType outputType,
     std::vector<LevelNSubCommTransport>& opTransport)
 {
-    CommParaInfo commParaInfo(COMM_COMBINE, CommType::COMM_TAG_MAX);
+    CommPlane commPlane = COMM_COMBINE;
+    if (topoAttr_.deviceType == DevType::DEV_TYPE_910_93) {
+        commPlane = COMM_COMBINE_ORDER;
+    }
+
+    CommParaInfo commParaInfo(commPlane, CommType::COMM_TAG_MAX);
     if (UseInterServerNHRAlgo(algType_)) {
         commParaInfo.commType = CommType::COMM_TAG_NONUNIFORM_HIERARCHICAL_RING;
     } else if (UseInterServerNHRV1Algo(algType_)) {
         commParaInfo.commType = CommType::COMM_TAG_NONUNIFORM_HIERARCHICAL_RING_V1;
+    } else if (UseInterServerAHCAlgo(algType_)) {
+        commParaInfo.commType = CommType::COMM_TAG_WHOLE_AHC;
+    } else if (UseInterServerAHCBrokeAlgo(algType_)) {
+        commParaInfo.commType = CommType::COMM_TAG_WHOLE_AHC_BROKE;
     } else if (UseInterServerNBAlgo(algType_)) {
         commParaInfo.commType = CommType::COMM_TAG_NONUNIFORM_BRUCK;
     } else {
         commParaInfo.commType = CommType::COMM_TAG_RING_INNER;
     }
-    CHK_RET(CalcCommPlaneInfo(tag_, commParaInfo, opTransport[COMM_COMBINE], inputType, outputType));
+    CHK_RET(CalcCommPlaneInfo(tag_, commParaInfo, opTransport[commPlane], inputType, outputType));
 
     return HCCL_SUCCESS;
 }
@@ -79,8 +88,13 @@ bool CollAllReduceCommExecutor::IsSmallData(const u64 totalSize, const u64 curSi
 
 HcclResult CollAllReduceCommExecutor::KernelRun(const OpParam &param, ExecMem &execMem)
 {
-    CHK_RET(CheckCommSize(COMM_COMBINE, 1));
-    SubCommInfo combinedCommInfo = GetSubCommInfo(COMM_COMBINE, 0);
+    CommPlane commPlane = COMM_COMBINE;
+    if (topoAttr_.deviceType == DevType::DEV_TYPE_910_93) {
+        commPlane = COMM_COMBINE_ORDER;
+    }
+
+    CHK_RET(CheckCommSize(commPlane, 1));
+    SubCommInfo combinedCommInfo = GetSubCommInfo(commPlane, 0);
 
     u64 reduceAttr = GetReduceAttr(execMem.inputMem, execMem.outputMem, param.DataDes.dataType, param.reduceType);
 
@@ -96,6 +110,18 @@ HcclResult CollAllReduceCommExecutor::KernelRun(const OpParam &param, ExecMem &e
     } else if (UseInterServerNHRV1Algo(algType_)) {
         executor.reset(new (std::nothrow) AllReduceNHRV1(dispatcher_, reduceAttr));
         HCCL_INFO("allreduce comm: using nhr_v1 algo inter-server.");
+    } else if (UseInterServerAHCAlgo(algType_)) {
+        // 获取通信域分组信息
+        std::vector<std::vector<u32>> subGroups;
+        CHK_RET(topoMatcher_->GetLevelSubGroups(commPlane, subGroups));
+        executor.reset(new (std::nothrow) AllReduceAHC(dispatcher_, reduceAttr, execMem.count, subGroups));
+        HCCL_INFO("allreduce comm: using ahc algo inter-server.");
+    } else if (UseInterServerAHCBrokeAlgo(algType_)) {
+        // 获取通信域分组信息
+        std::vector<std::vector<u32>> subGroups;
+        CHK_RET(topoMatcher_->GetLevelSubGroups(commPlane, subGroups));
+        executor.reset(new (std::nothrow) AllReduceAHCBroke(dispatcher_, reduceAttr, execMem.count, subGroups));
+        HCCL_INFO("allreduce comm: using ahc-broke algo inter-server.");
     } else if (UseInterServerNBAlgo(algType_)) {
         executor.reset(new (std::nothrow) AllReduceNB(dispatcher_, reduceAttr));
         HCCL_INFO("allreduce comm: using nonuniform-bruck algo inter-server.");

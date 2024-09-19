@@ -155,7 +155,7 @@ HcclResult TopoinfoRanktableStandard::GetHcomInfo(hccl::HcclCommParams &params, 
     }
 
     if ((params.deviceType == DevType::DEV_TYPE_910 || params.deviceType == DevType::DEV_TYPE_910B ||
-         params.deviceType == DevType::DEV_TYPE_910_73) && paraPlaneLocation != "device") {
+         params.deviceType == DevType::DEV_TYPE_910_93) && paraPlaneLocation != "device") {
         HCCL_ERROR("[Get][HcomInfo]errNo[0x%016llx] paraPlaneLocation should be 'device'",
             HCOM_ERROR_CODE(HCCL_E_PARA));
         return HCCL_E_PARA;
@@ -570,7 +570,7 @@ HcclResult TopoinfoRanktableStandard::GetDevList(nlohmann::json &instanceList, u
         CHK_RET(SalStrToULong(strDevid, HCCL_BASE_DECIMAL, devicePhyId));
         if ((params.deviceType != DevType::DEV_TYPE_310P3 &&
             params.deviceType != DevType::DEV_TYPE_910B &&
-            params.deviceType != DevType::DEV_TYPE_910_73) &&
+            params.deviceType != DevType::DEV_TYPE_910_93) &&
             (devicePhyId > (HCCL_AISERVER_DEVICE_NUM - 1))) {
             HCCL_ERROR("[Get][DevList]errNo[0x%016llx] device_id[%u] more than 7 is invalid",
                 HCOM_ERROR_CODE(HCCL_E_PARA), devicePhyId);

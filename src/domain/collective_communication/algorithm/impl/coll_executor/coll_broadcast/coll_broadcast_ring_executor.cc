@@ -17,7 +17,7 @@ CollBroadcastRingExecutor::CollBroadcastRingExecutor(const HcclDispatcher dispat
     : CollBroadcastExecutor(dispatcher, topoMatcher)
 {
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
+        topoAttr_.deviceType == DevType::DEV_TYPE_910_93) {
         DMAReduceFlag_ = true;
     } else {
         DMAReduceFlag_ = false;
@@ -29,8 +29,8 @@ HcclResult CollBroadcastRingExecutor::CalcStreamNum(u32& streamNum)
     u32 totalStreamNum = (topoType_ == TopoType::TOPO_TYPE_8P_RING) ? OUTER_PLANE_NUM_IN_8PRING :
         OUTER_PLANE_NUM_IN_NPRING_SINGLE;
 
-    if (topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
-        if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
+    if (topoAttr_.deviceType == DevType::DEV_TYPE_910_93) {
+        if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
             totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
         } else {
             totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_SINGLE;
@@ -56,7 +56,7 @@ HcclResult CollBroadcastRingExecutor::CalcCommInfo(std::vector<LevelNSubCommTran
 HcclResult CollBroadcastRingExecutor::CalcLevel0CommInfo(TransportMemType inputType,
     TransportMemType outputType, std::vector<LevelNSubCommTransport>& opTransport)
 {
-    HCCL_INFO("[CollBroadcastRingExecutor][CalcOuterCommInfo]tag[%s ]start", tag_.c_str());
+    HCCL_INFO("[CollBroadcastRingExecutor][CalcOuterCommInfo]tag[%s] start", tag_.c_str());
     CommParaInfo commParaLevel0(COMM_LEVEL0, CommType::COMM_TAG_RING_INNER);
     CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel0, opTransport[COMM_LEVEL0], inputType, outputType));
     HCCL_INFO("[CollBroadcastRingExecutor][CalcOuterCommInfo]tag[%s] Calc RingComm finish", tag_.c_str());
@@ -82,7 +82,7 @@ HcclResult CollBroadcastRingExecutor::KernelRun(const OpParam &param, ExecMem &e
     u32 sliceNum = level0CommInfo.localRankSize;
     // 将根节点数据切分成sliceNum份
     CHK_RET(ExecutorBase::PrepareSliceData(execMem.count, perDataSize, sliceNum, 0, dataSegsSlice));
-    HCCL_DEBUG("[CollBroadcastRingExecutor][KernelRun] execMem.count[%llu], perDataSize[%llu], sliceNum[%llu], ringNum[%llu] ",
+    HCCL_DEBUG("[CollBroadcastRingExecutor][KernelRun] execMem.count[%llu], perDataSize[%u], sliceNum[%u], ringNum[%u] ",
                 execMem.count, perDataSize, sliceNum, ringNum);
 
     /* 外层:scatter */
@@ -91,7 +91,7 @@ HcclResult CollBroadcastRingExecutor::KernelRun(const OpParam &param, ExecMem &e
         // 构造ring algorithm对应的scatter实例
         multRingsSliceZero = PrepareMultiRingSlice(dataSegsSlice, param.tag, false, topoAttr_.nicList);
         CHK_PRT_RET(multRingsSliceZero.size() != ringNum, HCCL_ERROR("[CollBroadcastRingExecutor]"\
-            "ringNum[%u] !=multRingsSliceZero size[%llu]", ringNum, multRingsSliceZero.size()), HCCL_E_INTERNAL);
+            "ringNum[%u] !=multRingsSliceZero size[%zu]", ringNum, multRingsSliceZero.size()), HCCL_E_INTERNAL);
     } else {
         multRingsSliceZero.push_back(dataSegsSlice); // 应该offset全为0，而大小和dataSegsSlice中一样,里面的offset不使用
     }

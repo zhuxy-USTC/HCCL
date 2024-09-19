@@ -31,7 +31,7 @@ HcclResult CollBroadcastFor310PCommExecutor::CalcCommInfo(std::vector<LevelNSubC
 HcclResult CollBroadcastFor310PCommExecutor::CalcLevel0CommInfo(TransportMemType inputType,
     TransportMemType outputType, std::vector<LevelNSubCommTransport>& opTransport)
 {
-    HCCL_INFO("[CollBroadcastFor310PCommExecutor][CalcOuterCommInfo]tag[%s ]start", tag_.c_str());
+    HCCL_INFO("[CollBroadcastFor310PCommExecutor][CalcOuterCommInfo]tag[%s] start", tag_.c_str());
     CommParaInfo commParaLevel0(COMM_LEVEL0, CommType::COMM_TAG_RING_INNER);
     CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel0, opTransport[COMM_LEVEL0], inputType, outputType));
     HCCL_INFO("[CollBroadcastFor310PCommExecutor][CalcOuterCommInfo]tag[%s] Calc RingComm finish", tag_.c_str());

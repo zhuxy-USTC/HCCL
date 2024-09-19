@@ -52,7 +52,7 @@ HcclResult Reducer::run(const HcclDispatcher dispatcher, const std::shared_ptr<T
     if (link->IsSupportTransportWithReduce() && (RDMA_REDUCE_BITMASK & reduceAttribute_)) {
         // 数据接收端执行接收动作
         // RDMA的RxAsync不需要接收端内存信息
-        CHK_RET(link->RxAsync(UserMemType::INPUT_MEM, remoteMemOffset, remoteRcvTemp.ptr(), dataBytes, stream));
+        CHK_RET(link->RxAsync(UserMemType::INPUT_MEM, remoteMemOffset, localDst.ptr(), localDst.size(), stream));
         if (link->GetSupportDataReceivedAck()) {
             CHK_RET(link->DataReceivedAck(stream));
         }
@@ -192,17 +192,17 @@ HcclResult Reducer::run(const HcclDispatcher dispatcher, const std::shared_ptr<T
         }
         CHK_RET(PostSync_());
     } else {
+        CHK_RET(PreSync_());
         CHK_RET(link->RxAsync(rxMems, stream));
+        CHK_RET(PostSync_());
         if (link->GetSupportDataReceivedAck()) {
             CHK_RET(link->DataReceivedAck(stream));
         }
-        CHK_RET(PreSync_());
         for (RxWithReduceMemoryInfo rxReduceMem : rxWithReduceMems) {
             CHK_RET(HcclReduceAsync(dispatcher, rxReduceMem.reduceSrc, rxReduceMem.reduceDataCount, dataType_,
                 reductionOp_, stream, rxReduceMem.reduceDst, INVALID_VALUE_RANKID, LinkType::LINK_ONCHIP,
                 reduceAttribute_));
         }
-        CHK_RET(PostSync_());
     }
 
     return HCCL_SUCCESS;

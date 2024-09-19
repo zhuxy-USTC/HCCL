@@ -87,7 +87,9 @@ HcclResult WorkSpaceMem::DestroyMemResource(const std::string &tag)
 void WorkSpaceMem::DestroyMemResource()
 {
     HCCL_INFO("[Destroy][MemResource]Destroy workspace all mem");
+    std::unique_lock<std::mutex> lock(memResMutex_);
     memResMap_.clear();
+    lock.unlock();
 }
 
 bool WorkSpaceMem::IsExist(const std::string &tag)

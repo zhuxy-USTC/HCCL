@@ -29,6 +29,12 @@ HcclResult CollExecutorBase::SetCCLInBuffer(u64 cclbufferSize)
     return HCCL_SUCCESS;
 }
 
+HcclResult CollExecutorBase::SetIsSupportSDMAReduce(bool isSupportSDMAReduce)
+{
+    isSupportSDMAReduce_ = isSupportSDMAReduce;
+    return HCCL_SUCCESS;
+}
+
 HcclResult CollExecutorBase::RunTemplate(const std::unique_ptr<ExecutorBase> &executor, const SubCommInfo &commInfo)
 {
     HcclResult ret = executor->RunAsync(commInfo.localRank, commInfo.localRankSize, commInfo.links);

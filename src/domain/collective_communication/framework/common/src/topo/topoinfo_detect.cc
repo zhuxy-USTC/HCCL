@@ -297,7 +297,6 @@ HcclResult TopoInfoDetect::SetupAgentByMasterInfo(HcclIpAddress &localHostIp, co
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Setup][Agent]topo detect agent start network failed!"), ret);
 
     bool errorFlag = false;
-    unique_ptr<hccl::TopoInfoExchangeAgent> pTopoExchangeAgent;
     do {
         HcclIpAddress rootIP(rootInfo.ip);
         CHK_PRT_BREAK(rootIP.IsInvalid(), HCCL_ERROR("[Setup][Agent]string[%s] is invalid ip", rootInfo.ip),
@@ -306,35 +305,31 @@ HcclResult TopoInfoDetect::SetupAgentByMasterInfo(HcclIpAddress &localHostIp, co
         CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[Setup][Agent]topo detect generate local rank info failed"),
             errorFlag = true);
 
-        pTopoExchangeAgent.reset(new (nothrow) TopoInfoExchangeAgent(rootIP, rootInfo.port,
+        pTopoExchangeAgent_.reset(new (nothrow) TopoInfoExchangeAgent(rootIP, rootInfo.port,
             rootInfo.identifier, agentPortCtx_, localRankInfo_));
-        if (pTopoExchangeAgent == nullptr) {
+        if (pTopoExchangeAgent_ == nullptr) {
             HCCL_ERROR("[Setup][Agent]pTopoExchangeAgent is nullptr");
             errorFlag = true;
             ret = HCCL_E_PTR;
             break;
         }
 
-        ret = pTopoExchangeAgent->SetupByMasterInfo();
+        ret = pTopoExchangeAgent_->SetupByMasterInfo();
         CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[Setup][Agent]setup by masterInfo failed"),
-            errorFlag = true);
-
-        ret = pTopoExchangeAgent->Teardown();
-        CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[Setup][Agent]Teardown failed"),
             errorFlag = true);
     } while (0);
 
-    // 如果StartNetwork后执行有报错，则先StopNetwork，再返回
-    HcclResult result = StopNetwork(localHostIp, bInitDevNic);
-    CHK_PRT_RET(result != HCCL_SUCCESS, HCCL_ERROR("[Setup][Agent]topo detect agent stop network failed!"), result);
-
     if (errorFlag) {
+        // 如果StartNetwork后执行有报错，则先StopNetwork，再返回
+        HcclResult result = StopNetwork(localHostIp, bInitDevNic);
+        CHK_PRT_RET(result != HCCL_SUCCESS, HCCL_ERROR("[Setup][Agent]topo detect agent stop network failed!"), result);
+
         HCCL_ERROR("[Setup][Agent]topo detect agent failed, return[%d]", ret);
         return ret;
     }
 
-    CHK_RET(pTopoExchangeAgent->GetClusterTopoInfo(clusterTopoInfo_));
-    CHK_RET(pTopoExchangeAgent->GetIdentifier(identifierNum_));
+    CHK_RET(pTopoExchangeAgent_->GetClusterTopoInfo(clusterTopoInfo_));
+    CHK_RET(pTopoExchangeAgent_->GetIdentifier(identifierNum_));
 
     HCCL_INFO("topo detect completed. deviceLogicID[%u] totalranks[%u], myhost[%s], totalservers[%u].",
         deviceLogicID_, GetExternalInputMasterInfo().rankSize, localRankInfo_.hostIP.GetReadableAddress(),
@@ -523,7 +518,7 @@ HcclResult TopoInfoDetect::GenerateLocalRankInfo(u32 rankSize, u32 rankID, HcclB
     CHK_RET(hrtGetDevice(reinterpret_cast<s32 *>(&localRankInfo.deviceLogicID)));
     CHK_RET(hrtGetDevicePhyIdByIndex(static_cast<u32>(localRankInfo.deviceLogicID), localRankInfo.devicePhysicID));
 
-    if (localRankInfo.deviceType == DevType::DEV_TYPE_910_73) {
+    if (localRankInfo.deviceType == DevType::DEV_TYPE_910_93) {
         CHK_RET(GetSuperPodInfo(localRankInfo.deviceLogicID, localRankInfo.superPodId, localRankInfo.superDeviceId));
     }
     
@@ -633,7 +628,8 @@ HcclResult TopoInfoDetect::TransformDeviceList(const RankTable_t &clusterInfo,
             if (clusterInfo.nicDeploy == NICDeployment::NIC_DEPLOYMENT_DEVICE && it->deviceInfo.deviceIp.size() != 0 &&
                 !it->deviceInfo.deviceIp[0].IsInvalid()) {
                 perDeviceJson[PROP_DEV_IP] = std::string(it->deviceInfo.deviceIp[0].GetReadableIP());
-            } else if (clusterInfo.nicDeploy == NICDeployment::NIC_DEPLOYMENT_HOST && !it->hostIp.IsInvalid()) {
+            } 
+            if (!it->hostIp.IsInvalid()) {
                 perServerJson[PROP_HOST_IP] = std::string(it->hostIp.GetReadableIP());
             }
             perServerJson[PROP_DEVICE].push_back(perDeviceJson);
@@ -664,7 +660,7 @@ HcclResult TopoInfoDetect::Struct2JsonRankTable(const RankTable_t &clusterInfo, 
     ClusterJson[PROP_SUPER_POD_LIST] = superPodListJson;
 
     ClusterJson[PROP_STATUS] = "completed";
-    ClusterJson[PROP_VERSION] = (localRankInfo_.deviceType == DevType::DEV_TYPE_910_73) ? "1.2" : "1.0";
+    ClusterJson[PROP_VERSION] = (localRankInfo_.deviceType == DevType::DEV_TYPE_910_93) ? "1.2" : "1.0";
     return HCCL_SUCCESS;
 }
 

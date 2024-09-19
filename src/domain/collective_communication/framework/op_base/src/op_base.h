@@ -69,8 +69,6 @@ HcclResult SetOverFlowAddr(hccl::hcclComm *hcclComm);
 
 HcclResult HcclGetCommHandle(const char *commName, std::shared_ptr<hccl::hcclComm> &comm);
 
-HcclResult GetPairWiseList(HcclSendRecvItem *sendRecvInfo, u32 itemNum, u32 rankSize, u32 rankId,
-    std::vector<HcclSendRecvItem *> &orderedList);
 HcclResult CheckScatterInputPara(uint64_t recvCount, HcclComm comm, void *recvBuf);
 
 HcclResult HcclCreateComResourceByComm(HcclComm comm, u32 streamMode, bool isOpbaseMode,

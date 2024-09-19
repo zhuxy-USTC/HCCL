@@ -21,6 +21,7 @@
 #include "rank_consistent.h"
 #include "externalinput_pub.h"
 #include "../common/src/topo/topoinfo_detect.h"
+#include "../common/src/topo/topoinfo_ranktable_partition.h"
 #include "sal_pub.h"
 #include "profiling_manager_pub.h"
 #include "adapter_prof_pub.h"
@@ -32,7 +33,6 @@
 #include "comm_config_pub.h"
 
 #define DOUBLE_SIZE 2
-#define RANKSIZE_TWO 2
 
 using namespace std;
 using namespace hccl;
@@ -217,16 +217,9 @@ HcclResult HcclCommInitAll(uint32_t ndev, int32_t *devices, HcclComm *comms)
     return HCCL_SUCCESS;
 }
 
-HcclResult HcclCommInitClusterInfo(const char *clusterInfo, uint32_t rank, HcclComm *comm)
+HcclResult InitCommClusterInfo(const char *clusterInfo, const uint32_t rank, const CommConfig &commConfig,
+    HcclComm *comm)
 {
-    HcclUs startut = TIME_NOW();
-    s32 deviceLogicId = 0;
-    CHK_RET(hrtGetDeviceRefresh(&deviceLogicId));
-
-    // 入参合法性校验
-    CHK_PTR_NULL(clusterInfo);
-    CHK_PTR_NULL(comm);
-
     std::string rankTableM;
     std::string realFilePath;
     HcclResult ret = HcomLoadRanktableFile(clusterInfo, rankTableM, realFilePath);
@@ -240,22 +233,25 @@ HcclResult HcclCommInitClusterInfo(const char *clusterInfo, uint32_t rank, HcclC
         HCCL_ERROR("[Init][CommClusterInfo]check rankTable string error, rankTableSize [%u]",
             rankTableSize), HCCL_E_PARA);
 
-    ret = InitExternalInput();
-    CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Init][CommClusterInfo]errNo[0x%016llx] init external input error",
-        HCCL_ERROR_CODE(ret)), HCCL_E_PARA);
-
     HcclOpInfoCtx& opBaseHcom = GetHcclOpInfoCtx();
+
     /* 防止重复调用初始化 */
     CHK_PRT_RET((opBaseHcom.pComm != nullptr), HCCL_ERROR("[Init][CommClusterInfo]errNo[0x%016llx] rank[%u] "\
         "op_base hccl multiple initialization", HCCL_ERROR_CODE(HCCL_E_UNAVAIL), rank), HCCL_E_UNAVAIL);
+
+    const std::string commIdentifier = commConfig.GetConfigCommName();
+    auto iter = opBaseHcom.opGroup2CommMap.find(commIdentifier);
+    CHK_PRT_RET(
+        iter != opBaseHcom.opGroup2CommMap.end(),
+        HCCL_ERROR("[Init][CommClusterInfo]errNo[0x%016llx] The comm name[%s] already exists in Group2Comm map.",
+        HCCL_ERROR_CODE(HCCL_E_PARA), commIdentifier.c_str()),
+        HCCL_E_PARA
+    );
+
     opBaseHcom.pComm.reset(
         new (std::nothrow) hccl::hcclComm(
-            GetExternalInputCCLBuffSize(), GetExternalInputCCLBuffSize(), HCCL_WORLD_GROUP));
+            commConfig.GetConfigBufferSize(), commConfig.GetConfigBufferSize(), commIdentifier));
     CHK_PTR_NULL(opBaseHcom.pComm);
-
-    /* 接口交互信息日志 */
-    HCCL_RUN_INFO("Entry-HcclCommInitClusterInfo:clusterInfo[%s], rank[%u], deviceLogicId[%d]",
-        realFilePath.c_str(), rank, deviceLogicId);
 
     /* --------------初始化------------------------- */
     bool errorFlag = false;
@@ -277,11 +273,15 @@ HcclResult HcclCommInitClusterInfo(const char *clusterInfo, uint32_t rank, HcclC
             HCCL_ERROR("[Init][CommClusterInfo]errNo[0x%016llx] cfg get clusterInfo[%s]"\
                 "info error:rank[%u]", HCCL_ERROR_CODE(ret), realFilePath.c_str(), rank), errorFlag = true);
 
-        HCCL_INFO("rootInfo[%s]", opBaseHcom.params.id.internal);
-
         ret = opBaseHcom.pComm->init(opBaseHcom.params, opBaseHcom.rankTable);
         CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[Init][CommClusterInfo]errNo[0x%016llx] hcclComm init error",
             HCCL_ERROR_CODE(ret)), errorFlag = true);
+
+        /* 设置确定性计算配置 */
+        ret = opBaseHcom.pComm->SetDeterministicConfig(commConfig.GetConfigDeterministic());
+        CHK_PRT_BREAK(ret != HCCL_SUCCESS,
+            HCCL_ERROR("[Init][CommClusterInfo]errNo[0x%016llx] set deterministic error", HCCL_ERROR_CODE(ret)),
+            errorFlag = true);
 
         ret = ShowRanktableConfigInfo(opBaseHcom.cloudFlag, opBaseHcom.params,
             opBaseHcom.rankTable);
@@ -292,7 +292,7 @@ HcclResult HcclCommInitClusterInfo(const char *clusterInfo, uint32_t rank, HcclC
         // 初始化完成的comm指针赋给出参
         *comm = opBaseHcom.pComm.get();
         std::unique_lock<std::mutex> lock(opBaseHcom.opGroupMapMutex);
-        opBaseHcom.opGroup2CommMap[HCCL_WORLD_GROUP] = opBaseHcom.pComm;
+        opBaseHcom.opGroup2CommMap[opBaseHcom.pComm->GetIdentifier()] = opBaseHcom.pComm;
     } while (0);
 
     if (errorFlag) {
@@ -304,10 +304,213 @@ HcclResult HcclCommInitClusterInfo(const char *clusterInfo, uint32_t rank, HcclC
     }
 
     /* 关键状态记录 */
-    HCCL_RUN_INFO("[HCCL_TRACE]HcclCommInitClusterInfo success,take time [%lld]us, clusterInfo[%s], rankNum[%u],"\
-        "rank[%u],server[%s], device[%d]", DURATION_US(TIME_NOW() - startut), realFilePath.c_str(),
-        opBaseHcom.rankTable.rankNum, rank, opBaseHcom.params.serverId.c_str(),
+    HCCL_INFO("%s success, clusterInfoRealPath[%s], rankNum[%u], rank[%u], server[%s], device[%d]",
+        __func__, realFilePath.c_str(), opBaseHcom.rankTable.rankNum, rank, opBaseHcom.params.serverId.c_str(),
         opBaseHcom.params.logicDevId);
+    return HCCL_SUCCESS;
+}
+
+HcclResult HcclCommInitClusterInfo(const char *clusterInfo, uint32_t rank, HcclComm *comm)
+{
+    HcclUs startut = TIME_NOW();
+    s32 deviceLogicId = 0;
+    CHK_RET(hrtGetDeviceRefresh(&deviceLogicId));
+    HCCL_RUN_INFO("Entry-%s: clusterInfo[%s], rank[%u], deviceLogicId[%d]",
+        __func__, clusterInfo, rank, deviceLogicId);
+    // 入参合法性校验
+    CHK_PTR_NULL(clusterInfo);
+    CHK_PTR_NULL(comm);
+
+    HcclResult ret = InitExternalInput();
+    CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[%s]errNo[0x%016llx] init external input error",
+        __func__, HCCL_ERROR_CODE(ret)), HCCL_E_PARA);
+
+    std::string identifier = HCCL_WORLD_GROUP;
+    CommConfig commConfig(identifier);
+    CHK_RET(InitCommClusterInfo(clusterInfo, rank, commConfig, comm));
+
+    /* 关键状态记录 */
+    HCCL_RUN_INFO("[HCCL_TRACE]%s success, take time [%lld]us, clusterInfo[%s], rank[%u], deviceLogicId[%d]",
+        __func__, DURATION_US(TIME_NOW() - startut), clusterInfo, rank, deviceLogicId);
+    return HCCL_SUCCESS;
+}
+
+HcclResult HcclCommInitClusterInfoConfig(const char *clusterInfo, uint32_t rank, HcclCommConfig *config,
+    HcclComm *comm)
+{
+    HcclUs startut = TIME_NOW();
+    s32 deviceLogicId = 0;
+    CHK_RET(hrtGetDeviceRefresh(&deviceLogicId));
+    HCCL_RUN_INFO("Entry-%s: clusterInfo[%s], rank[%u], deviceLogicId[%d]",
+        __func__, clusterInfo, rank, deviceLogicId);
+    // 入参合法性校验
+    CHK_PTR_NULL(clusterInfo);
+    CHK_PTR_NULL(comm);
+
+    // 检查配置参数是否为空
+    RPT_INPUT_ERR(config == nullptr, "EI0003", std::vector<std::string>({"ccl_op", "parameter", "value", "tips"}),\
+        std::vector<std::string>({"HcclCommInitClusterInfoConfig", "config", "nullptr", "please check comm"}));
+    CHK_SMART_PTR_NULL(config);
+
+    HcclResult ret = InitExternalInput();
+    CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[%s]errNo[0x%016llx] init external input error",
+        __func__, HCCL_ERROR_CODE(ret)), HCCL_E_PARA);
+
+    std::string identifier = HCCL_WORLD_GROUP;
+    CommConfig commConfig(identifier);
+    ret = commConfig.Load(config);
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[%s]errNo[0x%016llx] load comm config failed.",
+        __func__, HCCL_ERROR_CODE(ret)), HCCL_E_PARA);
+
+    CHK_RET(InitCommClusterInfo(clusterInfo, rank, commConfig, comm));
+
+    /* 关键状态记录 */
+    HCCL_RUN_INFO("[HCCL_TRACE]%s success, take time [%lld]us, clusterInfo[%s], rank[%u], deviceLogicId[%d]",
+        __func__, DURATION_US(TIME_NOW() - startut), clusterInfo, rank, deviceLogicId);
+    return HCCL_SUCCESS;
+}
+
+HcclResult HcclCreateSubCommConfigInner(hccl::hcclComm *globalComm, uint32_t rankNum, uint32_t *rankIds,
+    uint32_t subCommRankId, CommConfig &commConfig, HcclComm *subComm)
+{
+    HcclResult ret = HCCL_SUCCESS;
+    HcclCommParams globalParams{};
+    RankTable_t globalRankTable{};
+    CHK_RET(globalComm->GetCommParams(globalParams));
+    CHK_RET(globalComm->GetCommRankTable(globalRankTable));
+
+    HcclOpInfoCtx& opBaseHcom = GetHcclOpInfoCtx();
+
+    const std::string commIdentifier = commConfig.GetConfigCommName();
+    auto iter = opBaseHcom.opGroup2CommMap.find(commIdentifier);
+    CHK_PRT_RET(iter != opBaseHcom.opGroup2CommMap.end(),
+        HCCL_ERROR("[%s]errNo[0x%016llx] The comm name[%s] already exists in Group2Comm map.",
+            __func__, HCCL_ERROR_CODE(HCCL_E_PARA), commIdentifier.c_str()),
+        HCCL_E_PARA);
+
+    std::shared_ptr<hccl::hcclComm> pComm;
+    pComm.reset(new (std::nothrow) hccl::hcclComm(
+            commConfig.GetConfigBufferSize(), commConfig.GetConfigBufferSize(), commIdentifier));
+    CHK_PTR_NULL(pComm);
+
+    bool errorFlag = false;
+    hccl::HcclCommParams subParams{};
+    hccl::RankTable_t subRankTable{};
+    do {
+        RankConsistent::GetInstance().SetCheckCannVersionSwitch(true); // 打开CANN软件版本校验开关
+
+        std::unique_ptr<TopoinfoRanktablePartition> pTopoPartition;
+        pTopoPartition.reset(new (std::nothrow) hccl::TopoinfoRanktablePartition(globalParams, globalRankTable));
+        CHK_RET(pTopoPartition->GenerateSubRankTable(rankNum, rankIds, subRankTable));
+        CHK_RET(pTopoPartition->GenerateSubParams(subRankTable, subCommRankId, subParams));
+
+        std::string rankTableM = "";
+        CHK_RET(pTopoPartition->GetRankTableStr(subRankTable, rankTableM));
+
+        ret = InitOtherInfo(subParams, rankTableM.c_str());
+        CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[%s]errNo[0x%016llx] init other Info",
+            __func__, HCCL_ERROR_CODE(ret)), errorFlag = true);
+        ret = pComm->init(subParams, subRankTable);
+        CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[%s]errNo[0x%016llx] hcclComm init error",
+            __func__, HCCL_ERROR_CODE(ret)), errorFlag = true);
+        HCCL_INFO("comm id[%s]", subParams.id.internal);
+
+        /* 设置确定性计算配置 */
+        ret = pComm->SetDeterministicConfig(commConfig.GetConfigDeterministic());
+        CHK_PRT_BREAK(ret != HCCL_SUCCESS,
+            HCCL_ERROR("[%s]errNo[0x%016llx] set deterministic error", __func__, HCCL_ERROR_CODE(ret)),
+            errorFlag = true);
+        ret = InitWorkflowMode(HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
+            CHK_PRT_BREAK(ret != HCCL_SUCCESS,
+            HCCL_ERROR("[%s]errNo[0x%016llx] init workflow mode error", __func__, HCCL_ERROR_CODE(ret)),
+            errorFlag = true);
+
+        ret = DisplayRanktableInfo(subRankTable);
+        CHK_PRT_BREAK(ret != HCCL_SUCCESS,
+            HCCL_ERROR("[%s]errNo[0x%016llx] print ranktable info error", __func__, HCCL_ERROR_CODE(ret)),
+            errorFlag = true);
+
+        // 初始化完成的comm指针赋给出参
+        *subComm = pComm.get();
+        std::unique_lock<std::mutex> lock(opBaseHcom.opGroupMapMutex);
+        opBaseHcom.opGroup2CommMap[pComm->GetIdentifier()] = pComm;
+    } while(0);
+
+    if (errorFlag) {
+        HCCL_ERROR("[%s]Create sub communication failed, return[0x%016llx], " \
+            "rankNum[%u], subCommRankId[%u], sub commm identifier[%s], server[%s], logicDevId[%d]",
+            __func__, HCCL_ERROR_CODE(ret), rankNum, subCommRankId, commIdentifier.c_str(),
+            GetLocalServerId(subParams.serverId).c_str(), subParams.logicDevId);
+        (void)HcclCommDestroy(pComm.get());
+        return ret;
+    }
+
+    HCCL_INFO("%s success, sub commm identifier[%s], rankNum[%u], rank[%u], server[%s], device[%d]",
+        __func__, commIdentifier.c_str(), subRankTable.rankNum, subCommRankId,
+        subParams.serverId.c_str(), subParams.logicDevId);
+    return HCCL_SUCCESS;
+}
+
+HcclResult HcclCreateSubCommConfig(HcclComm *comm, uint32_t rankNum, uint32_t *rankIds,
+    uint64_t subCommId, uint32_t subCommRankId, HcclCommConfig *config, HcclComm *subComm)
+{
+    HcclUs startut = TIME_NOW();
+    s32 deviceLogicId = 0;
+    CHK_RET(hrtGetDeviceRefresh(&deviceLogicId));
+    HCCL_RUN_INFO("Entry-%s: rankNum[%u], rank[%u], deviceLogicId[%d]",
+        __func__, rankNum, subCommRankId, deviceLogicId);
+    CHK_SMART_PTR_NULL(subComm);
+    if (*subComm != nullptr) {
+        HCCL_WARNING("[%s]The value pointed by output param subComm is not nullptr. " \
+            "Please be ware of possible memory leak.", __func__);
+    }
+    CHK_PRT_RET(rankIds == nullptr && subCommId == INVALID_SUBCOMM_ID,
+        HCCL_RUN_INFO("[HCCL_TRACE]HcclCreateSubCommConfig return, rankIds is nullptr and subCommId is 0xFFFFFFFF, " \
+            "this device is not in the sub comm, deviceLogicId[%u].", deviceLogicId),
+        HCCL_SUCCESS);
+    CHK_PRT_RET(rankIds == nullptr || subCommId == INVALID_SUBCOMM_ID,
+        HCCL_ERROR("[%s]errNo[0x%016llx] " \
+            "rankIds[%p] is nullptr xor subCommId[%llu] is invalid. " \
+            "The two parameters should only be both valid or both invalid.",
+            __func__, HCCL_ERROR_CODE(HCCL_E_PARA), rankIds, subCommId),
+        HCCL_E_PARA);
+
+    HcclResult ret = HCCL_SUCCESS;
+    // 入参合法性校验
+    CHK_PRT_RET((rankNum == 0), HCCL_ERROR("[%s]errNo[0x%016llx] Rank num cannot be zero.",
+        __func__, HCCL_ERROR_CODE(HCCL_E_PARA)), HCCL_E_PARA);
+    CHK_PRT_RET((subCommRankId >= rankNum), HCCL_ERROR("[%s]errNo[0x%016llx] subCommRankId[%u] " \
+        "should be less than rankNum[%u].", __func__, HCCL_ERROR_CODE(HCCL_E_PARA), subCommRankId, rankNum),
+        HCCL_E_PARA);
+
+    RPT_INPUT_ERR(config == nullptr, "EI0003", std::vector<std::string>({"ccl_op", "parameter", "value", "tips"}),\
+        std::vector<std::string>({"HcclCreateSubCommConfig", "config", "nullptr", "please check comm"}));
+    CHK_SMART_PTR_NULL(config);
+    CHK_SMART_PTR_NULL(comm);
+
+    ret = InitExternalInput();
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[%s]errNo[0x%016llx] init external input error",
+        __func__, HCCL_ERROR_CODE(ret)), HCCL_E_PARA);
+
+    hccl::hcclComm *globalComm = static_cast<hccl::hcclComm*>(*comm);
+    CHK_PTR_NULL(globalComm);
+
+    std::string identifier = globalComm->GetIdentifier() + "_sub_" + to_string(subCommId);
+    CommConfig commConfig(identifier);
+    ret = commConfig.Load(config);
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[%s]errNo[0x%016llx] load comm config failed.", __func__, HCCL_ERROR_CODE(ret)),
+        HCCL_E_PARA);
+
+    CHK_RET(HcclCreateSubCommConfigInner(globalComm, rankNum, rankIds, subCommRankId, commConfig, subComm));
+
+    /* 关键状态记录 */
+    HCCL_RUN_INFO("[HCCL_TRACE]%s success, take time [%lld]us, " \
+        "sub commm identifier[%s], rankNum[%u], rank[%u], deviceLogicId[%d]",
+        __func__, DURATION_US(TIME_NOW() - startut), commConfig.GetConfigCommName().c_str(),
+        rankNum, subCommRankId, deviceLogicId);
     return HCCL_SUCCESS;
 }
 
@@ -811,9 +1014,9 @@ HcclResult HcclBarrier(HcclComm comm, aclrtStream stream)
     CHK_RET_AND_PRINT_IDE(hrtGetStreamId(stream, streamId), tag.c_str());
 
     HCCL_PROFILER_ADD_TAG(tag, hcclComm->GetIdentifier(), HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
-    HCCL_PROFILER_ADD_STREAM(streamId, tag, 0, AlgType::ALG_RESERVED);
-    HCCL_PROFILER_ADD_OPDATA(tag, HCCL_BARRIER_DEFAULT_COUNT, hcclComm->barrierSendBuf, hcclComm->barrierRecvBuf, \
-        dataType, INVALID_VALUE_RANKID, hcclComm->GetIdentifier());
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(streamId, tag, 0, AlgType::ALG_RESERVED);
+    HCCL_PROFILER_ADD_OPDATA_OP(tag, HCCL_BARRIER_DEFAULT_COUNT, hcclComm->barrierSendBuf, hcclComm->barrierRecvBuf, \
+        dataType, INVALID_VALUE_RANKID, hcclComm->GetIdentifier(), HcclReduceOp::HCCL_REDUCE_RESERVED);
     u32 rankSize = INVALID_VALUE_RANKSIZE;
     CHK_RET_AND_PRINT_IDE(hcclComm->GetRankSize(rankSize), tag.c_str());
     u32 rankId = INVALID_VALUE_RANKID;
@@ -845,10 +1048,10 @@ HcclResult HcclBarrier(HcclComm comm, aclrtStream stream)
     CHK_RET_AND_PRINT_IDE(hcclComm->AllReduceOutPlace(tag, hcclComm->barrierSendBuf, hcclComm->barrierRecvBuf,
         HCCL_BARRIER_DEFAULT_COUNT, dataType, op, stream, SyncMode::UNLIMITED_TIMEWAITSYNCMODE), tag.c_str());
 
-    HCCL_PROFILER_DEL_STREAM(streamId);
+    HCCL_PROFILER_DEL_STREAM_BY_STREAMID(streamId);
     HCCL_PROFILER_DEL_TAG(tag);
     HCCL_PROFILER_DEL_OPDATA(tag);
-    HCCL_PROFILER_DEL_GROUPRANK(tag);
+    HCCL_PROFILER_DEL_GROUPRANK(hcclComm->GetIdentifier());
     CHK_RET(CallMsprofReportHostApi(hcclComm, HcclCMDType::HCCL_CMD_ALLREDUCE, beginTime, HCCL_BARRIER_DEFAULT_COUNT,
         dataType, tag));
     ResetIfProfile();
@@ -1161,7 +1364,7 @@ HcclResult HcclSend(void* sendBuf, uint64_t count, HcclDataType dataType, uint32
     hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm *>(comm);
 
     // 同算子复用tag，为实现通信域复用，根据srRank和dstRank构造Tag
-    u32 localRank = INVALID_VALUE_RANKID;
+    u32 localRank = INVALID_VALUE_RANKID, rankSize = INVALID_VALUE_RANKSIZE;
     CHK_RET(hcclComm->GetGroupRank(localRank));
 
     const string tag = "worldCommSendRecv_" + std::to_string(localRank) + "_" + std::to_string(destRank) + "_" +
@@ -1169,13 +1372,13 @@ HcclResult HcclSend(void* sendBuf, uint64_t count, HcclDataType dataType, uint32
 
     HcomCollOpInfo opInfo = {"", sendBuf, sendBuf, count, dataType, 0, HCCL_REDUCE_RESERVED};
 
-    HCCL_PROFILER_ADD_TAG(tag, hcclComm->GetIdentifier(), HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
-    HCCL_PROFILER_ADD_STREAM(streamId, tag, 0, AlgType::ALG_RESERVED);
+    HCCL_PROFILER_ADD_TAG_SENDRECV(tag, hcclComm->GetIdentifier(), HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(streamId, tag, 0, AlgType::ALG_RESERVED);
 
-    u32 rankSize = INVALID_VALUE_RANKSIZE;
     CHK_RET_AND_PRINT_IDE(hcclComm->GetRankSize(rankSize), tag.c_str());
-    HCCL_PROFILER_ADD_OPDATA(tag, count, sendBuf, sendBuf, dataType, INVALID_VALUE_RANKID, hcclComm->GetIdentifier());
-    HCCL_PROFILER_ADD_GROUPRANK(hcclComm->GetIdentifier(), rankSize, localRank);
+    HCCL_PROFILER_ADD_OPDATA_OP(tag, count, sendBuf, sendBuf, dataType, INVALID_VALUE_RANKID, \
+        hcclComm->GetIdentifier(), HcclReduceOp::HCCL_REDUCE_RESERVED);
+    HCCL_PROFILER_ADD_GROUPRANK_SENDRECV(hcclComm->GetIdentifier(), rankSize, localRank, destRank);
 
     /* 接口交互信息日志 */
     char stackLogBuffer[LOG_TMPBUF_SIZE];
@@ -1197,10 +1400,10 @@ HcclResult HcclSend(void* sendBuf, uint64_t count, HcclDataType dataType, uint32
 
     CHK_RET_AND_PRINT_IDE(hcclComm->SendOutPlace(tag, sendBuf, count, dataType, destRank, stream), tag.c_str());
 
-    HCCL_PROFILER_DEL_STREAM(streamId);
+    HCCL_PROFILER_DEL_STREAM_BY_STREAMID(streamId);
     HCCL_PROFILER_DEL_TAG(tag);
     HCCL_PROFILER_DEL_OPDATA(tag);
-    HCCL_PROFILER_DEL_GROUPRANK(tag);
+    HCCL_PROFILER_DEL_GROUPRANK(hcclComm->GetIdentifier());
     CHK_RET(CallMsprofReportHostApi(hcclComm, HcclCMDType::HCCL_CMD_SEND, beginTime, count, dataType, tag));
     ResetIfProfile();
     HcclUs endut = TIME_NOW();
@@ -1235,7 +1438,7 @@ HcclResult HcclRecv(void* recvBuf, uint64_t count, HcclDataType dataType, uint32
     hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm *>(comm);
 
     // 同算子复用tag，为实现通信域复用，根据srRank和dstRank构造Tag
-    u32 localRank = INVALID_VALUE_RANKID;
+    u32 localRank = INVALID_VALUE_RANKID, rankSize = INVALID_VALUE_RANKSIZE;
     CHK_RET(hcclComm->GetGroupRank(localRank));
 
     const string tag = "worldCommSendRecv_" + std::to_string(srcRank) + "_" + std::to_string(localRank) + "_" +
@@ -1243,13 +1446,13 @@ HcclResult HcclRecv(void* recvBuf, uint64_t count, HcclDataType dataType, uint32
 
     HcomCollOpInfo opInfo = {"", recvBuf, recvBuf, count, dataType, 0, HCCL_REDUCE_RESERVED};
 
-    HCCL_PROFILER_ADD_TAG(tag, hcclComm->GetIdentifier(), HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
-    HCCL_PROFILER_ADD_STREAM(streamId, tag, 0, AlgType::ALG_RESERVED);
+    HCCL_PROFILER_ADD_TAG_SENDRECV(tag, hcclComm->GetIdentifier(), HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(streamId, tag, 0, AlgType::ALG_RESERVED);
 
-    u32 rankSize = INVALID_VALUE_RANKSIZE;
     CHK_RET_AND_PRINT_IDE(hcclComm->GetRankSize(rankSize), tag.c_str());
-    HCCL_PROFILER_ADD_OPDATA(tag, count, recvBuf, recvBuf, dataType, INVALID_VALUE_RANKID, hcclComm->GetIdentifier());
-    HCCL_PROFILER_ADD_GROUPRANK(hcclComm->GetIdentifier(), rankSize, localRank);
+    HCCL_PROFILER_ADD_OPDATA_OP(tag, count, recvBuf, recvBuf, dataType, INVALID_VALUE_RANKID, \
+        hcclComm->GetIdentifier(), HcclReduceOp::HCCL_REDUCE_RESERVED);
+    HCCL_PROFILER_ADD_GROUPRANK_SENDRECV(hcclComm->GetIdentifier(), rankSize, localRank, srcRank);
 
     /* 接口交互信息日志 */
     char stackLogBuffer[LOG_TMPBUF_SIZE];
@@ -1270,10 +1473,10 @@ HcclResult HcclRecv(void* recvBuf, uint64_t count, HcclDataType dataType, uint32
 
     CHK_RET_AND_PRINT_IDE(hcclComm->ReceiveOutPlace(tag, recvBuf, count, dataType, srcRank, stream), tag.c_str());
 
-    HCCL_PROFILER_DEL_STREAM(streamId);
+    HCCL_PROFILER_DEL_STREAM_BY_STREAMID(streamId);
     HCCL_PROFILER_DEL_TAG(tag);
     HCCL_PROFILER_DEL_OPDATA(tag);
-    HCCL_PROFILER_DEL_GROUPRANK(tag);
+    HCCL_PROFILER_DEL_GROUPRANK(hcclComm->GetIdentifier());
     CHK_RET(CallMsprofReportHostApi(hcclComm, HcclCMDType::HCCL_CMD_RECEIVE, beginTime, count, dataType, tag));
     ResetIfProfile();
     HcclUs endut = TIME_NOW();
@@ -1329,9 +1532,8 @@ HcclResult HcclCommDestroy(HcclComm comm)
 
     HcclUs endut = TIME_NOW();
     /* 关键状态记录 */
-    HCCL_RUN_INFO("op_base comm destroy complete,take time [%lld]us, rankNum[%u], rank[%u], deviceLogicId[%d]",
-        DURATION_US(endut - startut), opBaseHcom.rankTable.rankNum, opBaseHcom.params.rank,
-        deviceLogicId);
+    HCCL_RUN_INFO("op_base comm destroy complete, take time [%lld]us, group[%s], deviceLogicId[%d]",
+        DURATION_US(endut - startut), group.c_str(), deviceLogicId);
     return HCCL_SUCCESS;
 }
 
@@ -1388,6 +1590,7 @@ HcclResult ReduceScatterLoop(const std::string &tag, void *inputPtr, void *outpu
     void *commInputPtr = nullptr;
     void *commOutputPtr = nullptr;
     u64 commInputSize, commOutputSize;
+    u32 ranktableCrc = hcclComm->GetRankTableCrc();
 
     CHK_RET(hcclComm->GetInCCLbuffer(commInputPtr, commInputSize));
 
@@ -1426,10 +1629,9 @@ HcclResult ReduceScatterLoop(const std::string &tag, void *inputPtr, void *outpu
                     "failed", i), HCCL_E_MEMORY);
         }
         CHK_RET(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_REDUCE_SCATTER,
-            const_cast<char *>(tag.c_str()), curCount, dataType, op, commInputSize, commOutputSize));
+            tag, curCount, dataType, op, commInputSize, commOutputSize, nullptr, ranktableCrc));
 
-        ret = hcclComm->ReduceScatter(const_cast<char *>(tag.c_str()), commInputPtr, commOutputPtr,
-            curCount, dataType, op, stream);
+        ret = hcclComm->ReduceScatter(tag, commInputPtr, commOutputPtr, curCount, dataType, op, stream);
 
         CHK_PRT_RET(ret != HCCL_SUCCESS,
             HCCL_ERROR("[Loop][ReduceScatter]errNo[0x%016llx] op_base hcclComm reduce_scatter error, "\
@@ -1522,7 +1724,7 @@ HcclResult HcclAlltoAll(const void *sendBuf, uint64_t sendCount, HcclDataType se
         std::vector<std::string>({"HcclAlltoAll", "recvBuf", "nullptr", "please check recvBuf"}));
     CHK_PTR_NULL(recvBuf);
     CHK_PRT_RET(sendCount != recvCount,
-        HCCL_ERROR("sendCount[%llu] and recvCount[%llu] are not equal, please check params",
+        HCCL_ERROR("sendCount[%lu] and recvCount[%lu] are not equal, please check params",
             sendCount, recvCount), HCCL_E_PARA);
     CHK_PRT_RET(sendType != recvType,
         HCCL_ERROR("sendType[%s] and recvType[%s] are not equal, please check params",
@@ -1544,14 +1746,14 @@ HcclResult HcclAlltoAll(const void *sendBuf, uint64_t sendCount, HcclDataType se
     CHK_RET_AND_PRINT_IDE(hrtGetStreamId(stream, streamId), tag.c_str());
 
     HCCL_PROFILER_ADD_TAG(tag, hcclComm->GetIdentifier(), HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
-    HCCL_PROFILER_ADD_STREAM(streamId, tag, 0, AlgType::ALG_RESERVED);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(streamId, tag, 0, AlgType::ALG_RESERVED);
 
     u32 rankSize = INVALID_VALUE_RANKSIZE;
     CHK_RET_AND_PRINT_IDE(hcclComm->GetRankSize(rankSize), tag.c_str());
     u32 localRank = INVALID_VALUE_RANKID;
     CHK_RET(hcclComm->GetGroupRank(localRank));
-    HCCL_PROFILER_ADD_OPDATA(tag, sendCount, sendBuf, recvBuf, sendType, INVALID_VALUE_RANKID, \
-        hcclComm->GetIdentifier());
+    HCCL_PROFILER_ADD_OPDATA_OP(tag, sendCount, sendBuf, recvBuf, sendType, INVALID_VALUE_RANKID, \
+        hcclComm->GetIdentifier(), HcclReduceOp::HCCL_REDUCE_RESERVED);
     HCCL_PROFILER_ADD_GROUPRANK(hcclComm->GetIdentifier(), rankSize, localRank);
 
     // 接口交互信息日志
@@ -1572,15 +1774,16 @@ HcclResult HcclAlltoAll(const void *sendBuf, uint64_t sendCount, HcclDataType se
 
     /* 记录cclBufferSize用于一致性校验 */
     CHK_RET_AND_PRINT_IDE(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_ALLTOALL,
-        tag.c_str(), sendCount, sendType, hcclComm->GetConfigInCCLbufferSize(), 0, nullptr), tag.c_str());
+        tag.c_str(), sendCount, sendType, hcclComm->GetConfigInCCLbufferSize(), 0, nullptr,
+        hcclComm->GetRankTableCrc()), tag.c_str());
 
     CHK_RET_AND_PRINT_IDE(hcclComm->AlltoAll(sendBuf, sendCount, sendType, recvBuf, recvCount, recvType, stream, tag),
                           tag.c_str());
 
-    HCCL_PROFILER_DEL_STREAM(streamId);
+    HCCL_PROFILER_DEL_STREAM_BY_STREAMID(streamId);
     HCCL_PROFILER_DEL_TAG(tag);
     HCCL_PROFILER_DEL_OPDATA(tag);
-    HCCL_PROFILER_DEL_GROUPRANK(tag);
+    HCCL_PROFILER_DEL_GROUPRANK(hcclComm->GetIdentifier());
     CHK_RET(CallMsprofReportHostApi(hcclComm, HcclCMDType::HCCL_CMD_ALLTOALL, beginTime, sendCount, sendType,
         tag));
 
@@ -1636,11 +1839,12 @@ HcclResult HcclAlltoAllV(const void *sendBuf, const void *sendCounts, const void
         HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
     s32 streamId = 0;
     CHK_RET_AND_PRINT_IDE(hrtGetStreamId(stream, streamId), tag.c_str());
-    HCCL_PROFILER_ADD_STREAM(streamId, tag, 0, AlgType::ALG_RESERVED);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(streamId, tag, 0, AlgType::ALG_RESERVED);
 
     u32 localRank = INVALID_VALUE_RANKID;
     CHK_RET(hcclComm->GetGroupRank(localRank));
-    HCCL_PROFILER_ADD_OPDATA(tag, 0, sendBuf, recvBuf, sendType, INVALID_VALUE_RANKID, hcclComm->GetIdentifier());
+    HCCL_PROFILER_ADD_OPDATA_OP(tag, 0, sendBuf, recvBuf, sendType, INVALID_VALUE_RANKID, hcclComm->GetIdentifier(), \
+        HcclReduceOp::HCCL_REDUCE_RESERVED);
     HCCL_PROFILER_ADD_GROUPRANK(hcclComm->GetIdentifier(), rankSize, localRank);
 
     /* 接口交互信息日志 */
@@ -1665,7 +1869,8 @@ HcclResult HcclAlltoAllV(const void *sendBuf, const void *sendCounts, const void
 
     /* 记录cclBufferSize用于一致性校验 */
     CHK_RET_AND_PRINT_IDE(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_ALLTOALLV,
-        tag.c_str(), 0, HCCL_DATA_TYPE_RESERVED, hcclComm->GetConfigInCCLbufferSize(), 0, nullptr), tag.c_str());
+        tag.c_str(), 0, HCCL_DATA_TYPE_RESERVED, hcclComm->GetConfigInCCLbufferSize(), 0, nullptr,
+        hcclComm->GetRankTableCrc()), tag.c_str());
 
     CHK_RET_AND_PRINT_IDE(SetDefaultQosConfig(hcclComm), tag.c_str());
 
@@ -1679,17 +1884,15 @@ HcclResult HcclAlltoAllV(const void *sendBuf, const void *sendCounts, const void
 
     u64 sendCount = 0;
     for (u32 i = 0; i < rankSize; i++) {
-        u64 curSendCount = *(static_cast<const u64 *>(sendCounts) + i) + *(static_cast<const u64 *>(sdispls) + i);
-        sendCount = std::max(sendCount, curSendCount);
+        sendCount += *(static_cast<const u64 *>(sendCounts) + i);
     }
-    HCCL_PROFILER_DEL_STREAM(streamId);
+    HCCL_PROFILER_DEL_STREAM_BY_STREAMID(streamId);
     HCCL_PROFILER_DEL_TAG(HCCL_ALLTOALL_PARA_ALLGATHER);
     HCCL_PROFILER_DEL_TAG(tag);
     HCCL_PROFILER_DEL_OPDATA(tag);
-    HCCL_PROFILER_DEL_GROUPRANK(tag);
+    HCCL_PROFILER_DEL_GROUPRANK(hcclComm->GetIdentifier());
 
-    CHK_RET(CallMsprofReportHostApi(hcclComm, HcclCMDType::HCCL_CMD_ALLTOALLV, beginTime, sendCount, sendType,
-        tag));
+    CHK_RET(CallMsprofReportHostApi(hcclComm, HcclCMDType::HCCL_CMD_ALLTOALLV, beginTime, sendCount, sendType, tag));
 
     HcclUs endut = TIME_NOW();
     /* 关键状态记录 */
@@ -1734,9 +1937,10 @@ HcclResult HcclAlltoAllVC(const void *sendBuf, const void *sendCountMatrix,
     HCCL_PROFILER_ADD_TAG(tag, hcclComm->GetIdentifier(), HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
     s32 streamId = 0;
     CHK_RET_AND_PRINT_IDE(hrtGetStreamId(stream, streamId), tag.c_str());
-    HCCL_PROFILER_ADD_STREAM(streamId, tag, 0, AlgType::ALG_RESERVED);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(streamId, tag, 0, AlgType::ALG_RESERVED);
 
-    HCCL_PROFILER_ADD_OPDATA(tag, 0, sendBuf, recvBuf, sendType, INVALID_VALUE_RANKID, hcclComm->GetIdentifier());
+    HCCL_PROFILER_ADD_OPDATA_OP(tag, 0, sendBuf, recvBuf, sendType, INVALID_VALUE_RANKID, hcclComm->GetIdentifier(), \
+        HcclReduceOp::HCCL_REDUCE_RESERVED);
     HCCL_PROFILER_ADD_GROUPRANK(hcclComm->GetIdentifier(), rankSize, userRank);
 
     u64 sendCountMatrixHash;
@@ -1764,7 +1968,8 @@ HcclResult HcclAlltoAllVC(const void *sendBuf, const void *sendCountMatrix,
 
     /* 记录cclBufferSize用于一致性校验 */
     CHK_RET_AND_PRINT_IDE(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_ALLTOALLVC,
-        tag.c_str(), 0, HCCL_DATA_TYPE_RESERVED, hcclComm->GetConfigInCCLbufferSize(), 0, nullptr), tag.c_str());
+        tag.c_str(), 0, HCCL_DATA_TYPE_RESERVED, hcclComm->GetConfigInCCLbufferSize(), 0, nullptr,
+        hcclComm->GetRankTableCrc()), tag.c_str());
 
     CHK_RET_AND_PRINT_IDE(SetDefaultQosConfig(hcclComm), tag.c_str());
 
@@ -1776,10 +1981,10 @@ HcclResult HcclAlltoAllVC(const void *sendBuf, const void *sendCountMatrix,
             recvType, stream, tag), tag.c_str());
     }
 
-    HCCL_PROFILER_DEL_STREAM(streamId);
+    HCCL_PROFILER_DEL_STREAM_BY_STREAMID(streamId);
     HCCL_PROFILER_DEL_TAG(tag);
     HCCL_PROFILER_DEL_OPDATA(tag);
-    HCCL_PROFILER_DEL_GROUPRANK(tag);
+    HCCL_PROFILER_DEL_GROUPRANK(hcclComm->GetIdentifier());
     u64 sendCount = 0;
     for (u32 i = 0; i < rankSize; i++) {
         sendCount += *(static_cast<const u64 *>(sendCountMatrix) + userRank * rankSize + i);
@@ -1856,7 +2061,7 @@ HcclResult HcclReduce(void *sendBuf, void *recvBuf, uint64_t count, HcclDataType
 
     CHK_RET_AND_PRINT_IDE(hcclComm->ReduceOutPlace(tag, sendBuf, recvBuf, count, dataType, op, root, stream),
                               tag.c_str());
-  
+
     CHK_RET(CallMsprofReportHostApi(hcclComm, HcclCMDType::HCCL_CMD_REDUCE, beginTime, count, dataType, tag));
     HcclUs endut = TIME_NOW();
     /* 关键状态记录 */
@@ -1873,6 +2078,7 @@ HcclResult ReduceLoop(const std::string &tag, void *inputPtr, void *outputPtr, c
     void *commInputPtr = nullptr;
     void *commOutputPtr = nullptr;
     u64 commInputSize, commOutputSize;
+    u32 ranktableCrc = hcclComm->GetRankTableCrc();
 
     HcclResult ret;
     CHK_RET(hcclComm->GetInCCLbuffer(commInputPtr, commInputSize));
@@ -1909,11 +2115,10 @@ HcclResult ReduceLoop(const std::string &tag, void *inputPtr, void *outputPtr, c
 
         /* 记录指令信息用于一致性校验 */
         CHK_RET(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_REDUCE, tag,
-            curCount, dataType, op, root, commInputSize, commOutputSize));
+            curCount, dataType, op, root, commInputSize, commOutputSize, nullptr, ranktableCrc));
 
         /* 入参的正确性由HCCL确保 */
-        ret = hcclComm->Reduce(const_cast<char *>(tag.c_str()), commInputPtr, commOutputPtr,
-                               curCount, dataType, op, root, stream);
+        ret = hcclComm->Reduce(tag, commInputPtr, commOutputPtr, curCount, dataType, op, root, stream);
         CHK_PRT_RET(ret != HCCL_SUCCESS,
             HCCL_ERROR("[Loop][Reduce]errNo[0x%016llx] op_base hcclComm reduce error, tag[%s], "\
             "input_ptr[%p], output_ptr[%p], count[%llu], data_type[%s], op[%s], root[%u]",
@@ -2315,94 +2520,6 @@ HcclResult HcclGetAicpuOpStreamAndNotify(HcclComm comm, rtStream_t* opstream, vo
 }
 #endif // __cplusplus
 
-HcclResult GetPairWiseList(HcclSendRecvItem *sendRecvInfo, u32 itemNum, u32 rankSize, u32 rankId,
-    std::vector<HcclSendRecvItem *> &orderedList)
-{
-    HCCL_INFO("[BatchSendRecv][GetPairWiseList] Start sort the batchSendRecv tasklist.");
-    CHK_PTR_NULL(sendRecvInfo);
-    /* 对任务个数进行校验：任务列表中不能有重复的send/recv任务,重复指向（从）同一rank发送（接收）两个任务，
-    因此会将任务数限制在2*rankSize. */
-    CHK_PRT_RET((itemNum == 0 || itemNum > DOUBLE_SIZE * rankSize),
-        HCCL_ERROR("[BatchSendRecv][GetPairWiseList] List itemNum is zero or larger than double rankSize, "\
-            "itemNum is %u, rankSize is %u, rankID is %u.", itemNum, rankSize, rankId), HCCL_E_PARA);
-    std::vector<HcclSendRecvItem *> sendVec(rankSize, nullptr);
-    std::vector<HcclSendRecvItem *> recvVec(rankSize, nullptr);
-
-    for (u32 i = 0; i < itemNum; i++) {
-        HCCL_INFO("[BatchSendRecv][GetPairWiseList] index is %u, itemNum is %u, rankID is %u, remoteRank is %u, "\
-            "sendRecvType is %u, rankSize is %u.", i, itemNum, rankId, sendRecvInfo->remoteRank,
-            static_cast<u32>(sendRecvInfo->sendRecvType), rankSize);
-        CHK_PTR_NULL(sendRecvInfo->buf);
-        CHK_RET(HcomCheckDataType(sendRecvInfo->dataType));
-        CHK_RET(HcomCheckCount(sendRecvInfo->count));
-        CHK_RET(HcomCheckUserRank(rankSize, sendRecvInfo->remoteRank));
-
-        if (sendRecvInfo->sendRecvType == HcclSendRecvType::HCCL_SEND) {
-            // 若send/recv任务存在重复情况，直接退出
-            CHK_PRT_RET((sendVec[sendRecvInfo->remoteRank] != nullptr),
-                HCCL_ERROR(
-                    "[BatchSendRecv][GetPairWiseList] Send Tasks are duplicated, rankID is %u, remoteRank is %u.",
-                    rankId, sendRecvInfo->remoteRank), HCCL_E_PARA);
-            sendVec[sendRecvInfo->remoteRank] = sendRecvInfo;
-        } else if (sendRecvInfo->sendRecvType == HcclSendRecvType::HCCL_RECV) {
-            CHK_PRT_RET((recvVec[sendRecvInfo->remoteRank] != nullptr),
-                HCCL_ERROR(
-                    "[BatchSendRecv][GetPairWiseList] Recv Tasks are duplicated, rankID is %u, remoteRank is %u.",
-                    rankId, sendRecvInfo->remoteRank), HCCL_E_PARA);
-            recvVec[sendRecvInfo->remoteRank] = sendRecvInfo;
-        } else {
-            HCCL_ERROR("[BatchSendRecv][GetPairWiseList] sendRecvType wrong sendrecvType is %d, rankID is %u,"\
-                "remoteRank is %u.", sendRecvInfo->sendRecvType, rankId,
-                       sendRecvInfo->remoteRank);
-            return HCCL_E_PARA;
-        }
-        sendRecvInfo++;
-    }
-    /* 此处的排序逻辑:
-        1.sendVec和recvVec(当前按remoteRank号有序排列)间隔穿插插入数组orderedList
-        2.sendVec元素中放入orderedList的规则是:先放remoteRank号小于root rank的第一个任务，依次减小(循环索引)直至放完
-        3.recvVec元素中放入orderedList的规则是:先放remoteRank号大于root rank的第一个任务，依次增大(循环索引)直至放完
-    */
-    // sendVec的索引
-    u32 sendIndex = rankId;
-    // recvVec的索引
-    u32 recvIndex = rankId;
-    // orderedList的索引
-    u32 index = 0;
-    bool sendFirstFlag = true;
-    bool recvFirstFlag = true;
-    while (index < itemNum) {
-        bool foundSendTask = false;
-        while (sendFirstFlag || sendIndex != rankId) {
-            sendFirstFlag = false;
-            if (sendVec[sendIndex] != nullptr) {
-                foundSendTask = true;
-                break;
-            }
-            sendIndex = (sendIndex + rankSize - 1) % rankSize;
-        }
-        if (foundSendTask) {
-            orderedList[index++] = sendVec[sendIndex];
-            sendIndex = (sendIndex + rankSize - 1) % rankSize;
-        }
-        bool foundRecvTask = false;
-        while (recvFirstFlag || recvIndex != rankId) {
-            recvFirstFlag = false;
-            if (recvVec[recvIndex] != nullptr) {
-                foundRecvTask = true;
-                break;
-            }
-            recvIndex = (recvIndex + 1) % rankSize;
-        }
-        if (foundRecvTask) {
-            orderedList[index++] = recvVec[recvIndex];
-            recvIndex = (recvIndex + 1) % rankSize;
-        }
-    }
-    HCCL_INFO("[BatchSendRecv][GetPairWiseList] End sort the batchSendRecv tasklist.");
-    return HCCL_SUCCESS;
-}
-
 HcclResult HcclBatchSendRecv(HcclSendRecvItem* sendRecvInfo, uint32_t itemNum, HcclComm comm, aclrtStream stream)
 {
     HcclUs startut = TIME_NOW();
@@ -2415,21 +2532,24 @@ HcclResult HcclBatchSendRecv(HcclSendRecvItem* sendRecvInfo, uint32_t itemNum, H
     CHK_PTR_NULL(comm);
     CHK_PTR_NULL(stream);
 
+    CHK_PTR_NULL(sendRecvInfo);
+    CHK_PRT_RET((itemNum == 0), HCCL_WARNING("[BatchSendRecv] taskList itemNum is zero."), HCCL_SUCCESS);
+
     s32 streamId = 0;
     CHK_RET(hrtGetStreamId(stream, streamId));
 
     hccl::hcclComm* hcclComm = static_cast<hccl::hcclComm *>(comm);
-
-    u32 rankSize = 0;
-    CHK_RET(hcclComm->GetRankSize(rankSize));
-
-    u32 localRank = INVALID_VALUE_RANKID;
-    CHK_RET(hcclComm->GetGroupRank(localRank));
-    std::vector<HcclSendRecvItem*> orderedList(itemNum, nullptr);
-    CHK_RET(GetPairWiseList(sendRecvInfo, itemNum, rankSize, localRank, orderedList));
-
     // 若任务不同，也复用tag
     const string tag = "worldBatchSendRecv_" + hcclComm->GetIdentifier();
+    u32 rankSize = INVALID_VALUE_RANKSIZE;
+    CHK_RET_AND_PRINT_IDE(hcclComm->GetRankSize(rankSize), tag.c_str());
+    u32 rankId = INVALID_VALUE_RANKID;
+    CHK_RET_AND_PRINT_IDE(hcclComm->GetGroupRank(rankId), tag.c_str());
+
+    /* 对任务个数进行校验：任务列表中不能有重复的send/recv任务,重复指向（从）同一rank发送（接收）两个任务，
+    因此会将任务数限制在2*rankSize. */
+    CHK_PRT_RET((itemNum > DOUBLE_SIZE * rankSize),
+        HCCL_ERROR("[BatchSendRecv][GetPairWiseList] List is larger than double rankSize."), HCCL_E_PARA);
 
     /* 记录接口交互信息日志 */
     char stackLogBuffer[LOG_TMPBUF_SIZE];
@@ -2440,10 +2560,16 @@ HcclResult HcclBatchSendRecv(HcclSendRecvItem* sendRecvInfo, uint32_t itemNum, H
     std::string logInfo = "Entry-HcclBatchSendRecv:" + std::string(stackLogBuffer);
     CHK_RET(hcclComm->SaveOpbaseKeyTraceInfo(logInfo));
 
-    for (const auto& taskItem : orderedList) {
+    for (u32 i = 0; i < itemNum; i++) {
+        CHK_PTR_NULL((sendRecvInfo + i)->buf);
+        CHK_RET(HcomCheckDataType((sendRecvInfo + i)->dataType));
+        CHK_RET(HcomCheckCount((sendRecvInfo + i)->count));
+        CHK_RET(HcomCheckUserRank(rankSize, (sendRecvInfo + i)->remoteRank));
         char stackLogBuffer[LOG_TMPBUF_SIZE];
         s32 ret = snprintf_s(stackLogBuffer, LOG_TMPBUF_SIZE, LOG_TMPBUF_SIZE - 1U,
-            "SendRecvItem : SendRecvType[%d], remoteRank[%d]", taskItem->sendRecvType, taskItem->remoteRank);
+            "SendRecvItem : SendRecvType[%d], remoteRank[%d], count[%llu], dataType[%d], buf[%p].",
+            (sendRecvInfo + i)->sendRecvType, (sendRecvInfo + i)->remoteRank, (sendRecvInfo + i)->count, 
+            (sendRecvInfo + i)->dataType, (sendRecvInfo + i)->buf);
         CHK_PRT_CONT(ret == -1, HCCL_WARNING("Failed to build log info, tag[%s].", tag.c_str()));
         std::string logInfo = "[HcclBatchSendRecv]" + std::string(stackLogBuffer);
         CHK_RET(hcclComm->SaveOpbaseKeyTraceInfo(logInfo));
@@ -2451,49 +2577,18 @@ HcclResult HcclBatchSendRecv(HcclSendRecvItem* sendRecvInfo, uint32_t itemNum, H
 
     CHK_RET(SetWorkflowMode(HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE));
 
-    HCCL_PROFILER_ADD_TAG(tag, hcclComm->GetIdentifier(), HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
-    HCCL_PROFILER_ADD_STREAM(streamId, tag, 0, AlgType::ALG_RESERVED);
+    HCCL_PROFILER_ADD_TAG_SENDRECV(tag, hcclComm->GetIdentifier(), HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(streamId, tag, 0, AlgType::ALG_RESERVED);
 
-    HCCL_PROFILER_ADD_OPDATA(tag, 0, nullptr, nullptr, HcclDataType::HCCL_DATA_TYPE_RESERVED, INVALID_VALUE_RANKID, \
-        hcclComm->GetIdentifier());
-    HCCL_PROFILER_ADD_GROUPRANK(hcclComm->GetIdentifier(), rankSize, localRank);
-    u32 loopStartIndex = 0;
+    HCCL_PROFILER_ADD_OPDATA_OP(tag, 0, nullptr, nullptr, HcclDataType::HCCL_DATA_TYPE_RESERVED, INVALID_VALUE_RANKID, \
+        hcclComm->GetIdentifier(), HcclReduceOp::HCCL_REDUCE_RESERVED);
+    HCCL_PROFILER_ADD_GROUPRANK_SENDRECV(hcclComm->GetIdentifier(), rankSize, rankId, sendRecvInfo->remoteRank);
+    CHK_RET_AND_PRINT_IDE(hcclComm->BatchSendRecv(tag, sendRecvInfo, itemNum, stream), tag.c_str());
 
-    // 如果存在自发自收的任务，GetPairWiseList将自发自收的任务放在orderedList最前面两个。若是send/recv不成对，直接退出。
-    if ((itemNum >= RANKSIZE_TWO && orderedList[0]->remoteRank == localRank &&
-        orderedList[1]->remoteRank != localRank) ||(itemNum == 1 && orderedList[0]->remoteRank == localRank)) {
-        HCCL_ERROR("[HcclBatchSendRecv] Send task and recv task to rank itself do not match,"\
-            "please check the task list.");
-        return HCCL_E_PARA;
-    }
-    // 适配自发自收场景，GetPairWiseList可以确保任务不重复，并且send任务在先。
-    if (itemNum >= RANKSIZE_TWO && orderedList[0]->remoteRank == localRank && orderedList[1]->remoteRank == localRank) {
-        u32 qosCfg = INVALID_QOSCFG; // qos不使能的情况下为全F
-        CHK_RET_AND_PRINT_IDE(hcclComm->GetQosCfg(qosCfg), tag.c_str());
-
-        if (orderedList[0]->count == orderedList[1]->count && orderedList[0]->dataType == orderedList[1]->dataType) {
-            u64 dataSize = orderedList[0]->count * SIZE_TABLE[orderedList[0]->dataType];
-            ret = hrtMemAsyncCopyByQos(orderedList[1]->buf, dataSize, orderedList[0]->buf, dataSize,
-                HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_DEVICE_TO_DEVICE, stream, qosCfg);
-            // 若是自发自收则跳过前2个任务
-            loopStartIndex += 2;
-        } else {
-            HCCL_ERROR("[HcclBatchSendRecv] Send task and recv task to self : data size do not equal, please check the"\
-                "task list.");
-            return HCCL_E_PARA;
-        }
-        CHK_PRT_RET(ret != HCCL_SUCCESS,
-            HCCL_ERROR("[BatchSendRecv] In OP_BASE send to self transit, memcopy failed."), HCCL_E_MEMORY);
-    }
-
-    CHK_RET_AND_PRINT_IDE(SetDefaultQosConfig(hcclComm), tag.c_str());
-    CHK_RET_AND_PRINT_IDE(hcclComm->ProcessSendRecvTasks(tag, orderedList, itemNum, loopStartIndex, stream),
-                          tag.c_str());
-
-    HCCL_PROFILER_DEL_STREAM(streamId);
+    HCCL_PROFILER_DEL_STREAM_BY_STREAMID(streamId);
     HCCL_PROFILER_DEL_TAG(tag);
     HCCL_PROFILER_DEL_OPDATA(tag);
-    HCCL_PROFILER_DEL_GROUPRANK(tag);
+    HCCL_PROFILER_DEL_GROUPRANK(hcclComm->GetIdentifier());
     CHK_RET(CallMsprofReportHostApi(hcclComm, HcclCMDType::HCCL_CMD_BATCH_SEND_RECV, beginTime, sendRecvInfo->count,
         sendRecvInfo->dataType, tag));
     ResetIfProfile();
@@ -2559,6 +2654,12 @@ HcclResult HcclCommResume(HcclComm comm)
     HCCL_RUN_INFO("HcclCommResume:success, take time:[%lld]us, comm[%s]",
         DURATION_US(endut - startut).count(), hcclComm->GetIdentifier().c_str());
     return HCCL_SUCCESS;
+}
+
+uint32_t HcclGetCommConfigCapability()
+{
+    // RESERVED在枚举中是最后一个，返回RESERVED说明它前面所有的配置项都支持
+    return static_cast<uint32_t>(HCCL_COMM_CONFIG_RESERVED);
 }
  
 #ifdef __cplusplus

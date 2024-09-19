@@ -35,7 +35,7 @@ HcclResult ReduceScatterRingConcurrentDirect::RunAsync(const u32 rank, const u32
 
     // 判断rank_size == 1的情况，并拷贝
     if (rankSize == 1) {
-        CHK_RET(MemcpyByOneRank());
+        CHK_RET(OneRankMemcpy());
         return HCCL_SUCCESS;
     }
     // 收集本地mem信息
@@ -69,7 +69,7 @@ HcclResult ReduceScatterRingConcurrentDirect::CheckParameters(const u32 rank, co
         subStreams_.size() < 1,
         HCCL_ERROR("[ReduceScatterRingConcurrentDirect] subStreams size[%u] is less than 1", subStreams_.size()),
         HCCL_E_PARA);
-    for (auto s : subStreams_) {
+    for (auto &s : subStreams_) {
         CHK_PTR_NULL(s.ptr());
     }
     // 判断mainSignals数量是否正确
@@ -96,7 +96,7 @@ HcclResult ReduceScatterRingConcurrentDirect::CheckParameters(const u32 rank, co
     return HCCL_SUCCESS;
 }
 
-HcclResult ReduceScatterRingConcurrentDirect::MemcpyByOneRank()
+HcclResult ReduceScatterRingConcurrentDirect::OneRankMemcpy()
 {
     for (u32 sliceIdx = 0; sliceIdx < slices_.size(); sliceIdx++) {
         const Slice &srcSlice = userMemInputSlices_[sliceIdx];
@@ -164,10 +164,12 @@ HcclResult ReduceScatterRingConcurrentDirect::SetSlices(const u32 rank, const u3
                        slices_[i].size);
         }
     }
-    for (u32 i = 0; i < slices_.size(); i++) {
-        HCCL_DEBUG(
-            "[ReduceScatterRingConcurrentDirect][SetSlices]rank[%u], slices[%u].offset=[%llu], slices[%u].size=[%llu]",
-            rank, i, slices_[i].offset, i, slices_[i].size);
+    if (UNLIKELY(HcclCheckLogLevel(HCCL_LOG_DEBUG) == 1)) {
+        for (u32 i = 0; i < slices_.size(); i++) {
+            HCCL_DEBUG(
+                "[ReduceScatterRingConcurrentDirect][SetSlices]rank[%u], slices[%u].offset=[%llu], slices[%u].size=[%llu]",
+                rank, i, slices_[i].offset, i, slices_[i].size);
+        }
     }
     // 最后一步搬到userMemOut_的offset, 不同的ring环offset不一样
     lastStepOffset_ = slices_[ringsOrder_[0]].offset;
@@ -222,12 +224,113 @@ HcclResult ReduceScatterRingConcurrentDirect::RunInitStep(const u32 rank, const 
     return HCCL_SUCCESS;
 }
 
+HcclResult ReduceScatterRingConcurrentDirect::PreSync()
+{
+    CHK_RET(LocalNotify::Wait(stream_, dispatcher_, mainSignals_[0], profilerInput_.stage));
+    CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
+    CHK_RET(LocalNotify::Post(stream_, dispatcher_, subSignals_[0], profilerInput_.stage));
+    return HCCL_SUCCESS;
+}
+
+HcclResult ReduceScatterRingConcurrentDirect::ReducerRunSpInlineReduce(
+    const HcclDispatcher dispatcher, const LINK &link,
+    const std::vector<ReducerMemoryInfo> &reducerMems, Stream &stream)
+{
+    HcclResult ret = HCCL_SUCCESS;
+    CHK_RET(link->RxDataSignal(stream));
+    void *remoteMem = nullptr;
+    CHK_RET(link->GetRemoteMem(UserMemType::INPUT_MEM, &remoteMem));
+    if (!isSdma_) {
+        CHK_RET(PreSync());
+    }
+    for (ReducerMemoryInfo reduceMem : reducerMems) {
+        if (isSdma_) {
+            CHK_RET(PreSync());
+        }
+        const u64 dataBytes = reduceMem.remoteRcvTemp.size();
+        CHK_RET(
+            HcclReduceAsync(dispatcher, static_cast<s8 *>(remoteMem) + reduceMem.remoteMemOffset,
+            dataBytes / SIZE_TABLE[dataType_], dataType_, reductionOp_, stream, reduceMem.localsrc.ptr(),
+            link->GetRemoteRank(), link->GetLinkType(), INLINE_REDUCE_BIT));
+
+        if (reduceMem.localsrc != reduceMem.localdst) {
+            ret = HcclD2DMemcpyAsync(dispatcher, reduceMem.localdst, reduceMem.localsrc, stream);
+            CHK_PRT_RET(ret != HCCL_SUCCESS,
+                HCCL_ERROR("[ReducerRun]memcpy_async localSrc[%p] localDst[%p] failed", reduceMem.localsrc.ptr(),
+                reduceMem.localdst.ptr()),
+                ret);
+        }
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult ReduceScatterRingConcurrentDirect::ReducerRunNoSpInlineReduce(
+    const HcclDispatcher dispatcher, const LINK &link,
+    const std::vector<ReducerMemoryInfo> &reducerMems, Stream &stream)
+{
+    std::vector<RxMemoryInfo> rxMems;
+    for (const ReducerMemoryInfo &reduceMem : reducerMems) {
+        rxMems.emplace_back(RxMemoryInfo{ UserMemType::INPUT_MEM, reduceMem.remoteMemOffset,
+            reduceMem.remoteRcvTemp.ptr(), reduceMem.remoteRcvTemp.size() });
+    }
+
+    std::vector<RxWithReduceMemoryInfo> rxWithReduceMems;
+    for (ReducerMemoryInfo reduceMem : reducerMems) {
+        u64 dataCount = reduceMem.localdst.size() / SIZE_TABLE[dataType_];
+        DeviceMem reduceSrc = (reduceMem.localsrc == reduceMem.localdst) ? reduceMem.remoteRcvTemp : reduceMem.localsrc;
+
+        rxWithReduceMems.emplace_back(RxWithReduceMemoryInfo{ UserMemType::INPUT_MEM, reduceMem.remoteMemOffset,
+            reduceMem.remoteRcvTemp.ptr(), reduceMem.remoteRcvTemp.size(), reduceSrc.ptr(), reduceMem.localdst.ptr(),
+            dataCount });
+    }
+    if (!isSdma_) {
+        // AnyPath
+        CHK_RET(PreSync());
+        CHK_RET(link->RxAsync(rxMems, stream));
+    } else {
+        // SDMA
+        CHK_RET(link->RxDataSignal(stream));
+        for (auto& mem : rxMems) {
+            CHK_RET(PreSync());
+            CHK_PTR_NULL(mem.dst);
+            void *srcMemPtr = nullptr;
+            CHK_RET(link->GetRemoteMem(mem.srcMemType, &srcMemPtr));
+
+            DeviceMem srcDevMem(static_cast<s8 *>(srcMemPtr) + mem.srcOffset, mem.len);
+            DeviceMem dstDevMem(static_cast<s8 *>(mem.dst), mem.len);
+            CHK_RET(HcclD2DMemcpyAsync(dispatcher, dstDevMem, srcDevMem,
+                stream, link->GetRemoteRank(), link->GetLinkType()));
+        }
+    }
+    if (link->GetSupportDataReceivedAck()) {
+        CHK_RET(link->DataReceivedAck(stream));
+    }
+    for (RxWithReduceMemoryInfo rxReduceMem : rxWithReduceMems) {
+        CHK_RET(HcclReduceAsync(dispatcher, rxReduceMem.reduceSrc, rxReduceMem.reduceDataCount, dataType_,
+            reductionOp_, stream, rxReduceMem.reduceDst, INVALID_VALUE_RANKID, LinkType::LINK_ONCHIP,
+            reduceAttr_));
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult ReduceScatterRingConcurrentDirect::ReducerRun(const HcclDispatcher dispatcher, const LINK &link,
+    const std::vector<ReducerMemoryInfo> &reducerMems, Stream &stream)
+{
+    CHK_PTR_NULL(stream.ptr());
+    bool isSpInlineReduce = link->IsSpInlineReduce();
+    if (isSpInlineReduce && (INLINE_REDUCE_BITMASK & reduceAttr_)) {
+        CHK_RET(ReducerRunSpInlineReduce(dispatcher, link, reducerMems, stream));
+    } else {
+        CHK_RET(ReducerRunNoSpInlineReduce(dispatcher, link, reducerMems, stream));
+    }
+    return HCCL_SUCCESS;
+}
+
 HcclResult ReduceScatterRingConcurrentDirect::RunMainStream(const u32 step, std::vector<Slice> txSliceVector,
     std::vector<Slice> rxSliceVector, const u32 rank, const u32 rankSize)
 {
     CHK_RET(leftLink_->TxAck(stream_));
     CHK_RET(rightLink_->RxAck(stream_));
-
     u32 sliceSize = slices_.size() / rankSize;
 
     // 通信，如果是最后一步，则做消减拷贝
@@ -269,14 +372,22 @@ HcclResult ReduceScatterRingConcurrentDirect::RunMainStream(const u32 step, std:
         txMems.emplace_back(SenderMemoryInfo{baseOffset_ + txSliceVector[sliceIdx].offset, srcMem});
     }
     CHK_RET(senderInfo_->run(rightLink_, txMems, stream_));
-    CHK_RET(reducerInfo_->run(dispatcher_, leftLink_, rxReduceMems, stream_));
+    CHK_RET(ReducerRun(dispatcher_, leftLink_, rxReduceMems, stream_));
     return HCCL_SUCCESS;
 }
 
 HcclResult ReduceScatterRingConcurrentDirect::RunSubStream(const u32 step, std::vector<Slice> subSliceVector,
     std::vector<Slice> cclSliceVector, const u32 rank, const u32 rankSize)
 {
+    if (!isSdma_) {
+        CHK_RET(LocalNotify::Post(subStreams_[0], dispatcher_, mainSignals_[0], profilerInput_.stage));
+        CHK_RET(LocalNotify::Wait(subStreams_[0], dispatcher_, subSignals_[0], profilerInput_.stage));
+    }
     for (u32 sliceIdx = 0; sliceIdx < subSliceVector.size(); sliceIdx++) {
+        if (isSdma_) {
+            CHK_RET(LocalNotify::Post(subStreams_[0], dispatcher_, mainSignals_[0], profilerInput_.stage));
+            CHK_RET(LocalNotify::Wait(subStreams_[0], dispatcher_, subSignals_[0], profilerInput_.stage));
+        }
         HCCL_DEBUG("Memcpy operation: step[%u] stream[sub], src rank[%u] starts to send offset[%llu], size[%llu] "
             "from userMemIn_", step, userRank_, subSliceVector[sliceIdx].offset, subSliceVector[sliceIdx].size);
         DeviceMem src = DeviceMem::create(static_cast<u8 *>(opInfo_->inputAddr) + subSliceVector[sliceIdx].offset,
@@ -304,11 +415,16 @@ HcclResult ReduceScatterRingConcurrentDirect::RunSubStream(const u32 step, std::
 HcclResult ReduceScatterRingConcurrentDirect::RunReduceScatter(const u32 rank, const u32 rankSize)
 {
     HCCL_INFO("ReduceScatterRingConcurrentDirect starts, the input param rank[%u]", rank);
-    // 空拷贝用于后续操作附着
+
     CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
 
     CHK_RET(RunInitStep(rank, rankSize));
+    CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
+    CHK_RET(MainRecordSub()); // 主流通知从流开始通信
+    CHK_RET(SubWaitMain());   // 从流等待主流通知
 
+    CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
+    CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, subStreams_[0], dispatcher_));
     u32 sliceSize = slices_.size() / rankSize;
 
     // 例如rank[0,1,2,3]中，rank0的rxSliceIdx = 2，txSliceIdx = 3, subSliceIdx = 1
@@ -327,28 +443,19 @@ HcclResult ReduceScatterRingConcurrentDirect::RunReduceScatter(const u32 rank, c
             subSliceVector.push_back(userMemInputSlices_[subSliceIdx * sliceSize + sliceIdx]);
         }
 
-        // 并发
-        CHK_RET(MainRecordSub()); // 主流通知从流开始通信
-        CHK_RET(SubWaitMain());   // 从流等待主流通知
-
-        // 空拷贝用于主从流任务并发
-        CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
-        CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, subStreams_[0], dispatcher_));
-
         // 主流
         CHK_RET(RunMainStream(step, txSliceVector, rxSliceVector, rank, rankSize));
 
         // 从流
         CHK_RET(RunSubStream(step, subSliceVector, cclSliceVector, rank, rankSize));
 
-        CHK_RET(SubRecordMain()); // 从流通知主流通信完成
-        CHK_RET(MainWaitSub());   // 主流等待从流通知
-
         // 更新索引
         subSliceIdx = (subSliceIdx + rankSize - 1) % rankSize;
         txSliceIdx  = (txSliceIdx + rankSize - 1) % rankSize;
         rxSliceIdx  = (rxSliceIdx + rankSize - 1) % rankSize;
     }
+    CHK_RET(SubRecordMain()); // 从流通知主流通信完成
+    CHK_RET(MainWaitSub());   // 主流等待从流通知
     if (!isSdma_ && opInfo_->outputAddr != nullptr) {
         HCCL_DEBUG("[RunReduceScatter] rdma DMAReduce last step");
         CHK_RET(HcclD2DMemcpyAsync(dispatcher_, finalDst_, finalSrc_, stream_));

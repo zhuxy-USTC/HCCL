@@ -24,13 +24,13 @@ HcclResult CollReduceCommExecutor::CalcCommInfo(std::vector<LevelNSubCommTranspo
     TransportMemType inputType = TransportMemType::RESERVED;
     TransportMemType outputType = TransportMemType::RESERVED;
     CalcTransportMemType(inputType, outputType);
-    CalcCombinedCommInfo(inputType, outputType, opTransport);
+    CHK_RET(CalcCombinedCommInfo(inputType, outputType, opTransport));
     return HCCL_SUCCESS;
 }
 
 HcclResult CollReduceCommExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {// aicpu normal
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {

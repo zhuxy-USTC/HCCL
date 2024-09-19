@@ -12,6 +12,7 @@
 #define HCOM_COMMOM_H
 
 #include "hccl_comm_pub.h"
+#include "../common/src/topo/topoinfo_detect.h"
 namespace hccl {
     class HcclCommBase;
 }
@@ -57,6 +58,8 @@ using HcomInfo = struct HcomInfoTag {
     bool isHcomInit; // 标识是否为pytorch单算子通信域复用场景
     std::mutex backloggedGroupLock;
     std::map<std::string, std::vector<u32>> backloggedGroup;     // 待创建的group
+    std::map<std::string, std::shared_ptr<hccl::TopoInfoDetect>> hcclCommTopoInfoDetectServer;
+    std::map<std::string, std::shared_ptr<hccl::TopoInfoDetect>> hcclCommTopoInfoDetectAgent;
     HcomInfoTag()
         :pComm(nullptr), devId(-1), cloudFlag(false), isHcomInit(false)
     {

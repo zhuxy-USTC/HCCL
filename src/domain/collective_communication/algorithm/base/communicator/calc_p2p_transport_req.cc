@@ -34,10 +34,9 @@ HcclResult CalcP2PTransportReq::CalcTransportRequest(const std::string &tag, Tra
         SingleSubCommTransport &subCommTransport = commTransport[planeIndex];
         subCommTransport.transportRequests.resize(rankSize);
 
-        // send,recv算子只有一张卡时报错
-        if (rankSize == 1) {
-            HCCL_ERROR("[CommFactory][CalcP2PCommInfo] sendrecv rankSize is 1");
-            return HCCL_E_NOT_SUPPORT;
+        if (userRank_ == commParaInfo.peerUserRank) {
+            HCCL_ERROR("[CalcP2PCommInfo]p2p dstRank_[%u] is not support to creat link with itself", userRank_);
+            return HCCL_E_PARA;
         }
         TransportRequest &tmpTransport = subCommTransport.transportRequests[0];
 

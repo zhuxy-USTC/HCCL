@@ -274,19 +274,18 @@ HcclResult TopoInfoExchangeServer::GetRanksBasicInfo(
     const std::map<std::string, std::shared_ptr<HcclSocket>> &connectSockets, RankTable_t &rankTable)
 {
     HcclResult ret;
-    s32 rank = 0;
-    u32 socketIndex = 0; // socket已经经过rankid（or serverip +deviceid排序）
+    u32 socketIndex = 0; // socket已经经过rankid（or superPodId + serverip + deviceid排序）
     for (auto &handle : connectSockets) {
-        CHK_RET(SalStrToInt(handle.first, HCCL_BASE_DECIMAL, rank));
         ret = GetRankBasicInfo(handle.second, rankTable);
         CHK_PRT_RET(ret != HCCL_SUCCESS,
-            HCCL_ERROR("[Get][RanksBasicInfo]GetRankBasicInfo from rank[%d] failed, ret[%d]",
-            rank, ret), ret);
+            HCCL_ERROR("[Get][RanksBasicInfo]GetRankBasicInfo from agentId[%s] failed, ret[%d]",
+            handle.first.c_str(), ret), ret);
         if (isByMasterInfo_ && rankTable.rankList.size() > 0) { // masterInfo场景下无法获取rankid
             rankTable.rankList.back().rankId = socketIndex;
         }
         
-        HCCL_INFO("GetRankBasicInfo from rank[%d] success.", rank);
+        HCCL_INFO("GetRankBasicInfo from agentId[%s] rankId[%u] success.",
+            handle.first.c_str(), rankTable.rankList.back().rankId);
         socketIndex ++;
     }
     CHK_RET(SortRankList(rankTable));

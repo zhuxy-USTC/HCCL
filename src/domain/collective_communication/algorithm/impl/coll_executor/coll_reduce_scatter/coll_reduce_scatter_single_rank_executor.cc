@@ -38,7 +38,7 @@ HcclResult CollReduceScatterSingleRankExecutor::KernelRun(const OpParam &param, 
         CHK_RET(InitTask(dispatcher_, const_cast<Stream&>(param.stream), opMeta.isEnableCache, opMeta.GetCacheKey()));
         DeviceMem srcMem(execMem.inputPtr, totalSize);
         DeviceMem dstMem(execMem.outputPtr, totalSize);
-        HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, const_cast<Stream&>(param.stream));
+        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, const_cast<Stream&>(param.stream)));
     }
     CHK_RET(LaunchTaskExtend(dispatcher_, const_cast<Stream&>(param.stream), algResResp_->slaveStreams));
 

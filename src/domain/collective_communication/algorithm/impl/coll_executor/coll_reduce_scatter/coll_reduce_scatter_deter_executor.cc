@@ -24,9 +24,6 @@ void CollReduceScatterDeterExecutor::ParseParam(const OpParam& param)
 {
     tag_ = param.tag;
 
-    // 910B 图模式非确定计算，inlineReduce使能，MESH拓扑场景下，创建一个mesh平面
-    meshSinglePlane_ = false;
-
     // 是否需要scratch memory 选中确定性计算Executor，其他条件必定满足，只需区分是否为图模式
     scratchMemFlag_ = (workflowMode_ != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE);
 
@@ -42,7 +39,7 @@ HcclResult CollReduceScatterDeterExecutor::CalcScratchMemSize(u64& scratchMemSiz
     } else {
         scratchMemSize = 0U;
     }
-    HCCL_INFO("[CollReduceScatterDeterExecutor][CalcScratchMemSize] tag[%s] scratchMemSize[%u]",
+    HCCL_INFO("[CollReduceScatterDeterExecutor][CalcScratchMemSize] tag[%s] scratchMemSize[%llu]",
         tag_.c_str(), scratchMemSize);
     return HCCL_SUCCESS;
 }
@@ -97,7 +94,7 @@ HcclResult CollReduceScatterDeterExecutor::CalcLevel0CommInfo(TransportMemType i
     std::vector<LevelNSubCommTransport>& opTransport)
 {
     CommParaInfo commParaLevel0(COMM_LEVEL0, CommType::COMM_TAG_MESH);
-    commParaLevel0.meshSinglePlane = meshSinglePlane_;
+    commParaLevel0.meshSinglePlane = true;
     CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel0, opTransport[COMM_LEVEL0], inputType, outputType));
     return HCCL_SUCCESS;
 }
@@ -119,7 +116,7 @@ bool CollReduceScatterDeterExecutor::IsHugeData(const u64 curSize)
 
 bool CollReduceScatterDeterExecutor::IsSmallData(const u64 totalSize, const u64 curSize)
 {
-    bool smallData = curSize <= HCCL_SMALL_COUNT_32_KB;
+    bool smallData = totalSize <= HCCL_SMALL_COUNT_32_KB;
     return smallData;
 }
 

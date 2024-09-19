@@ -61,7 +61,7 @@ void WorkspaceResource::DestroyWorkspaceResource()
 // 基于tag 分配 Stream 资源
 std::vector<Stream> WorkspaceResource::AllocSlaveStreams(const std::string &tag, u32 num)
 {
-    HCCL_DEBUG("[WorkspaceResource][AllocSlaveStreams]requesting for [%d] slaves, tag[%s].", num, tag.c_str());
+    HCCL_DEBUG("[WorkspaceResource][AllocSlaveStreams]requesting for [%u] slaves, tag[%s].", num, tag.c_str());
     // 安全性的保护，无实际业务意义
     if (!pimpl_) {
         HCCL_ERROR("[WorkspaceResource][AllocSlaveStreams] pimpl_ is nullptr.");

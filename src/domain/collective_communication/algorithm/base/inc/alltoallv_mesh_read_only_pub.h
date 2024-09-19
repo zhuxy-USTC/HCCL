@@ -19,28 +19,6 @@
 // 图模式由于对端数据已ready，直接开始sdma读
 namespace hccl {
 
-struct RemoteMem {
-    DeviceMem remoteScratchPingMem;
-    DeviceMem remoteScratchPongMem;
-};
-
-struct SendDataBlock {
-    u64 sendLen;
-    u64 userInOffset;
-    u64 scratchOffset;
-};
-
-struct ReadDataBlock {
-    u64 recvLen;
-    u64 remoteOffset;
-    u64 recvOffset;
-};
-
-struct AlltoallSendRecvInfo {
-    std::vector<SendDataBlock> sendInfo;
-    std::vector<ReadDataBlock> readInfo;
-};
-
 struct DataTrace {
     u32 dataIndex;
     u64 dataOffset;
@@ -62,7 +40,6 @@ public:
 
 protected:
 private:
-    u64 GetGlobalMaxUserInSize();
     u64 GetGraphModeRemoteMemSize(u32 destRank);
     std::string GetStreamIndexString();
     HcclResult NotifySubStreamStart();

@@ -43,9 +43,9 @@ HcclResult CollReduceMeshExecutor::CalcCommInfo(std::vector<LevelNSubCommTranspo
 {
     TransportMemType inputType = TransportMemType::RESERVED;
     TransportMemType outputType = TransportMemType::RESERVED;
-    CalcTransportMemType(inputType, outputType);
-    CalcLevel0CommInfo(inputType, outputType, opTransport);
-    CalcLevel1CommInfo(inputType, outputType, opTransport);
+    CHK_RET(CalcTransportMemType(inputType, outputType));
+    CHK_RET(CalcLevel0CommInfo(inputType, outputType, opTransport));
+    CHK_RET(CalcLevel1CommInfo(inputType, outputType, opTransport));
     return HCCL_SUCCESS;
 }
 
@@ -77,7 +77,6 @@ HcclResult CollReduceMeshExecutor::KernelRun(const OpParam &param, ExecMem &exec
 {
     u32 perDataSize = SIZE_TABLE[param.DataDes.dataType];
 
-    std::vector<Slice> dataSegsSlicePerDie; // 数据分成ranksize份，每份的起始偏移和大小
     std::vector<Slice> dataSegsSlice;   // 数据分成ranksize份，每份的起始偏移和大小
     std::vector<std::vector<Slice> > multiStreamSlice; // 每个stream使用的数据基于用户buffer的偏移
     std::unique_ptr<ExecutorBase> innerExecutor;
@@ -91,30 +90,32 @@ HcclResult CollReduceMeshExecutor::KernelRun(const OpParam &param, ExecMem &exec
     CHK_RET(ExecutorBase::PrepareSliceData(execMem.count, perDataSize, sliceNum, 0, dataSegsSlice));
     // mesh算法stream数量为server内rank数减1
 
-    ActiveSlaveStreams(param.stream);
+    CHK_RET(ActiveSlaveStreams(param.stream));
 
-    if (topoMatcher_->GetExternalInputHcclDeterministic() == DETERMINISTIC_CONFIG_DISABLE && (param.DataDes.dataType != HCCL_DATA_TYPE_INT64) &&
+    if (topoMatcher_->GetExternalInputHcclDeterministic() == DETERMINISTIC_CONFIG_DISABLE &&
+        (param.DataDes.dataType != HCCL_DATA_TYPE_INT64) &&
         (topoAttr_.deviceType == DevType::DEV_TYPE_910B && param.reduceType != HCCL_REDUCE_PROD)) {
-        CHK_RET(MultiStreamReduceScatterMeshAtomic(tag_, execMem.inputMem, execMem.outputMem, execMem.count, param.DataDes.dataType, param.reduceType,
-            dataSegsSlice, const_cast<Stream&>(param.stream), COMM_LEVEL0));
+        CHK_RET(MultiStreamReduceScatterMeshAtomic(tag_, execMem.inputMem, execMem.outputMem, execMem.count,
+            param.DataDes.dataType, param.reduceType, dataSegsSlice, const_cast<Stream&>(param.stream), COMM_LEVEL0));
     } else {
         std::vector<std::vector<Slice>> multiStreamSlice; // 每个stream使用的数据基于用户buffer的偏移
         // mesh算法stream数量为rank数减1
         CHK_RET(ExecutorBase::PrepareSliceMeshStreams(dataSegsSlice, sliceNum - 1, multiStreamSlice));
-        CHK_RET(MultiStreamReduceScatterMesh(tag_, execMem.inputMem, execMem.outputMem, execMem.count, param.DataDes.dataType, param.reduceType, multiStreamSlice,
-            const_cast<Stream&>(param.stream), COMM_LEVEL0));
+        CHK_RET(MultiStreamReduceScatterMesh(tag_, execMem.inputMem, execMem.outputMem, execMem.count,
+            param.DataDes.dataType, param.reduceType, multiStreamSlice, const_cast<Stream&>(param.stream),
+            COMM_LEVEL0));
     }
     HCCL_INFO("reduce mesh stage0 run success");
 
     // step2: 节点间的reduce
     u32 commIndex = outerCommInfo.localRank;
-    CHK_PRT_RET(commIndex >= dataSegsSlice.size(), HCCL_ERROR("[CollReduceMeshExecutor][Run]commIndex[%u] >= dataSegsSlice size[%llu]",
-        commIndex, dataSegsSlice.size()), HCCL_E_INTERNAL);
+    CHK_PRT_RET(commIndex >= dataSegsSlice.size(), HCCL_ERROR("[CollReduceMeshExecutor][Run]commIndex[%u] >= "
+       "dataSegsSlice size[%zu]", commIndex, dataSegsSlice.size()), HCCL_E_INTERNAL);
 
     CHK_RET(CheckCommSize(COMM_LEVEL1, commIndex + 1));
     SubCommInfo innerCommInfo = GetSubCommInfo(COMM_LEVEL1, commIndex);
 
-    HCCL_DEBUG("commIdx:%u TagCommInfo[%s].commInner.size():%llu", commIndex, tag_.c_str(),
+    HCCL_DEBUG("commIdx:%u TagCommInfo[%s].commInner.size():%zu", commIndex, tag_.c_str(),
         innerCommInfo.links.size());
 
     DeviceMem reduceInput = execMem.inputMem.range(dataSegsSlice[commIndex].offset, dataSegsSlice[commIndex].size);
@@ -145,10 +146,11 @@ HcclResult CollReduceMeshExecutor::KernelRun(const OpParam &param, ExecMem &exec
         // 节点间的hd 使用环0来记录
         u64 hdCount = dataSegsSlice[commIndex].size / perDataSize;
 
-        CHK_RET(innerExecutor->Prepare(reduceInput, reduceOutput, reduceOutput, hdCount, param.DataDes.dataType, param.stream,
-            param.reduceType, planeRoot, std::vector<Slice>(0), dataSegsSlice[commIndex].offset));
+        CHK_RET(innerExecutor->Prepare(reduceInput, reduceOutput, reduceOutput, hdCount, param.DataDes.dataType,
+            param.stream, param.reduceType, planeRoot, std::vector<Slice>(0), dataSegsSlice[commIndex].offset));
 
-        CHK_RET(innerExecutor->RegisterProfiler((innerCommInfo.localRankSize << PROF_RANKSIZE_OFFSET_OF_PLANEID) + innerCommInfo.localRank,
+        CHK_RET(innerExecutor->RegisterProfiler((
+            innerCommInfo.localRankSize << PROF_RANKSIZE_OFFSET_OF_PLANEID) + innerCommInfo.localRank,
             PROF_STAGE_1, HCCL_EXEC_STEP_NOT_SET, param.stream));
 
         CHK_RET(RunTemplate(innerExecutor, innerCommInfo));

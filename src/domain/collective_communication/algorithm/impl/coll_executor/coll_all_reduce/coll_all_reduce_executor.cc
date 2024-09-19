@@ -25,9 +25,9 @@ HcclResult CollAllReduceExecutor::Orchestrate(OpParam& param, AlgResourceRespons
     algResResp_ = &algRes;
 
     HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, workflowMode_);
-    HCCL_PROFILER_ADD_STREAM(param.stream.id(), param.tag, 0, algType_);
-    HCCL_PROFILER_ADD_OPDATA(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr, param.DataDes.dataType, \
-        param.root, algoAttr_.identifier);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(param.stream.id(), param.tag, 0, algType_);
+    HCCL_PROFILER_ADD_OPDATA_OP(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr, param.DataDes.dataType, \
+        param.root, algoAttr_.identifier, param.reduceType);
     HCCL_PROFILER_ADD_GROUPRANK(algoAttr_.identifier, topoAttr_.userRankSize, topoAttr_.userRank);
     CHK_RET(AddSubStreamToProfiling());
 
@@ -61,10 +61,10 @@ HcclResult CollAllReduceExecutor::Orchestrate(OpParam& param, AlgResourceRespons
             HCCL_ERROR_CODE(ret)), ret);
 
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
-        HCCL_PROFILER_DEL_STREAM(param.stream.id());
+        HCCL_PROFILER_DEL_STREAM_BY_STREAMID(param.stream.id());
         HCCL_PROFILER_DEL_TAG(param.tag);
         HCCL_PROFILER_DEL_OPDATA(param.tag);
-        HCCL_PROFILER_DEL_GROUPRANK(param.tag);
+        HCCL_PROFILER_DEL_GROUPRANK(algoAttr_.identifier);
     }
     HCCL_INFO("tag[%s], AllReduce executor orchestrate success, take time [%lld]us",
         param.tag.c_str(), DURATION_US(TIME_NOW() - startut));
@@ -148,11 +148,11 @@ HcclResult CollAllReduceExecutor::RunLoop(OpParam &param, AlgResourceResponse &a
 
     u64 maxCountPerLoop = CalcLoopMaxCount(algRes.cclInputMem.size(), unitSize);   // override
     if (maxCountPerLoop == 0) {
-        HCCL_ERROR("[CollAllReduceExecutor][RunLoop]tag[%s], userRankSize is [%llu], maxCountPerLoop is [%llu].",
+        HCCL_ERROR("[CollAllReduceExecutor][RunLoop]tag[%s], userRankSize is [%u], maxCountPerLoop is [%llu].",
             param.tag.c_str(), topoAttr_.userRankSize, maxCountPerLoop);
         return HCCL_E_PARA;
     }
-    HCCL_DEBUG("[CollAllReduceExecutor][RunLoop]tag[%s], userRankSize is [%llu], maxCountPerLoop is [%llu].",
+    HCCL_DEBUG("[CollAllReduceExecutor][RunLoop]tag[%s], userRankSize is [%u], maxCountPerLoop is [%llu].",
         param.tag.c_str(), topoAttr_.userRankSize, maxCountPerLoop);
 
     for (u64 countLeft = param.DataDes.count, curCount = 0, inputOffset = 0, outputOffset = 0;
@@ -213,10 +213,6 @@ HcclResult CollAllReduceExecutor::RunLoopInner(OpParam &param, const ReduceType 
             param.DataDes.dataType, reduceType, smallData, 1, hugeData, CopyPattern::BCOPY, sliceNum);
         opMeta.dataSplit = dataSplit;
         CHK_RET(InitTask(dispatcher_, param.stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
-        /* 记录指令信息用于一致性校验 */
-        CHK_RET(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_ALLREDUCE,
-            param.tag, execMem.count, param.DataDes.dataType, param.reduceType, execMem.inputMem.size(),
-            execMem.outputMem.size()));
     }
 
     if (CCLMemSlice_) {
@@ -248,7 +244,6 @@ HcclResult CollAllReduceExecutor::RunLoopInner(OpParam &param, const ReduceType 
     }
 
     if (!is310P3Common_) {
-        CHK_RET(RankConsistent::GetInstance().DelOpPara(param.tag));
         CHK_RET(LaunchTaskExtend(dispatcher_,
             const_cast<Stream &>(param.stream),
             const_cast<std::vector<Stream> &>(algResResp_->slaveStreams)));
@@ -272,9 +267,6 @@ HcclResult CollAllReduceExecutor::AvoidSubgraphLoop(OpParam &param, AlgResourceR
         HcclOpMetaInfo::GetOneForAllReduce(originalAlgTypeLevel1, param.DataDes.dataType, reduceType,
             param.DataDes.count * unitSize <= HCCL_SMALL_COUNT_128_KB, 1, hugeData, CopyPattern::ZCOPY);
     CHK_RET(InitTask(dispatcher_, param.stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
-    /* 记录指令信息用于一致性校验 */
-    CHK_RET(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_ALLREDUCE, param.tag, param.DataDes.count,
-        param.DataDes.dataType, param.reduceType, algRes.cclInputMem.size(), algRes.cclOutputMem.size()));
 
     DeviceMem src(param.inputPtr, 0);
     DeviceMem dst(algRes.cclInputMem.ptr(), 0);
@@ -291,7 +283,6 @@ HcclResult CollAllReduceExecutor::AvoidSubgraphLoop(OpParam &param, AlgResourceR
         "tag[%s], input_ptr[%p], output_ptr[%p], count[%llu], data_type[%d], op[%d]",
         HCCL_ERROR_CODE(ret), param.tag.c_str(), param.inputPtr, param.outputPtr, param.DataDes.count,
         param.DataDes.dataType, param.reduceType), ret);
-    CHK_RET(RankConsistent::GetInstance().DelOpPara(param.tag));
     CHK_RET(LaunchTask(dispatcher_, param.stream));
     return HCCL_SUCCESS;
 }
@@ -365,6 +356,12 @@ HcclResult CollAllReduceExecutor::PrepareAivBuffers(u32 rankSize, u32 rankId, u3
             flagBuffers[i] = static_cast<u8 *>(outputMem.ptr()) + flagMemOffset;
         }
     }
+    return HCCL_SUCCESS;
+}
+
+HcclResult CollAllReduceExecutor::CheckIfAllowAHC()
+{
+    // 当前仅 AllReduce 场景支持 AHC
     return HCCL_SUCCESS;
 }
 

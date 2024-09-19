@@ -53,6 +53,22 @@ const std::set<AlgType> HCCL_ALGO_TYPE_MAP = {
     AlgType::ALG_NP_SINGLE_RING_PLUS_NHR_V1,
     AlgType::ALG_NP_MESH_PLUS_NHR_V1,
     AlgType::ALG_WHOLE_NHR_V1,
+    AlgType::ALG_8P_RING_PLUS_AHC,
+    AlgType::ALG_4P_MESH_PLUS_AHC,
+    AlgType::ALG_2P_MESH_PLUS_AHC,
+    AlgType::ALG_1P_MESH_PLUS_AHC,
+    AlgType::ALG_4P_RING_PLUS_AHC,
+    AlgType::ALG_NP_SINGLE_RING_PLUS_AHC,
+    AlgType::ALG_NP_MESH_PLUS_AHC,
+    AlgType::ALG_WHOLE_AHC,
+    AlgType::ALG_8P_RING_PLUS_AHC_BROKE,
+    AlgType::ALG_4P_MESH_PLUS_AHC_BROKE,
+    AlgType::ALG_2P_MESH_PLUS_AHC_BROKE,
+    AlgType::ALG_1P_MESH_PLUS_AHC_BROKE,
+    AlgType::ALG_4P_RING_PLUS_AHC_BROKE,
+    AlgType::ALG_NP_SINGLE_RING_PLUS_AHC_BROKE,
+    AlgType::ALG_NP_MESH_PLUS_AHC_BROKE,
+    AlgType::ALG_WHOLE_AHC_BROKE,
     AlgType::ALG_8P_RING_PLUS_NB,
     AlgType::ALG_4P_MESH_PLUS_NB,
     AlgType::ALG_2P_MESH_PLUS_NB,
@@ -67,6 +83,8 @@ const std::set<AlgType> HCCL_ALGO_TYPE_MAP = {
     AlgType::ALG_DOUBLE_RING_PLUS_RING,
     AlgType::ALG_DOUBLE_RING_PLUS_HD,
     AlgType::ALG_DOUBLE_RING_PLUS_NHR,
+    AlgType::ALG_DOUBLE_RING_PLUS_AHC,
+    AlgType::ALG_DOUBLE_RING_PLUS_AHC_BROKE,
     AlgType::ALG_WHOLE_RING_PLUS_PIPELINE,
     AlgType::ALG_8P_RING_PLUS_PIPELINE,
     AlgType::ALG_4P_MESH_PLUS_PIPELINE,
@@ -123,9 +141,16 @@ HcclResult AlgConfigurator::SelectCurrOpAlgType(
     AlgTypeLevel1 algType1 = AlgTypeLevel1::ALG_LEVEL1_RESERVED;
     AlgTypeLevel2 algType2 = AlgTypeLevel2::ALG_LEVEL2_RESERVED; // 第2层拓扑算法, 待梳理后考虑是否和第0层、第1层算法归一
 
-    if (Is310P3Common()) {
+    bool isConfigAHC = (GetExternalInputHcclAlgoConfig(opType)[HCCL_ALGO_LEVEL_1] == HcclAlgoType::HCCL_ALGO_TYPE_AHC ||
+                        GetExternalInputHcclAlgoConfig(opType)[HCCL_ALGO_LEVEL_1] == HcclAlgoType::HCCL_ALGO_TYPE_AHC_BROKE);
+
+    bool isConfigNULL = GetExternalInputHcclAlgoConfig(opType)[HCCL_ALGO_LEVEL_0] == HcclAlgoType::HCCL_ALGO_TYPE_NULL;
+
+    HCCL_INFO("[Set][AlgType] isConfigAHC[%u] isConfigNULL[%u]", isConfigAHC, isConfigNULL);
+
+    if (Is310P3Common(algoAttr_.isHaveCpuRank, topoAttr_.deviceType)) {
         algType[opType] = AlgType::ALG_DEFAULT;
-    } else if (topoAttr_.multiModuleDiffDeviceNumMode) { // 多server不同卡模式，设置为单层拓扑类型
+    } else if (topoAttr_.multiModuleDiffDeviceNumMode  && !(isConfigAHC || isConfigNULL)) { // 多server不同卡模式，设置为单层拓扑类型
         algType[opType] = AlgType::ALG_DEFAULT;
         isAlgoLevel1Default_[opType] = false;
         if (GetExternalInputHcclAlgoConfig(opType)[HCCL_ALGO_LEVEL_0] != HcclAlgoType::HCCL_ALGO_TYPE_DEFAULT ||
@@ -198,6 +223,14 @@ HcclResult AlgConfigurator::SetAlgoLevel1(HcclAlgoType algoConfig, u32 moduleNum
         case HcclAlgoType::HCCL_ALGO_TYPE_NHR_V1:
             algType = AlgTypeLevel1::ALG_LEVEL1_NHR_V1;
             HCCL_INFO("server num[%u]: level1:nhr_v1 algo is set.", moduleNum);
+            break;
+        case HcclAlgoType::HCCL_ALGO_TYPE_AHC:
+            algType = AlgTypeLevel1::ALG_LEVEL1_AHC;
+            HCCL_INFO("server num[%u]: level1:ahc algo is set.", moduleNum);
+            break;
+        case HcclAlgoType::HCCL_ALGO_TYPE_AHC_BROKE:
+            algType = AlgTypeLevel1::ALG_LEVEL1_AHC_BROKE;
+            HCCL_INFO("server num[%u]: level1:ahc broke algo is set.", moduleNum);
             break;
         case HcclAlgoType::HCCL_ALGO_TYPE_NB:
             algType = AlgTypeLevel1::ALG_LEVEL1_NB;
@@ -352,7 +385,7 @@ HcclResult AlgConfigurator::GetDefaultAlgoLevel0Module(AlgTypeLevel0 &algType)
         HCCL_DEBUG("[GetDefaultAlgoLevel0Module] AlgTypeLevel0 is set to ALG_LEVEL0_NP_MESH (HCCS links is enabled).");
     }
 
-    if (topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
+    if (topoAttr_.deviceType == DevType::DEV_TYPE_910_93) {
         algType = IsHCCSSWNumEqualToTwiceSIONum() ? AlgTypeLevel0::ALG_LEVEL0_NP_DOUBLE_RING :
                                                     AlgTypeLevel0::ALG_LEVEL0_NP_SINGLE_RING;
     }
@@ -490,6 +523,16 @@ HcclResult AlgConfigurator::GetAlgoLevel1DefaultSwitch(bool &isAlgoLevel1Default
 {
     isAlgoLevel1Default = isAlgoLevel1Default_[opType];
     return HCCL_SUCCESS;
+}
+
+const HcclTopoAttr& AlgConfigurator::GetTopoAttr()
+{
+    return topoAttr_;
+}
+
+const HcclAlgoAttr& AlgConfigurator::GetAlgoAttr()
+{
+    return algoAttr_;
 }
 }
 

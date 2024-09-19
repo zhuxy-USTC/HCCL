@@ -32,7 +32,7 @@ HcclResult AllGatherRingConcurrentDirect::RunAsync(const u32 rank, const u32 ran
     CHK_RET(CheckParameters(rank, rankSize, links));
 
     if (rankSize == 1) {
-        CHK_RET(MemcpyByOneRank());
+        CHK_RET(OneRankMemcpy());
         return HCCL_SUCCESS;
     }
     // 收集邻居信息
@@ -62,7 +62,7 @@ HcclResult AllGatherRingConcurrentDirect::CheckParameters(const u32 rank, const 
     CHK_PRT_RET(subStreams_.size() < 1,
                 HCCL_ERROR("[AllGatherRingConcurrentDirect] subStreams size[%u] is less than 1", subStreams_.size()),
                 HCCL_E_PARA);
-    for (auto s : subStreams_) {
+    for (auto &s : subStreams_) {
         CHK_PTR_NULL(s.ptr());
     }
     // 判断mainSignals数量是否正确
@@ -85,7 +85,7 @@ HcclResult AllGatherRingConcurrentDirect::CheckParameters(const u32 rank, const 
     return HCCL_SUCCESS;
 }
 
-HcclResult AllGatherRingConcurrentDirect::MemcpyByOneRank()
+HcclResult AllGatherRingConcurrentDirect::OneRankMemcpy()
 {
     for (u32 sliceIdx = 0; sliceIdx < slices_.size(); sliceIdx++) {
         const Slice &srcSlice = slices_[sliceIdx];
@@ -141,10 +141,12 @@ HcclResult AllGatherRingConcurrentDirect::SetSlices(const u32 rank, const u32 ra
                        slices_[i].size);
         }
     }
-    for (u32 i = 0; i < slices_.size(); i++) {
-        HCCL_DEBUG(
-            "[AllGatherRingConcurrentDirect][SetSlices]rank[%u], slices[%u].offset=[%llu], slices[%u].size=[%llu]",
-            rank, i, slices_[i].offset, i, slices_[i].size);
+    if (UNLIKELY(HcclCheckLogLevel(HCCL_LOG_DEBUG) == 1)) {
+        for (u32 i = 0; i < slices_.size(); i++) {
+            HCCL_DEBUG(
+                "[AllGatherRingConcurrentDirect][SetSlices]rank[%u], slices[%u].offset=[%llu], slices[%u].size=[%llu]",
+                rank, i, slices_[i].offset, i, slices_[i].size);
+        }
     }
     HCCL_INFO("AllGatherRingConcurrentDirect finished to SetSlices");
     return HCCL_SUCCESS;
@@ -184,11 +186,16 @@ HcclResult AllGatherRingConcurrentDirect::RunInitStep(const u32 rank, const u32 
 HcclResult AllGatherRingConcurrentDirect::RunAllGather(const u32 rank, const u32 rankSize)
 {
     HCCL_INFO("AllGatherRingConcurrentDirect starts, the input param rank[%u]", rank);
-    // 空拷贝用于后续操作附着
+
     CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
 
     CHK_RET(RunInitStep(rank, rankSize));
+    CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
+    CHK_RET(MainRecordSub()); // 主流通知从流开始通信
+    CHK_RET(SubWaitMain());   // 从流等待主流通知
 
+    CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
+    CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, subStreams_[0], dispatcher_));
     u32 txSliceIdx = rank;
     u32 sliceSize = slices_.size() / rankSize;
     u32 rxSliceIdx = (rank + rankSize - 1) % rankSize;
@@ -206,13 +213,25 @@ HcclResult AllGatherRingConcurrentDirect::RunAllGather(const u32 rank, const u32
             txSliceVector.push_back(slices_[txSliceIdx * sliceSize + sliceIdx]);
             subSliceVector.push_back(userMemOutputSlices_[txSliceIdx * sliceSize + sliceIdx]);
         }
-        // 并发
-        CHK_RET(MainRecordSub()); // 主流通知从流开始通信
-        CHK_RET(SubWaitMain());   // 从流等待主流通知
-
-        // 空拷贝用于主从流任务并发
-        CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
-        CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, subStreams_[0], dispatcher_));
+        // 从流
+        if (!isSdma_) {
+            CHK_RET(LocalNotify::Post(subStreams_[0], dispatcher_, mainSignals_[0], profilerInput_.stage));
+            CHK_RET(LocalNotify::Wait(subStreams_[0], dispatcher_, subSignals_[0], profilerInput_.stage));
+        }
+        for (u32 sliceIdx = 0; sliceIdx < sliceSize; sliceIdx++) {
+            if (isSdma_) {
+                CHK_RET(LocalNotify::Post(subStreams_[0], dispatcher_, mainSignals_[0], profilerInput_.stage));
+                CHK_RET(LocalNotify::Wait(subStreams_[0], dispatcher_, subSignals_[0], profilerInput_.stage));
+            }
+            DeviceMem src = outputMem_.range(txSliceVector[sliceIdx].offset, txSliceVector[sliceIdx].size);
+            DeviceMem dst = DeviceMem::create(static_cast<u8 *>(opInfo_->outputAddr) + subSliceVector[sliceIdx].offset,
+                subSliceVector[sliceIdx].size);
+            HCCL_DEBUG("Memcpy operation: step[%u] stream[sub], src rank[%u] starts to send offset[%llu] size[%llu], "
+                "dst rank[%u] starts to rcv offset[%llu] size[%llu] at userMemOutput_",
+                step, userRank_, subSliceVector[sliceIdx].offset, subSliceVector[sliceIdx].size,
+                txSliceVector[sliceIdx].offset, txSliceVector[sliceIdx].size);
+            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dst, src, subStreams_[0]));
+        }
 
         // 主流
         // Ack
@@ -252,27 +271,34 @@ HcclResult AllGatherRingConcurrentDirect::RunAllGather(const u32 rank, const u32
                 dst.ptr(), rxSliceVector[sliceIdx].size});
         }
         CHK_RET(rightLink_->TxAsync(txMems, stream_));
-        CHK_RET(leftLink_->RxAsync(rxMems, stream_));
+        if (!isSdma_) {
+            CHK_RET(LocalNotify::Wait(stream_, dispatcher_, mainSignals_[0], profilerInput_.stage));
+            CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
+            CHK_RET(LocalNotify::Post(stream_, dispatcher_, subSignals_[0], profilerInput_.stage));
+            CHK_RET(leftLink_->RxAsync(rxMems, stream_));
+        } else {
+            CHK_RET(leftLink_->RxDataSignal(stream_));
+            for (auto& mem : rxMems) {
+                CHK_RET(LocalNotify::Wait(stream_, dispatcher_, mainSignals_[0], profilerInput_.stage));
+                CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
+                CHK_RET(LocalNotify::Post(stream_, dispatcher_, subSignals_[0], profilerInput_.stage));
+                CHK_PTR_NULL(mem.dst);
+                void *srcMemPtr = nullptr;
+                CHK_RET(leftLink_->GetRemoteMem(mem.srcMemType, &srcMemPtr));
 
-        // 从流
-
-        for (u32 sliceIdx = 0; sliceIdx < sliceSize; sliceIdx++) {
-            DeviceMem src = outputMem_.range(txSliceVector[sliceIdx].offset, txSliceVector[sliceIdx].size);
-            DeviceMem dst = DeviceMem::create(static_cast<u8 *>(opInfo_->outputAddr) + subSliceVector[sliceIdx].offset,
-                subSliceVector[sliceIdx].size);
-            HCCL_DEBUG("Memcpy operation: step[%u] stream[sub], src rank[%u] starts to send offset[%llu] size[%llu], "
-                "dst rank[%u] starts to rcv offset[%llu] size[%llu] at userMemOutput_",
-                step, userRank_, subSliceVector[sliceIdx].offset, subSliceVector[sliceIdx].size,
-                txSliceVector[sliceIdx].offset, txSliceVector[sliceIdx].size);
-            CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dst, src, subStreams_[0]));
+                DeviceMem srcDevMem(static_cast<s8 *>(srcMemPtr) + mem.srcOffset, mem.len);
+                DeviceMem dstDevMem(static_cast<s8 *>(mem.dst), mem.len);
+                CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstDevMem, srcDevMem,
+                    stream_, leftLink_->GetRemoteRank(), leftLink_->GetLinkType()));
+            }
         }
-        CHK_RET(SubRecordMain()); // 从流通知主流通信完成
-        CHK_RET(MainWaitSub());   // 主流等待从流通知
 
         // 更新索引
         txSliceIdx = (txSliceIdx + rankSize - 1) % rankSize;
         rxSliceIdx = (rxSliceIdx + rankSize - 1) % rankSize;
     }
+    CHK_RET(SubRecordMain()); // 从流通知主流通信完成
+    CHK_RET(MainWaitSub());   // 主流等待从流通知
     if (!isSdma_) {
         for (u32 vecIdx = 0; vecIdx < finalSrc.size(); vecIdx++) {
             CHK_RET(HcclD2DMemcpyAsync(dispatcher_, finalDst[vecIdx], finalSrc[vecIdx], stream_));

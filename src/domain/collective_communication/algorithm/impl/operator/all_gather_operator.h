@@ -16,8 +16,8 @@
 namespace hccl {
 class AllGatherOperator : public CollAlgOperator {
 public:
-    AllGatherOperator(AlgConfigurator* algConfigurator,
-        std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
+    AllGatherOperator(AlgConfigurator* algConfigurator, CCLBufferManager &cclBufferManager,
+        HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~AllGatherOperator();
     HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName, std::string& newTag) override;
 private:
@@ -27,7 +27,7 @@ private:
 
     HcclResult SelectAlgfor910B(const OpParam& param, std::string& algName);
 
-    HcclResult SelectAlgfor91073(const OpParam& param, std::string& algName);
+    HcclResult SelectAlgfor91093(const OpParam& param, std::string& algName);
 };
 
 }

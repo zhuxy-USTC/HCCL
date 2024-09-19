@@ -106,7 +106,32 @@ HcclResult ExecutorBase::Prepare(DeviceMem &inputMem, DeviceMem &outputMem, Devi
                                  const u32 root,
                                  const u64 baseOffset)
 {
-    HCCL_DEBUG("AlignedReduceScatterDoubleRingWithSerialLocalCopy prepare blank");
+    // 部分集合通信操作允许input_mem/output_mem为空
+
+    HCCL_DEBUG("AlignedDoubleRing prepare start");
+
+    /* * 参数保存 */
+    inputMem_ = inputMem;
+    outputMem_ = outputMem;
+    scratchMem_ = scratchMem;
+    stream_ = stream;
+    count_ = count;
+    dataType_ = dataType;
+    dataBytes_ = count * DataUnitSize(dataType);
+    reductionOp_ = reductionOp;
+    root_ = root;
+
+    /* 相对用户基地址偏移 */
+    baseOffset_ = baseOffset;
+    multRingsSlices_.resize(multRingsSlices.size());
+    for (u32 ringIndex = 0; ringIndex < multRingsSlices.size(); ringIndex++) {
+        if (multRingsSlices[ringIndex].size() > 0) {
+            multRingsSlices_[ringIndex].resize(multRingsSlices[ringIndex].size());
+            multRingsSlices_[ringIndex] = multRingsSlices[ringIndex];
+        }
+    }
+
+    HCCL_DEBUG("AlignedDoubleRing prepare end");
     return HCCL_SUCCESS;
 }
 

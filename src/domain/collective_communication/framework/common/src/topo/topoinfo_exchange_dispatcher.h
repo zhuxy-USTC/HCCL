@@ -31,6 +31,7 @@ class TopoInfoExchangeDispather {
     // avoid the struct name pollution hccl namespace, so use the struct in class
 public:
     struct SendState {
+        u32 rankId;
         u32 header;
         u32 indentify          = UINT_MAX;    // 默认UINT_MAX时，不发送indentify
         size_t headerLen       = sizeof(u32); // the header need to send

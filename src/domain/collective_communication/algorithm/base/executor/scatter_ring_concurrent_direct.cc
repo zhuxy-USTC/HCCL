@@ -36,7 +36,7 @@ HcclResult ScatterRingConcurrentDirect::RunAsync(const u32 rank, const u32 rankS
 
     // 判断rank_size == 1, 若inputMem_ != outputMem_，才需要搬运
     if (rankSize == 1) {
-        CHK_RET(MemcpyByOneRank());
+        CHK_RET(OneRankMemcpy());
         return HCCL_SUCCESS;
     }
     // 收集邻居信息
@@ -65,7 +65,7 @@ HcclResult ScatterRingConcurrentDirect::CheckParameters(const u32 rank, const u3
     CHK_PRT_RET(subStreams_.size() < 1,
                 HCCL_ERROR("[ScatterRingConcurrentDirect] subStreams size[%u] is less than 1", subStreams_.size()),
                 HCCL_E_PARA);
-    for (auto s : subStreams_) {
+    for (auto &s : subStreams_) {
         CHK_PTR_NULL(s.ptr());
     }
     // 判断mainSignals数量是否正确
@@ -90,7 +90,7 @@ HcclResult ScatterRingConcurrentDirect::CheckParameters(const u32 rank, const u3
     return HCCL_SUCCESS;
 }
 
-HcclResult ScatterRingConcurrentDirect::MemcpyByOneRank()
+HcclResult ScatterRingConcurrentDirect::OneRankMemcpy()
 {
     const Slice &srcSlice = userMemInputSlices_[0];
     const Slice &dstSlice = slices_[0];
@@ -144,9 +144,11 @@ HcclResult ScatterRingConcurrentDirect::SetSlices(const u32 rank, const u32 rank
                        slices_[i].size);
         }
     }
-    for (u32 i = 0; i < slices_.size(); i++) {
-        HCCL_DEBUG("[ScatterRingConcurrentDirect][SetSlices]rank[%u], slices[%u].offset=[%llu], slices[%u].size=[%llu]",
-                   rank, i, slices_[i].offset, i, slices_[i].size);
+    if (UNLIKELY(HcclCheckLogLevel(HCCL_LOG_DEBUG) == 1)) {
+        for (u32 i = 0; i < slices_.size(); i++) {
+            HCCL_DEBUG("[ScatterRingConcurrentDirect][SetSlices]rank[%u], slices[%u].offset=[%llu], slices[%u].size=[%llu]",
+                    rank, i, slices_[i].offset, i, slices_[i].size);
+        }
     }
     // 最后一步搬到userMemOut_的offset, 不同的ring环offset不一样
     lastStepOffset_ = slices_[ringsOrder_[0]].offset;
@@ -252,7 +254,7 @@ HcclResult ScatterRingConcurrentDirect::RunSubStream(const u32 step, const Slice
 HcclResult ScatterRingConcurrentDirect::RunScatter(const u32 rank, const u32 rankSize)
 {
     HCCL_INFO("ScatterRingConcurrentDirect starts, the input param rank[%u]", rank);
-    // 空拷贝用于后续操作附着
+
     CHK_RET(ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
 
     CHK_RET(RunInitStep(rank, rankSize));
@@ -273,7 +275,6 @@ HcclResult ScatterRingConcurrentDirect::RunScatter(const u32 rank, const u32 ran
         CHK_RET(MainRecordSub()); // 主流通知从流开始通信
         CHK_RET(SubWaitMain());   // 从流等待主流通知
 
-        // 空拷贝用于主从流任务并发
         CHK_RET(ExecEmptyTask(inputMem_, outputMem_, stream_, dispatcher_));
         CHK_RET(ExecutorBase::ExecEmptyTask(inputMem_, outputMem_, subStreams_[0], dispatcher_));
 
