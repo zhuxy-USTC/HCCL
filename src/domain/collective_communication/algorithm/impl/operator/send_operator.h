@@ -17,7 +17,8 @@
 namespace hccl {
 class SendOperator : public CollAlgOperator {
 public:
-    SendOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
+    SendOperator(AlgConfigurator* algConfigurator, CCLBufferManager &cclBufferManager,
+        HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~SendOperator();
 
     HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName, std::string& newTag);

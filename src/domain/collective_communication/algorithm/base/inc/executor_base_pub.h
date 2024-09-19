@@ -37,11 +37,15 @@ constexpr u32 DMA_REDUCE_THREE_OFFSET = 3;
 constexpr u64 HCCL_CHUNK_SIZE = 1024 * 1024 * 1024; // 1024*1024*1024的size
 constexpr u64 HCCL_MIN_PIPLINE_SLICE_ALIGN = 512;
 constexpr u64 HCCL_MIN_SLICE_ALIGN_910B = 16384;
-constexpr u64 HCCL_MIN_SLICE_ALIGN_910_73 = 16384;
+constexpr u64 HCCL_MIN_SLICE_ALIGN_910_93 = 16384;
 constexpr u64 HCCL_SDMA_RDMA_SPLIT_SIZE = 67108864;
 constexpr u64 HCCL_MIN_SLICE_ALIGN_ONCHIP = 512;
 constexpr u64 HCCL_MIN_SLICE_ALIGN = 128;
 constexpr u64 HCCL_NIC_MAX_NUM = 8;
+constexpr u64 DOUBLE_RING_NUM = 2;
+constexpr u64 DOUBLE_RING_STREAM_NUM = 3;
+constexpr u32 ALIGNED_SUB_RING_INDEX = 0;
+constexpr u32 ALIGNED_MAIN_RING_INDEX = 1;
 
 enum class SliceType {
     SLICE_TYPE_TX,
@@ -122,7 +126,7 @@ public:
 
     static inline u64 RoundUpWithDivisor(u64 value, u64 divisor)
     {
-        if (value == 0) {
+        if ((value == 0) || (divisor == 0)) {
             return divisor;
         }
         // divisor必须大于等于1, 返回value向上取divisor的整数倍的值
@@ -175,6 +179,8 @@ protected:
     std::vector<u32> nicRankList_;
     std::vector<std::vector<u32>> rankSliceLists_;
     bool barrierSwitchOn_;
+    // 用于91093 aligend double ring算法
+    std::vector<std::vector<Slice>> multRingsSlices_;
 private:
     static void CalcBinaryBlockParams(u32 rank, u32 rankSize, u32 &stepsInBlock, u32 &lowerBlockSize,
         u32 &myBlockSize, u32 &rankInMyBlock, u32 &myBlockOffset, u32 &higherBlockSize);

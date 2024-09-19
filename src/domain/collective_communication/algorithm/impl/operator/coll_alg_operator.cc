@@ -34,18 +34,17 @@ constexpr float LATENCY = 60; // 静态时延 60 us;
 constexpr u64 PIPELINE_MIN_SIZE = 32 * 1024; // 当数据量大于等于32KB时，reduce_scatter和all_gather使能pipeline模式
 constexpr u64 PIPELINE_ALLREDUCE_MIN_SIZE = 1024 * 1024; // 当数据量大于等于1MB时，allreduce使能pipeline模式
 constexpr u64 PIPELINE_MIN_SIZE_NO_LITE = 2 * 1024 * 1024; // 如不支持RDMALite，当数据量大于等于2MB时，使能pipeline模式
+constexpr u64 HCCL_FFTS_CAPACITY = 65535; // FFTS+子图最大容量
 
-CollAlgOperator::CollAlgOperator(AlgConfigurator* algConfigurator,
-                                 std::unique_ptr<hcclImpl> &pImpl,
-                                 std::unique_ptr<TopoMatcher> &topoMatcher, HcclCMDType opType)
-    : algConfigurator_(algConfigurator),
-      cclBufferManager_(pImpl->cclBufferManager_), notifyPool_(pImpl->notifyPool_),
-      rankInfoList_(pImpl->rankInfoList_), hcclImpl_(pImpl), topoMatcher_(topoMatcher),
+CollAlgOperator::CollAlgOperator(AlgConfigurator* algConfigurator, CCLBufferManager &cclBufferManager,
+                                 HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher,
+                                 HcclCMDType opType)
+    : algConfigurator_(algConfigurator), cclBufferManager_(cclBufferManager),
+      dispatcher_(dispatcher), topoMatcher_(topoMatcher),
       workflowMode_(GetWorkflowMode())
 {
-    hcclImpl_->GetDispatcher(dispatcher_);
-    SetTopoAttr();
-    SetAlgoAttr();
+    SetTopoAttr(algConfigurator_);
+    SetAlgoAttr(algConfigurator_);
     algConfigurator->GetAlgTypeDirect(algType_, opType);
     algConfigurator->GetAlgoLevel1DefaultSwitch(isAlgoLevel1Default_, opType);
     algConfigurator->GetTopoType(topoType_);
@@ -61,11 +60,11 @@ HcclResult CollAlgOperator::CalcResRequest(const std::string& algName, const OpP
     AlgResourceRequest& resourceRequest)
 {
     if (executor_.get() == nullptr) {
-        executor_ = CollAlgExecRegistry::Instance()->GetAlgExec(algName, dispatcher_, topoMatcher_);
+        executor_ = CollAlgExecRegistry::Instance().GetAlgExec(algName, dispatcher_, topoMatcher_);
         CHK_PRT_RET(executor_.get() == nullptr,
             HCCL_ERROR("[CollAlgOperator][CalcResRequest]Fail to find executor for algName[%s]", algName.c_str()),
             HCCL_E_PARA);
-        CHK_RET(SetExecutorAttr());
+        CHK_RET(SetExecutorAttr(param));
     }
     return executor_->CalcResRequest(param, resourceRequest);
 }
@@ -74,11 +73,11 @@ HcclResult CollAlgOperator::Orchestrate(const std::string& algName, OpParam& par
 {
     HCCL_INFO("[CollAlgOperator][Orchestrate]algName[%s]", algName.c_str());
     if (executor_.get() == nullptr) {
-        executor_ = CollAlgExecRegistry::Instance()->GetAlgExec(algName, dispatcher_, topoMatcher_);
+        executor_ = CollAlgExecRegistry::Instance().GetAlgExec(algName, dispatcher_, topoMatcher_);
         CHK_PRT_RET(executor_.get() == nullptr,
             HCCL_ERROR("[CollAlgOperator][Orchestrate]Fail to find executor for algName[%s]", algName.c_str()),
             HCCL_E_PARA);
-        CHK_RET(SetExecutorAttr());
+        CHK_RET(SetExecutorAttr(param));
     }
 
     return executor_->Orchestrate(param, algResource);
@@ -88,7 +87,7 @@ HcclResult CollAlgOperator::CalcIncreLinkRequest(const std::string& algName, con
     AlgResourceRequest& resourceRequest)
 {
     if (executor_.get() == nullptr) {
-        executor_ = CollAlgExecRegistry::Instance()->GetAlgExec(algName, dispatcher_, topoMatcher_);
+        executor_ = CollAlgExecRegistry::Instance().GetAlgExec(algName, dispatcher_, topoMatcher_);
         CHK_PRT_RET(executor_.get() == nullptr,
             HCCL_ERROR("[BatchSendRecvOperator][CalcIncreLinkRequest]Fail to find executor for algName[%s]",
             algName.c_str()), HCCL_E_PARA);
@@ -96,49 +95,62 @@ HcclResult CollAlgOperator::CalcIncreLinkRequest(const std::string& algName, con
     return executor_->CalcIncreLinkRequest(param, resourceRequest);
 }
 
-void CollAlgOperator::SetTopoAttr()
+void CollAlgOperator::SetTopoAttr(AlgConfigurator* algConfigurator)
 {
-    serverNum_= hcclImpl_->serverNum_;
-    moduleNum_ = hcclImpl_->moduleNum_;
-    devNumInLevel2_ = hcclImpl_->devNumInLevel2_;
-    deviceNumPerServer_ = hcclImpl_->deviceNumPerServer_;
-    deviceNumPerAggregation_ = hcclImpl_->deviceNumPerAggregation_;
-    multiModuleDiffDeviceNumMode_ = hcclImpl_->multiModuleDiffDeviceNumMode_;
+    const HcclTopoAttr& topoAttr = algConfigurator->GetTopoAttr();
+    serverNum_= topoAttr.serverNum;
+    moduleNum_ = topoAttr.moduleNum;
+    devNumInLevel2_ = topoAttr.devNumInLevel2;
+    deviceNumPerServer_ = topoAttr.deviceNumPerServer;
+    deviceNumPerAggregation_ = topoAttr.deviceNumPerAggregation;
+    multiModuleDiffDeviceNumMode_ = topoAttr.multiModuleDiffDeviceNumMode;
 
-    meshAggregationRankSize_ = hcclImpl_->meshAggregationRankSize_;
-    isDiffDeviceModule_ = hcclImpl_->isDiffDeviceModule_;
-    isSingleMeshAggregation_= hcclImpl_->isSingleMeshAggregation_;
-    meshSinglePlane_= hcclImpl_->meshSinglePlane_;
-    isAllRankSamePlane_ = hcclImpl_->isAllRankSamePlane_;
-    is310PDuoCard_ = hcclImpl_->is310PDuoCard_;
+    meshAggregationRankSize_ = topoAttr.meshAggregationRankSize;
+    isDiffDeviceModule_ = topoAttr.isDiffDeviceModule;
+    isSingleMeshAggregation_ = topoAttr.isSingleMeshAggregation;
+    isAllRankSamePlane_ = topoAttr.isAllRankSamePlane;
+    is310PDuoCard_ = topoAttr.is310PDuoCard;
 
-    userRank_ = hcclImpl_->userRank_;
-    realUserRank_ = hcclImpl_->realUserRank_;
-    userRankSize_ = hcclImpl_->userRankSize_;
+    userRank_ = topoAttr.userRank;
+    realUserRank_ = topoAttr.realUserRank;
+    userRankSize_ = topoAttr.userRankSize;
 
-    devicePhyId_ = hcclImpl_->devicePhyId_;
-    deviceLogicId_ = hcclImpl_->deviceLogicId_;
-    deviceType_ = hcclImpl_->deviceType_;
+    devicePhyId_ = topoAttr.devicePhyId;
+    deviceLogicId_ = topoAttr.deviceLogicId;
+    deviceType_ = topoAttr.deviceType;
 
-    nicList_ = hcclImpl_->nicList_;
-    pairLinkCounter_ = hcclImpl_->pairLinkCounter_;
-    isSupportRdmaLite_ = hcclImpl_->isSupportRdmaLite_;
-    useSuperPodMode_ = hcclImpl_->useSuperPodMode_;
+    nicList_ = topoAttr.nicList;
+    pairLinkCounter_ = topoAttr.pairLinkCounter;
+    isSupportRdmaLite_ = topoAttr.isSupportRdmaLite;
+    useSuperPodMode_ = topoAttr.useSuperPodMode;
     return;
 }
 
-void CollAlgOperator::SetAlgoAttr()
+void CollAlgOperator::SetAlgoAttr(AlgConfigurator* algConfigurator)
 {
-    isHaveCpuRank_ = hcclImpl_->isHaveCpuRank_;
-    inlineReduceSwitchOn_ = hcclImpl_->inlineReduceSwitchOn_;
-    identifier_ = hcclImpl_->identifier_;
+    const HcclAlgoAttr& algoAttr = algConfigurator->GetAlgoAttr();
+    isHaveCpuRank_ = algoAttr.isHaveCpuRank;
+    inlineReduceSwitchOn_ = algoAttr.inlineReduceSwitchOn;
+    identifier_ = algoAttr.identifier;
     return;
 }
 
-HcclResult CollAlgOperator::SetExecutorAttr()
+HcclResult CollAlgOperator::SetExecutorAttr(const OpParam& param)
 {
     CHK_RET(executor_->SetAlgType(algType_));
-    CHK_RET(executor_->SetCCLInBuffer(hcclImpl_->GetInCCLbufferSize()));
+    CHK_RET(executor_->SetCCLInBuffer(cclBufferManager_.GetInCCLbufferSize()));
+
+    if (param.opType == HcclCMDType::HCCL_CMD_REDUCE_SCATTER) {
+        bool isSupportSDMAReduce = false;
+        if (GetWorkflowMode() != HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+            isSupportSDMAReduce = IsSupportSDMAReduce(param.inputPtr, param.outputPtr, param.DataDes.dataType,
+                param.reduceType);
+        } else {
+            isSupportSDMAReduce = IsSupportSDMAReduce(cclBufferManager_.GetInCCLbuffer().ptr(),
+                cclBufferManager_.GetOutCCLbuffer().ptr(), param.DataDes.dataType, param.reduceType);
+        }
+        CHK_RET(executor_->SetIsSupportSDMAReduce(isSupportSDMAReduce));
+    }
     return HCCL_SUCCESS;
 }
 
@@ -178,14 +190,15 @@ HcclResult CollAlgOperator::AutoSelectAlgTypeLevel1(HcclCMDType hcclCMDType, u64
                                                     bool isRdmaReduce, bool isAivMode)
 {
     if (isSingleMeshAggregation_) {
-        HCCL_INFO("hccl algorithm: there are %u server(%u module) in level1, no need to choose algo.",
+        HCCL_INFO("[AutoSelectAlgTypeLevel1] there are %u server(%u module) in level1, no need to choose algo.",
                   serverNum_, moduleNum_);
         return HCCL_SUCCESS;
     }
-    // parse algType_ and get algTypeLevel1 and algTypeLevel0
-    auto originalAlgTypeLevel0 = GetLevel0AlgType(algType_);
+
     // auto algo selection process
     if (isAlgoLevel1Default_) {
+        // parse algType_ and get algTypeLevel1 and algTypeLevel0
+        auto originalAlgTypeLevel0 = GetLevel0AlgType(algType_);
         // set algTypeLevel1
         AlgTypeLevel1 algTypeLevel1;
         CHK_RET(
@@ -193,9 +206,9 @@ HcclResult CollAlgOperator::AutoSelectAlgTypeLevel1(HcclCMDType hcclCMDType, u64
                 hcclCMDType, countSize, cclBufferSize, algTypeLevel1, isInlineReduce, isRdmaReduce, isAivMode));
         auto iter = HCCL_ALGO_LEVEL1_NAME_MAP.find(algTypeLevel1);
         CHK_PRT_RET(iter == HCCL_ALGO_LEVEL1_NAME_MAP.end(),
-            HCCL_ERROR("level1: algType[%u] is invalid.", algTypeLevel1),
+            HCCL_ERROR("[AutoSelectAlgTypeLevel1] level1: algType[%u] is invalid.", algTypeLevel1),
             HCCL_E_INTERNAL);
-        HCCL_INFO("hccl algorithm: there are %u server(%u module) in level1, using %s algo",
+        HCCL_INFO("[AutoSelectAlgTypeLevel1] there are %u server(%u module) in level1, using %s algo",
                   serverNum_, moduleNum_, iter->second.c_str());
         algType_ = AlgType(
             (static_cast<u32>(algTypeLevel1) << HCCL_LEVEL_ALGO_WIDTH) + static_cast<u32>(originalAlgTypeLevel0));
@@ -217,6 +230,38 @@ HcclResult CollAlgOperator::SelectAlgoForComm(HcclCMDType hcclCMDType, float del
     return (it->second)(delay, curSize, bandWidth, algType);
 }
 
+// 保守估计Pipeline算法所需context数量
+u32 CollAlgOperator::CalcContextNumForPipeline(HcclCMDType hcclCMDType)
+{
+    const u32 stepNum = moduleNum_;  // 通信步数
+    const u32 hccsContextNumPerStep = 5 * (deviceNumPerAggregation_ - 1);   // SDMA跨片每步所需context数
+    const u32 roceContextNumPerStep = 7;  // RDMA每步所需context数
+    const u32 copyContextNumPerStep = 1;  // SDMA片内每步所需context数
+    const u32 contextNumPerStep = hccsContextNumPerStep + roceContextNumPerStep + copyContextNumPerStep; // 小计
+    const u32 barrierContextNum = 4;  // 通信结束时barrier操作所需context数
+
+    switch (hcclCMDType) {
+        case HcclCMDType::HCCL_CMD_ALLREDUCE:             // fall-through
+        case HcclCMDType::HCCL_CMD_REDUCE_SCATTER:        // fall-through
+        case HcclCMDType::HCCL_CMD_ALLGATHER: {
+            const u32 copyContextNum = 1;    // 通信首尾所需context数量
+            u32 contextNum = stepNum * contextNumPerStep + barrierContextNum + copyContextNum;
+            if (hcclCMDType == HcclCMDType::HCCL_CMD_ALLREDUCE) {
+                contextNum += contextNum;
+            }
+            return contextNum;
+        }
+        case HcclCMDType::HCCL_CMD_ALLTOALLV:             // fall-through
+        case HcclCMDType::HCCL_CMD_ALLTOALLVC:            // fall-through
+        case HcclCMDType::HCCL_CMD_ALLTOALL: {
+            const u32 copyContextNum = 1 + moduleNum_;   // 通信首尾所需context数量
+            return stepNum * contextNumPerStep + barrierContextNum + copyContextNum;
+        }
+        default:
+            return 0;
+    }
+}
+
 HcclResult CollAlgOperator::GetDefaultAlgoLevel1V2(HcclCMDType hcclCMDType, u64 curSize, u64 cclBufferSize,
     AlgTypeLevel1 &algType, bool isInlineReduce, bool isRdmaReduce, bool isAivMode)
 {
@@ -224,12 +269,15 @@ HcclResult CollAlgOperator::GetDefaultAlgoLevel1V2(HcclCMDType hcclCMDType, u64 
     // since RDMA is not reduced by normal serial orchestration of tasks.
     // So pipeline mode is more dominant than normal serial orchestration now.
     auto originalAlgTypeLevel0 = GetLevel0AlgType(algType_);
+    bool disdeterniminsticWithInlineReduce = isInlineReduce && isRdmaReduce &&
+        topoMatcher_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_DISABLE;
+
     // 对于不支持Rdma Lite的场景，下发性能较差，RS和AG需要一个很大的数据量（AR的一半）才能掩盖下发时间
     u64 pipelineMinSize = (isSupportRdmaLite_) ? (PIPELINE_MIN_SIZE) : (PIPELINE_MIN_SIZE_NO_LITE);
-    if (((hcclCMDType == HcclCMDType::HCCL_CMD_REDUCE_SCATTER && isInlineReduce && isRdmaReduce &&
-        topoMatcher_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_DISABLE) ||
+    if (((hcclCMDType == HcclCMDType::HCCL_CMD_REDUCE_SCATTER && disdeterniminsticWithInlineReduce) ||
         hcclCMDType == HcclCMDType::HCCL_CMD_ALLGATHER) &&
-        deviceNumPerAggregation_ != 1 && curSize >= pipelineMinSize && IsAlgTypeLevel0Mesh(originalAlgTypeLevel0)) {
+        deviceNumPerAggregation_ != 1 && curSize >= pipelineMinSize && IsAlgTypeLevel0Mesh(originalAlgTypeLevel0) &&
+        CalcContextNumForPipeline(hcclCMDType) <= HCCL_FFTS_CAPACITY) {
         algType = AlgTypeLevel1::ALG_LEVEL1_PIPELINE;
         return HCCL_SUCCESS;
     }
@@ -240,9 +288,9 @@ HcclResult CollAlgOperator::GetDefaultAlgoLevel1V2(HcclCMDType hcclCMDType, u64 
         // 计算每个slice的大小
         u64 allreduceCurSize = 0;
         allreduceCurSize = curSize / (moduleNum_ * deviceNumPerAggregation_);
-        if ((isInlineReduce && isRdmaReduce) && topoMatcher_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_DISABLE &&
-            deviceNumPerAggregation_ != 1 && allreduceCurSize >= pipelineMinSize && !isAivMode &&
-            IsAlgTypeLevel0Mesh(originalAlgTypeLevel0)) {
+        if (disdeterniminsticWithInlineReduce && deviceNumPerAggregation_ != 1 &&
+            allreduceCurSize >= pipelineMinSize && !isAivMode && IsAlgTypeLevel0Mesh(originalAlgTypeLevel0) &&
+            CalcContextNumForPipeline(hcclCMDType) <= HCCL_FFTS_CAPACITY) {
             algType = AlgTypeLevel1::ALG_LEVEL1_PIPELINE;
             return HCCL_SUCCESS;
         }
@@ -518,6 +566,12 @@ bool CollAlgOperator::IsMultiMeshInlineReduce(void *inputPtr, void *outputPtr, H
     bool multiMeshInlineReduce = (deviceType_ == DevType::DEV_TYPE_910B) &&
                                  isMeshTopo && isInlineReduce && isRdmaReduce && (!isSingleMeshAggregation_);
     return multiMeshInlineReduce;
+}
+
+void CollAlgOperator::SetLegacyHcclImpl(std::unique_ptr<hcclImpl> &impl)
+{
+    hcclImpl_ = impl.get();
+    return;
 }
 
 }   // namesapce hccl

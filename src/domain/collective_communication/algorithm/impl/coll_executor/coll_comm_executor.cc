@@ -28,7 +28,7 @@ HcclResult CollCommExecutor::GetSubStreamInfoOnOneRing(const u32 ringIndex,
 {
     u32 ringNum = algResResp_->slaveStreams.size() + 1;
     if (topoMatcher_->GetExternalInputEnableRdmaSdmaConcurrent() &&
-        (topoAttr_.deviceType == DevType::DEV_TYPE_910_73) &&
+        (topoAttr_.deviceType == DevType::DEV_TYPE_910_93) &&
         (topoType_ == TopoType::TOPO_TYPE_NP_DOUBLE_RING)) {
         subStreamsInOneRing.push_back(algResResp_->slaveStreams[ringIndex + RDMA_ADD_STREAMS_NUM]);
         mainSignalsInOneRing.push_back(algResResp_->notifiesM2S[ringIndex + RDMA_ADD_STREAMS_NUM]);
@@ -164,14 +164,13 @@ HcclResult CollCommExecutor::MultiRingAllGather(const std::string &tag, DeviceMe
     std::vector<std::vector<u32>> multiRingsOrder =
         GetRingsOrderByTopoType(outerZeroCommInfo.localRankSize, topoType_, nicList);
 
-    // 空拷贝用于后续操作附着
     CHK_RET(ExecutorBase::ExecEmptyTask(inputMem, outputMem, stream, dispatcher_));
     for (u32 ringIndex = 0; ringIndex < ringNum; ringIndex++) {
         std::vector<Slice> singleRingSliceZero = multRingsSliceZero[ringIndex];
         CHK_PRT_RET(singleRingSliceZero.empty(), HCCL_ERROR("[CollCommExecutor][MultiRingAllGather]"\
             "singleRingSliceZero is empty"), HCCL_E_INTERNAL);
 
-        // 910_73场景 生成userMemOut_上对应的slices
+        // 910_93场景 生成userMemOut_上对应的slices
         std::vector<Slice> userMemOutputSlices;
         if (multRingsUserMemSlice.size() == 0) {
             CHK_RET(CalUserMemSlices(dataType, opInfo, singleRingSliceZero, ringIndex, multiRingsOrder,
@@ -187,7 +186,7 @@ HcclResult CollCommExecutor::MultiRingAllGather(const std::string &tag, DeviceMe
         u32 rankSize = outerRingCommInfo.localRankSize;
         u32 ringIndexOp = ringIndex;
 
-        // 910_73场景 准备环中的从流
+        // 910_93场景 准备环中的从流
         std::vector<Stream>       subStreamsInOneRing;
         std::vector<std::shared_ptr<LocalNotify>> mainSignalsInOneRing;
         std::vector<std::shared_ptr<LocalNotify>> subSignalsInOneRing;
@@ -331,14 +330,13 @@ HcclResult CollCommExecutor::MultiRingAllGatherConcurrent(const std::string &tag
     std::vector<std::vector<u32>> multiRingsOrder =
         GetRingsOrderByTopoType(outerZeroCommInfo.localRankSize, topoType_, nicList);
 
-    // 空拷贝用于后续操作附着
     CHK_RET(ExecutorBase::ExecEmptyTask(inputMem, outputMem, stream, dispatcher_));
     for (u32 ringIndex = 0; ringIndex < ringNum; ringIndex++) {
         std::vector<Slice> singleRingSliceZero = multRingsSliceZero[ringIndex].second; // 取出sdma/rdma的数据块
         CHK_PRT_RET(singleRingSliceZero.empty(), HCCL_ERROR("[CollCommExecutor][MultiRingAllGatherConcurrent]"\
             "singleRingSliceZero is empty"), HCCL_E_INTERNAL);
 
-        // 910_73场景 生成userMemOut_上对应的slices
+        // 910_93场景 生成userMemOut_上对应的slices
         std::vector<Slice> userMemOutputSlices;
         if (multRingsUserMemSlice.size() == 0) {
             CHK_RET(CalUserMemSlices(dataType, opInfo, singleRingSliceZero, ringIndex, multiRingsOrder,
@@ -356,7 +354,7 @@ HcclResult CollCommExecutor::MultiRingAllGatherConcurrent(const std::string &tag
         u32 rankSize = outerRingCommInfo.localRankSize;
         u32 ringIndexOp = ringIndex;
 
-        // 910_73场景 准备环中的从流
+        // 910_93场景 准备环中的从流
         std::vector<Stream>       subStreamsInOneRing;
         std::vector<std::shared_ptr<LocalNotify>> mainSignalsInOneRing;
         std::vector<std::shared_ptr<LocalNotify>> subSignalsInOneRing;
@@ -483,24 +481,24 @@ HcclResult CollCommExecutor::MultiRingAllGatherConcurrent(const std::string &tag
     return HCCL_SUCCESS;
 }
 
-HcclResult CollCommExecutor::CollectMultiRingsUserMemInputSlices(u32 ringNum, const HcclDataType dataType,
+HcclResult CollCommExecutor::CollectMultiRingsUserMemSlices(u32 ringNum, const HcclDataType dataType,
     const HcomCollOpInfo *opInfo, const std::vector<std::vector<Slice>> &multRingsSliceZero,
     const std::vector<std::vector<u32>> &multiRingsOrder,
     const std::vector<std::vector<Slice>> &multRingsUserMemSlice,
-    std::vector<std::vector<Slice>> &userMemInputSlicesOfMultiRings)
+    std::vector<std::vector<Slice>> &userMemSlicesOfMultiRings)
 {
     for (u32 ringIndex = 0; ringIndex < ringNum; ringIndex++) {
         std::vector<Slice> singleRingSliceZero = multRingsSliceZero[ringIndex];
         CHK_PRT_RET(singleRingSliceZero.empty(),
             HCCL_ERROR("[CollCommExecutor][MultiRingReduceScatter]singleRingSliceZero is empty"), HCCL_E_INTERNAL);
-        std::vector<Slice> userMemInputSlices;
+        std::vector<Slice> userMemSlices;
         if (multRingsUserMemSlice.size() == 0) {
             CHK_RET(CalUserMemSlices(dataType, opInfo, singleRingSliceZero, ringIndex, multiRingsOrder,
-                userMemInputSlices));
+                userMemSlices));
         } else {
-            userMemInputSlices = multRingsUserMemSlice[ringIndex];
+            userMemSlices = multRingsUserMemSlice[ringIndex];
         }
-        userMemInputSlicesOfMultiRings.push_back(userMemInputSlices);
+        userMemSlicesOfMultiRings.push_back(userMemSlices);
     }
     return HCCL_SUCCESS;
 }
@@ -538,7 +536,6 @@ HcclResult CollCommExecutor::MultiRingReduceScatter(const std::string &tag, Devi
 
     u64 reduceAttr = GetReduceAttr(inputMem, outputMem, dataType, reductionOp);
 
-    // 空拷贝用于后续操作附着
     CHK_RET(ExecutorBase::ExecEmptyTask(inputMem, outputMem, stream, dispatcher_));
     for (u32 ringIndex = 0; ringIndex < ringNum; ringIndex++) {
         std::vector<Slice> singleRingSliceZero = multRingsSliceZero[ringIndex];
@@ -714,8 +711,8 @@ HcclResult CollCommExecutor::MultiRingGather(const std::string &tag, DeviceMem i
         CHK_PRT_RET(ret == HCCL_E_PARA,
             HCCL_ERROR("[CommonOperator][MultiRingGather]invalid root rank[%u] to get user rank", root), ret);
 
-        std::unique_ptr<ExecutorBase> executor = std::make_unique<GatherRing>(dispatcher_);
-        CHK_SMART_PTR_NULL(executor);
+        std::unique_ptr<ExecutorBase> executor = nullptr;
+        EXECEPTION_CATCH((executor = std::make_unique<GatherRing>(dispatcher_)), return HCCL_E_PTR);
 
         if (ringIndex != (ringNum - 1)) {  // 0~ringNum-2的环
             if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) { // offline
@@ -813,7 +810,6 @@ HcclResult CollCommExecutor::MultiRingReduceScatterConcurrent(const std::string 
 
     u64 reduceAttr = GetReduceAttr(inputMem, outputMem, dataType, reductionOp);
 
-    // 空拷贝用于后续操作附着
     CHK_RET(ExecutorBase::ExecEmptyTask(inputMem, outputMem, stream, dispatcher_));
     for (u32 ringIndex = 0; ringIndex < ringNum; ringIndex++) {
         std::vector<Slice> singleRingSliceZero = multRingsSliceZero[ringIndex].second;
@@ -1133,7 +1129,7 @@ HcclResult CollCommExecutor::MultiStreamReduceScatterMesh(const std::string &tag
 {
     HcclResult ret = HCCL_SUCCESS;
     u64 streamNum = multStreamsSlice.size();
-    HCCL_INFO("MultiStreamReduceScatterMesh streamNum[%u]", streamNum);
+    HCCL_INFO("MultiStreamReduceScatterMesh streamNum[%llu]", streamNum);
     CHK_RET(CheckCommSize(commLevelIndex, streamNum));
     const SubCommInfo zeroCommInfo = GetSubCommInfo(commLevelIndex, COMM_INDEX_0);
 
@@ -1149,7 +1145,7 @@ HcclResult CollCommExecutor::MultiStreamReduceScatterMesh(const std::string &tag
         u32 commIndex = subCommInfo.localRank;
         CHK_PRT_RET(commIndex >= singleStreamSlice.size(), \
             HCCL_ERROR("[CollCommExecutor][MultiStreamReduceScatterMesh]commIndex[%u] => " \
-            "singleStreamSlice size[%llu]", commIndex, singleStreamSlice.size()), HCCL_E_INTERNAL);
+            "singleStreamSlice size[%zu]", commIndex, singleStreamSlice.size()), HCCL_E_INTERNAL);
 
         u32 rankSize = subCommInfo.localRankSize;
         u32 ringIndexOp = streamIndex;
@@ -1399,7 +1395,7 @@ std::vector<std::vector<Slice> > CollCommExecutor::PrepareMultiRingSlice(const s
     std::vector<std::vector<Slice> > mutliSegsSlices;
     u32 ringCount = multiRingsOrder.size();
     // 单环场景不应该走入此流程，需要在函数外校验
-    CHK_PRT_RET(ringCount <= 1, HCCL_ERROR("[CollCommExecutor][PrepareMultiRingSlice] ringCount[%llu] <= 1",
+    CHK_PRT_RET(ringCount <= 1, HCCL_ERROR("[CollCommExecutor][PrepareMultiRingSlice] ringCount[%u] <= 1",
         ringCount), mutliRingsSlices);
 
     u32 ringRanks = multiRingsOrder[0].size(); // 获取单个 ring 上设备的数量
@@ -1475,11 +1471,11 @@ HcclResult CollCommExecutor::CalUserMemSlices(const HcclDataType dataType, const
                                               std::vector<Slice>                  &userMemSlices)
 {
     if (opInfo == nullptr || opInfo->inputAddr == nullptr || opInfo->outputAddr == nullptr) {
-        // 910_73场景下，allreduce算子的userMem上的slice信息
+        // 910_93场景下，allreduce算子的userMem上的slice信息
         userMemSlices = singleRingSliceZero;
         return HCCL_SUCCESS;
     }
-    // 910_73场景下，reduce scatter和all gather算子的userMem上的slice信息
+    // 910_93场景下，reduce scatter和all gather算子的userMem上的slice信息
     std::vector<u32> ring0 = multiRingsOrder[0];
     for (u32 sliceIdx = 0; sliceIdx < singleRingSliceZero.size(); sliceIdx++) {
         Slice userMemSlice;
@@ -1549,7 +1545,6 @@ HcclResult CollCommExecutor::MultiRingScatter(const std::string &tag, DeviceMem 
     auto nicList = topoAttr_.nicList;
     std::vector<std::vector<u32>> multiRingsOrder = GetRingsOrderByTopoType(outerCommInfo.localRankSize, topoType_, nicList);
 
-    // 空拷贝用于后续操作附着
     CHK_RET(ExecutorBase::ExecEmptyTask(inputMem, outputMem, stream, dispatcher_));
     for (u32 ringIndex = 0; ringIndex < ringNum; ringIndex++) {
         std::vector<Slice> singleRingSliceZero = multRingsSliceZero[ringIndex];
@@ -1742,7 +1737,7 @@ HcclResult CollCommExecutor::PrepareInnerCommInfo(u32 &segmentIdx, u32 &commInde
             hdSize = iter->second[nicIdx];                    // 通过nicSendSizeList_得到该网口传输数据量
             u32 ringRanks = multRingsSliceZero[0].size(); // 获取单个 ring 上设备的数量
             segmentIdx = ringRanks / topoAttr_.nicList.size() * nicIdx; // 通过网口位置得到该网口传输数据的起始位置
-            if (topoAttr_.deviceType == DevType::DEV_TYPE_910_73) {
+            if (topoAttr_.deviceType == DevType::DEV_TYPE_910_93) {
                 commIndex = segmentIdx;
             }
         } else {                                                  // 如果当前rank不是通信网口，则不发送数据
@@ -1751,7 +1746,7 @@ HcclResult CollCommExecutor::PrepareInnerCommInfo(u32 &segmentIdx, u32 &commInde
     } else if (multRingsSliceZero.size() == 1) {
         segmentIdx = commInfo.localRank; // 针对0、4device下
         CHK_PRT_RET(segmentIdx >= multRingsSliceZero[0].size(), HCCL_ERROR("[Prepare][InnerCommInfo]index is out of "\
-            "range. Idx[%u] Slice size[%llu]", segmentIdx, multRingsSliceZero[0].size()), HCCL_E_PARA);
+            "range. Idx[%u] Slice size[%zu]", segmentIdx, multRingsSliceZero[0].size()), HCCL_E_PARA);
         hdSize = multRingsSliceZero[0][segmentIdx].size;
         commIndex = segmentIdx;
     } else {

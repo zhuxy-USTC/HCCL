@@ -57,6 +57,9 @@ using HcclTopoInfo = struct HcclTopoInfoDef {
     std::unordered_map<u32, bool> isUsedRdmaMap;
     std::unordered_map<u32, u32> pairLinkCounter; // server内所有device间的链路类型计数
 
+    std::vector<std::vector<std::vector<u32>>> CommPlaneSubGroupVector; // 保存所有 level 的通信分组信息
+    std::vector<bool> isAsymPlanVector; // 对应 level 是否为非对称
+
     HcclTopoInfoDef()
         : userRank(0),
         userRankSize(0),
@@ -123,8 +126,12 @@ public:
     HcclResult GetSubRootForScatter(const u32 root, u32& subRoot);
     u32 GetSubRootUserRank(const u32 userRank, const u32 rootUserRank);
     u32 GetSubRootUserRankWithSuperPod(const u32 userRank, const u32 rootUserRank);
+    u32 GetSubRootWithSuperPod(const u32 userRank, const u32 rootUserRank);
     HcclResult SetDeterministicConfig(const u8 deterministic);
     u8 GetDeterministicConfig() const;
+    bool GetLevelAsymType(const CommPlane level) const;
+    HcclResult GetLevelSubGroups(const CommPlane level, std::vector<std::vector<u32>> &subGroups);
+    HcclResult SetLevelSubGroups(const CommPlane level, std::vector<std::vector<u32>> &subGroups);
 
 protected:
 

@@ -30,21 +30,21 @@ namespace hccl {
 class hcclImpl;
 class HcclAlg {
 public:
-    explicit HcclAlg();
+    explicit HcclAlg(CCLBufferManager &cclBufferManager, const HcclDispatcher dispatcher,
+        const HcclDispatcher vDispatcher);
     virtual ~HcclAlg();
     HcclResult Init(const void* transportResourceInfoAddr, size_t transportResourceInfoSize,
-        std::unique_ptr<WorkspaceResource> &workSpaceRes, CCLBufferManager &cclBufferManager,
-        const HcclDispatcher dispatcher, const HcclDispatcher vDispatcher,
-        const std::unique_ptr<NotifyPool> &notifyPool,
+        std::unique_ptr<WorkspaceResource> &workSpaceRes, const std::unique_ptr<NotifyPool> &notifyPool,
         std::map<HcclIpAddress, HcclNetDevCtx> &netDevCtxMap,
         const std::unique_ptr<QueueNotifyManager> &queueNotifyManager,
         HcclAlgoAttr &algoAttr, HcclTopoAttr &topoAttr, bool isHeterogComm = false);
     HcclResult ReleaseCommInfos();
 
+    HcclResult GetTinyMem(DeviceMem &tinySendRecvMem);
+
+    // legacy code
     HcclResult Broadcast(const std::string &tag, void *ptr, u64 count, HcclDataType dataType, u32 root,
         Stream stream);
-    HcclResult BroadcastOutPlace(const std::string &tag, void *ptr, u64 count, HcclDataType dataType, u32 root,
-        Stream stream, const std::unique_ptr<HcclOpBaseAtraceInfo> &opBaseAtraceInfo = nullptr);
     HcclResult Send(const std::string &tag, void *inputPtr, u64 count, HcclDataType dataType,
         u32 destRank, Stream stream);
     HcclResult SendOutPlace(const std::string &tag, void *inputPtr, u64 count, HcclDataType dataType,
@@ -84,12 +84,10 @@ public:
     HcclResult GetRankVecInfo(std::vector<std::vector<std::vector<u32>>> &serverAndsuperPodToRank);
     HcclResult GetCommPlaneRanks(std::vector<std::vector<std::vector<u32>>> &CommPlaneRanks);
     HcclResult GetIsUsedRdmaMap(std::unordered_map<u32, bool> &isUsedRdmaMap);
-
     std::unique_ptr<CollAlgOperator> GetAlgOperator(const HcclCMDType &opType);
-
     HcclResult GetTopoType(TopoType &topoType);
-    HcclResult GetAlltoAllStatus(DeviceMem &tinySendRecvMem, bool &isAlltoAllZCopyMode);
 private:
+    // 只有流流程和异构场景在使用
     std::unique_ptr<hcclImpl> pimpl_;
     HcclResult InitTopoInfo(HcclTopoInfo& topoInfo, HcclTopoAttr &topoAttr);
     HcclResult InitAlgoInfo(HcclAlgoInfo& algoInfo, HcclAlgoAttr &algoAttr);
@@ -98,11 +96,17 @@ private:
     // 缓存初始传入传入的属性值
     HcclAlgoAttr algoAttr_;
     HcclTopoAttr topoAttr_;
-
     std::shared_ptr<AlgConfigurator> algConfigurator_;
     std::shared_ptr<TopoInfoExtractor> topoInfoEx_;
-
     std::unique_ptr<TopoMatcher> topoMatcher_;
+
+    CCLBufferManager &cclBufferManager_;
+    const HcclDispatcher dispatcher_;
+
+    // 历史继承特性使用的环境变量
+    const HcclDispatcher vDispatcher_;
+    std::unique_ptr<ParallelTaskLoader> parallelTaskLoader_; // 并行下发taskloader管理
+    DeviceMem tinySendRecvMem_; // 在sendCount/recvCount全0时, 使用tinySendRecvMem_, 避免使用空deviceMem
 };
 }  // namespace hccl
 

@@ -50,7 +50,8 @@ HcclResult GatherRing::RunGatherOnRootRank()
             HCCL_ERROR("[Run][GatherOnRootRank]rootrank[%u] tx ack failed", interRank_), ret);
         dst = outputMem_.range(rcvOffset, rcvSize);
 
-        ret = linkLeft_->RxAsync(UserMemType::OUTPUT_MEM, rcvOffset, dst.ptr(), rcvSize, stream_);
+        ret = linkLeft_->RxAsync(UserMemType::OUTPUT_MEM, rcvOffset + baseOffset_, dst.ptr(), rcvSize, stream_);
+		
         CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Run][GatherOnRootRank]root rank[%u] rx sync with dstmem[%p] "\
             "failed", interRank_, dst.ptr()), ret);
 
@@ -70,7 +71,7 @@ HcclResult GatherRing::RunGatherOnRootNextRank()
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Run][GatherOnRootNextRank]rank[%u] rx ack failed", interRank_), ret);
 
     DeviceMem sendMem = outputMem_.range(sendOffset, sendSize);
-    ret = linkRight_->TxAsync(UserMemType::OUTPUT_MEM, sendOffset, sendMem.ptr(), sendSize, stream_);
+    ret = linkRight_->TxAsync(UserMemType::OUTPUT_MEM, sendOffset + baseOffset_, sendMem.ptr(), sendSize, stream_);
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Run][GatherOnRootNextRank]rank[%u] TxAsync offset[%llu] size[%llu] "\
         "failed", interRank_, sendOffset, sendSize), ret);
     HCCL_DEBUG("GatherRing root next rank[%u] tx async offset[%llu] size[%llu]",
@@ -109,7 +110,7 @@ HcclResult GatherRing::RunGatherOnOtherRank()
         // 使用本端oupt接收，第一轮从对端的input，否则从对端的output
         dst = outputMem_.range(rcvOffset, rcvSize);
         // 从前一个节点收数据
-        ret = linkLeft_->RxAsync(UserMemType::OUTPUT_MEM, rcvOffset, dst.ptr(), rcvSize, stream_);
+        ret = linkLeft_->RxAsync(UserMemType::OUTPUT_MEM, rcvOffset + baseOffset_, dst.ptr(), rcvSize, stream_);
         CHK_PRT_RET(ret != HCCL_SUCCESS,
             HCCL_ERROR("[Run][GatherOnOtherRank]rank[%u] rx async failed", interRank_), ret);
 
@@ -127,7 +128,7 @@ HcclResult GatherRing::RunGatherOnOtherRank()
         CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Run][GatherOnOtherRank]rank[%u] round[%u] rx ack failed",
             interRank_, i), ret);
         // 向后一rank发送数据
-        ret = linkRight_->TxAsync(UserMemType::OUTPUT_MEM, rcvOffset, dst.ptr(), rcvSize, stream_);
+        ret = linkRight_->TxAsync(UserMemType::OUTPUT_MEM, rcvOffset + baseOffset_, dst.ptr(), rcvSize, stream_);
         CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Run][GatherOnOtherRank]rank[%u] round[%u] tx async failed",
             interRank_, i), ret);
         HCCL_DEBUG("GatherRing rank[%u] round[%u] tx async offset[%llu] size[%llu]",
@@ -140,7 +141,7 @@ HcclResult GatherRing::RunGatherOnOtherRank()
     dst = outputMem_.range(rcvOffset, rcvSize);
 
     // 从前一个节点收数据
-    ret = linkLeft_->RxAsync(UserMemType::OUTPUT_MEM, rcvOffset, dst.ptr(), rcvSize, stream_);
+    ret = linkLeft_->RxAsync(UserMemType::OUTPUT_MEM, rcvOffset + baseOffset_, dst.ptr(), rcvSize, stream_);
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Run][GatherOnOtherRank]rank[%u] rx async failed", interRank_), ret);
     ret = linkLeft_->RxWaitDone(stream_);
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Run][GatherOnOtherRank]RxWaitDone failed"), ret);
@@ -151,7 +152,7 @@ HcclResult GatherRing::RunGatherOnOtherRank()
     CHK_PRT_RET(ret != HCCL_SUCCESS,
         HCCL_ERROR("[Run][GatherOnOtherRank]rank[%u] rx ack failed", interRank_), ret);
     // 向后一rank发送数据
-    ret = linkRight_->TxAsync(UserMemType::OUTPUT_MEM, rcvOffset, dst.ptr(), rcvSize, stream_);
+    ret = linkRight_->TxAsync(UserMemType::OUTPUT_MEM, rcvOffset + baseOffset_, dst.ptr(), rcvSize, stream_);
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Run][GatherOnOtherRank]rank[%u] tx async failed", interRank_), ret);
     ret = linkRight_->TxWaitDone(stream_);
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Run][GatherOnOtherRank]TxWaitDone failed"), ret);

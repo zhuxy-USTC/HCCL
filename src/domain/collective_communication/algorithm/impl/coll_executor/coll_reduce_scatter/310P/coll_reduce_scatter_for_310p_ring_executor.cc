@@ -22,8 +22,8 @@ HcclResult CollReduceScatterFor310PRingExecutor::CalcCommInfo(std::vector<LevelN
 {
     TransportMemType inputType = TransportMemType::RESERVED;
     TransportMemType outputType = TransportMemType::RESERVED;
-    CalcTransportMemType(inputType, outputType);
-    CalcLevel0CommInfo(inputType, outputType, opTransport);
+    CHK_RET(CalcTransportMemType(inputType, outputType));
+    CHK_RET(CalcLevel0CommInfo(inputType, outputType, opTransport));
     return HCCL_SUCCESS;
 }
 
@@ -46,7 +46,7 @@ HcclResult CollReduceScatterFor310PRingExecutor::CalcLevel0CommInfo(TransportMem
     TransportMemType outputType,
     std::vector<LevelNSubCommTransport>& opTransport)
 {
-    HCCL_INFO("[CollReduceScatterFor310PRingExecutor][CalcLevel0CommInfo]tag[%s ]start", tag_.c_str());
+    HCCL_INFO("[CollReduceScatterFor310PRingExecutor][CalcLevel0CommInfo]tag[%s] start", tag_.c_str());
     CommParaInfo commParaInfo(COMM_LEVEL0, CommType::COMM_TAG_RING_INNER);
     CHK_RET(CalcCommPlaneInfo(tag_, commParaInfo, opTransport[COMM_LEVEL0], inputType, outputType));
     HCCL_INFO("[CollReduceScatterFor310PRingExecutor][CalcLevel0CommInfo]tag[%s] Calc RingComm finish", tag_.c_str());

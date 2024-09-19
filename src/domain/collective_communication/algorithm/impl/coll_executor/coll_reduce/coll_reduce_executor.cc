@@ -36,9 +36,9 @@ HcclResult CollReduceExecutor::Orchestrate(OpParam& param, AlgResourceResponse& 
 
     algResResp_ = &algRes;
     HCCL_PROFILER_ADD_TAG(tag_, algoAttr_.identifier, workflowMode_);
-    HCCL_PROFILER_ADD_STREAM(param.stream.id(), tag_, 0, algType_);
-    HCCL_PROFILER_ADD_OPDATA(tag_, param.DataDes.count, param.inputPtr, param.outputPtr, param.DataDes.dataType, \
-        param.root, algoAttr_.identifier);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(param.stream.id(), tag_, 0, algType_);
+    HCCL_PROFILER_ADD_OPDATA_OP(tag_, param.DataDes.count, param.inputPtr, param.outputPtr, param.DataDes.dataType, \
+        param.root, algoAttr_.identifier, param.reduceType);
     HCCL_PROFILER_ADD_GROUPRANK(algoAttr_.identifier, topoAttr_.userRankSize, topoAttr_.userRank);
     CHK_RET(AddSubStreamToProfiling());
 
@@ -66,10 +66,10 @@ HcclResult CollReduceExecutor::Orchestrate(OpParam& param, AlgResourceResponse& 
             HCCL_ERROR_CODE(ret)), ret);
 
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
-        HCCL_PROFILER_DEL_STREAM(param.stream.id());
+        HCCL_PROFILER_DEL_STREAM_BY_STREAMID(param.stream.id());
         HCCL_PROFILER_DEL_TAG(tag_);
         HCCL_PROFILER_DEL_OPDATA(tag_);
-        HCCL_PROFILER_DEL_GROUPRANK(tag_);
+        HCCL_PROFILER_DEL_GROUPRANK(algoAttr_.identifier);
     }
 
     HCCL_INFO("tag[%s], Reduce executor orchestrate success, take time [%lld]us.", tag_.c_str(),
@@ -142,13 +142,14 @@ HcclResult CollReduceExecutor::RunLoopInner(OpParam &param, const ReduceType &re
     bool isRootRank = param.root == topoAttr_.realUserRank ? true : false;
     auto autoSelectedAlgTypeLevel1 = static_cast<u32>(algType_) >> HCCL_LEVEL_ALGO_WIDTH;
     bool hugeData = IsHugeData(curSize);    // override
+    /* TBE reduce 当总count数超过INT32_MAX时，不使能子图复用 */
+    if (reduceType == ReduceType::TBE_REDUCE) {       
+        hugeData = hugeData || param.DataDes.count > INT32_MAX;
+    }
+    HCCL_DEBUG("[CollReduceExecutor][RunLoopInner]IsHugeData:[%u]", hugeData);
     auto opMeta =
         HcclOpMetaInfo::GetOneForReduce(isRootRank, param.root, autoSelectedAlgTypeLevel1, param.DataDes.dataType, reduceType, hugeData);
     CHK_RET(InitTask(dispatcher_, param.stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
-    /* 记录指令信息用于一致性校验 */
-    CHK_RET(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_REDUCE,
-        tag_, execMem.count, param.DataDes.dataType, param.reduceType, param.root, execMem.inputMem.size(),
-        execMem.outputMem.size()));
 
     execMem.inputMem = DeviceMem::create(execMem.inputMem.ptr(), curSize);
     execMem.outputMem = DeviceMem::create(execMem.outputMem.ptr(), curSize);
@@ -174,7 +175,6 @@ HcclResult CollReduceExecutor::RunLoopInner(OpParam &param, const ReduceType &re
         CHK_RET(HcclD2DMemcpyAsync(dispatcher_, outMem, outCommMem, param.stream));
     }
 
-    CHK_RET(RankConsistent::GetInstance().DelOpPara(tag_));
     CHK_RET(LaunchTaskExtend(dispatcher_, param.stream, algResResp_->slaveStreams));
     return ret;
 }

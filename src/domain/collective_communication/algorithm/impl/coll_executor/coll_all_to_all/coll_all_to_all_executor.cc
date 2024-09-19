@@ -24,11 +24,10 @@ HcclResult CollAlltoAllExecutor::Orchestrate(OpParam& param, AlgResourceResponse
 {
     HcclUs startut = TIME_NOW();
     tag_ = param.tag;
-    algRes_ = algRes;
     algResResp_ = &algRes;
     AlltoAllVParam_ = param;
 
-    HCCL_PROFILER_ADD_STREAM(param.stream.id(), param.tag, 0, algType_);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(param.stream.id(), param.tag, 0, algType_);
 
     ExecMem execMem;
     execMem.count = 0;
@@ -36,12 +35,11 @@ HcclResult CollAlltoAllExecutor::Orchestrate(OpParam& param, AlgResourceResponse
     execMem.outputPtr = param.outputPtr;
 
     HcclResult ret = HCCL_SUCCESS;
-    if (topoAttr_.userRankSize == 1 && (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE)){
-        ret = KernelRun(param, execMem);
-    }else if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+    if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         execMem.inputMem = algRes.cclInputMem;
         execMem.outputMem = algRes.cclOutputMem;
         execMem.scratchMem = algRes.scratchMem;
+
         auto opMeta = GetOpMeta(param.opType, algRes.paramInputMem.size());   // override
         CHK_RET(InitTask(dispatcher_, param.stream, opMeta.isEnableCache, opMeta.GetCacheKey()));
         bool massTasks = HasMassTasks(allMeshAggregationSendRecvInfo_);
@@ -49,7 +47,7 @@ HcclResult CollAlltoAllExecutor::Orchestrate(OpParam& param, AlgResourceResponse
             CHK_RET(SetNormalMode(dispatcher_));
         }
         ret = KernelRun(param, execMem);
-        CHK_RET(LaunchTask(dispatcher_, param.stream));
+        CHK_RET(LaunchTaskExtend(dispatcher_, param.stream, algResResp_->slaveStreams));
     } else {
         execMem.inputMem = algRes.paramInputMem;
         execMem.outputMem = algRes.paramOutputMem;
@@ -60,7 +58,7 @@ HcclResult CollAlltoAllExecutor::Orchestrate(OpParam& param, AlgResourceResponse
         HCCL_ERROR("[CollRunAlltoAllVFullMesh][Orchestrate]errNo[0x%016llx]excutor run failed",
             HCCL_ERROR_CODE(ret)), ret);
 
-    HCCL_PROFILER_DEL_STREAM(param.stream.id());
+    HCCL_PROFILER_DEL_STREAM_BY_STREAMID(param.stream.id());
 
     HCCL_INFO("tag[%s], AlltoAll executor orchestrate success, take time [%lld]us.",
         param.tag.c_str(), DURATION_US(TIME_NOW() - startut));
@@ -178,7 +176,7 @@ void CollAlltoAllExecutor::CalcIntraMeshAggregationSendInfo(const AlltoAllUserRa
                     myMeshAggregationSendRecvInfo[k].sendLength.size()) {
                     remoteOffset += myMeshAggregationSendRecvInfo[k].sendLength[j];
                 } else {
-                    HCCL_ERROR("[AlltoAllVStagedCalculator] invalid MeshAggregationSendRecvInfo size[%u]",
+                    HCCL_ERROR("[AlltoAllVStagedCalculator] invalid MeshAggregationSendRecvInfo size[%zu]",
                         myMeshAggregationSendRecvInfo.size());
                     return;
                 }
@@ -199,13 +197,13 @@ void CollAlltoAllExecutor::CalcIntraMeshAggregationRecvInfoInMeshAggregation(u32
 {
     // 这里的判断在外部已经保证了，为了应对coverity sc
     if (myMeshAggregationSendRecvInfo.size() < meshAggregationRankSize) {
-        HCCL_ERROR("[CalcIntraMeshAggregationSendInfo] Invalid myMeshAggregationSendRecvInfo[%u]",
+        HCCL_ERROR("[CalcIntraMeshAggregationSendInfo] Invalid myMeshAggregationSendRecvInfo[%zu]",
             myMeshAggregationSendRecvInfo.size());
         return;
     }
     if (myMeshAggregationSendRecvInfo[0].sendLength.size() == 0 ||
         myMeshAggregationSendRecvInfo[0].sendOffset.size() == 0) {
-        HCCL_ERROR("[CalcIntraMeshAggregationSendInfo] Invalid sendLength size[%u] or sendOffset size[%u]",
+        HCCL_ERROR("[CalcIntraMeshAggregationSendInfo] Invalid sendLength size[%zu] or sendOffset size[%zu]",
             myMeshAggregationSendRecvInfo[0].sendLength.size(), myMeshAggregationSendRecvInfo[0].sendOffset.size());
         return;
     }
@@ -273,7 +271,7 @@ void CollAlltoAllExecutor::CalcIntraMeshAggregationAlltoAllMemInfo(const AlltoAl
     sendAddrInfosIntra.clear();
     recvAddrInfosIntra.clear();
     if (allSendRecvInfo.size() != userRankInfo.userRankSize) {
-        HCCL_ERROR("Invalid All send recv info size[%u], should be[%u]", allSendRecvInfo.size(),
+        HCCL_ERROR("Invalid All send recv info size[%zu], should be[%u]", allSendRecvInfo.size(),
             userRankInfo.userRankSize);
         return;
     }
@@ -304,9 +302,16 @@ void CollAlltoAllExecutor::CalcIntraMeshAggregationAlltoAllMemInfo(const AlltoAl
 
 HcclOpMetaInfo CollAlltoAllExecutor::GetOpMeta(HcclCMDType opType, const u64 size)
 {
+    if (SatisfyIntraSuperPod(topoAttr_.deviceType, topoAttr_.userRankSize, topoAttr_.useSuperPodMode)) {
+        u64 maxUserIn = GetGlobalMaxUserInSize(allMeshAggregationSendRecvInfo_);
+        HcclOpMetaInfoDef opMeta = HcclOpMetaInfo::GetOneForAllToAllVC(CopyPattern::ZCOPY, maxUserIn,
+            maxUserIn > SMALL_SIZE_FULLMESH);
+        HCCL_DEBUG("[CollAlltoAllExecutor][GetOpMeta] alltoall fullmesh algo, maxUserIn[%llu]", maxUserIn);
+        return opMeta;
+    }
     bool hugeData = size > SDMA_SEND_MAX_SIZE;
-
     HcclOpMetaInfoDef opMeta;
+
     if (isAlltoAllZCopyMode_) {
         /* zcopy拆分4GB以上SDMA任务前，准备好子图不复用标志 */
         if (opType == HcclCMDType::HCCL_CMD_ALLTOALLV) {
@@ -349,7 +354,7 @@ bool CollAlltoAllExecutor::HasMassTasks(std::vector<SendRecvInfo> &allMeshAggreg
 
     u64 maxSendTimes = 0;
     u64 maxRecvTimes = 0;
-    const u64 cclBufferSize = algRes_.cclInputMem.size();
+    const u64 cclBufferSize = algResResp_->cclInputMem.size();
     for (auto &sendRecvInfo : allMeshAggregationSendRecvInfo) {
         u64 sendTimes = 0;
         u64 recvTimes = 0;
@@ -364,8 +369,8 @@ bool CollAlltoAllExecutor::HasMassTasks(std::vector<SendRecvInfo> &allMeshAggreg
     const u64 maxTasksPerStep = 10;  // BCOPY中每次和远端通信最多消耗task数
     const u64 maxTasksBaseCost = 50; // BCOPY中除每步和远端通信外，最多消耗的task数
     u64 maxTasks = (maxSendTimes + maxRecvTimes) * maxTasksPerStep + maxTasksBaseCost;
-    HCCL_DEBUG("[AlltoAllV] bcopy maxSendTimes[%lu], maxRecvTimes[%lu], maxTasks[%lu], hasMassTask[%u]", maxSendTimes,
-        maxRecvTimes, maxTasks, (maxTasks > massThreshold));
+    HCCL_DEBUG("[AlltoAllV] bcopy maxSendTimes[%llu], maxRecvTimes[%llu], maxTasks[%llu], hasMassTask[%u]",
+        maxSendTimes, maxRecvTimes, maxTasks, (maxTasks > massThreshold));
     return (maxTasks > massThreshold);
 }
 

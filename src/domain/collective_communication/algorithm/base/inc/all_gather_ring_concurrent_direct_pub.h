@@ -33,7 +33,7 @@ public:
 protected:
 private:
     HcclResult CheckParameters(const u32 rank, const u32 rankSize, const std::vector<LINK> &links);
-    HcclResult MemcpyByOneRank();
+    HcclResult OneRankMemcpy();
     HcclResult GetInitializedNeighborLinks(const u32 rank, const u32 rankSize, const std::vector<LINK> &links);
     HcclResult SetSlices(const u32 rank, const u32 rankSize);
     HcclResult RunInitStep(const u32 rank, const u32 rankSize);

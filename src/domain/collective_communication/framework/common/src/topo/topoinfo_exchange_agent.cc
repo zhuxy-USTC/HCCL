@@ -43,8 +43,6 @@ HcclResult TopoInfoExchangeAgent::Setup()
         serverIP_.GetReadableAddress(), serverPort_);
 
     CHK_RET(DetectClusterTopoInfo(socket_, clusterTopoInfo_));
-    
-    CHK_RET(SaveClusterInfo(clusterTopoInfo_));
 
     CHK_RET(VerifyClusterInfo(clusterTopoInfo_));
 
@@ -81,7 +79,13 @@ HcclResult TopoInfoExchangeAgent::DetectClusterTopoInfo(
     CHK_RET(RecvClusterInfo(socket, clusterTopoInfo));
     HCCL_INFO("topo exchange client get rank basic info success.");
 
+    // 按照rankId排序
+    std::vector<RankInfo_t> &rankList = clusterTopoInfo_.rankList;
+    sort(rankList.begin(), rankList.end(), [](const RankInfo_t &a, const RankInfo_t &b) {
+        return a.rankId < b.rankId; });
+
     CHK_RET(SetServerIdx(clusterTopoInfo));
+    CHK_RET(SetSuperPodIdx(clusterTopoInfo));
     return HCCL_SUCCESS;
 }
 
@@ -114,6 +118,31 @@ HcclResult TopoInfoExchangeAgent::SetServerIdx(RankTable_t &clusterInfo) const
                 clusterInfo.rankList[j].serverIdx = serverIdx;
             }
         }
+    }
+    return HCCL_SUCCESS;
+}
+
+HcclResult TopoInfoExchangeAgent::SetSuperPodIdx(RankTable_t &clusterInfo) const
+{
+    std::map<std::string, u32> spodIdToIdx;
+    for (u32 i = 0; i < clusterInfo.rankList.size(); ++i) {
+        RankInfo_t& rankInfo = clusterInfo.rankList[i];
+        if (spodIdToIdx.find(rankInfo.superPodId) == spodIdToIdx.end()) {
+            rankInfo.superPodIdx = spodIdToIdx.size();
+            spodIdToIdx.insert({rankInfo.superPodId, rankInfo.superPodIdx});
+        } else if (spodIdToIdx[rankInfo.superPodId] + 1 == spodIdToIdx.size()) {
+            rankInfo.superPodIdx = spodIdToIdx[rankInfo.superPodId];
+        } else {
+            u32 preIndex = (i > 0) ? i - 1 : i;
+            RankInfo_t& preRankInfo = clusterInfo.rankList[preIndex];
+            // 不支持超节点内rank id不连续
+            HCCL_ERROR("SetSuperPodIdx fail, rank in superPodId is not continuous, pre: rank[%u] superPodId[%s], "\
+                "cur: rank[%u] superPodId[%s], ", preRankInfo.rankId, preRankInfo.superPodId.c_str(),
+                rankInfo.rankId, rankInfo.superPodId.c_str());
+            return HCCL_E_PARA;
+        }
+        HCCL_DEBUG("SetSuperPodIdx rankList[%u]: rankId[%u], superPodId[%s], superPodIdx[%u], sdid[%u]",
+            i, rankInfo.rankId, rankInfo.superPodId.c_str(), rankInfo.superPodIdx, rankInfo.superDeviceId);
     }
     return HCCL_SUCCESS;
 }
@@ -172,6 +201,7 @@ HcclResult TopoInfoExchangeAgent::GetConnection(HcclIpAddress &serverIp, u32 por
             HCCL_INFO("TopoInfoExchangeAgent get socket success.");
             std::string agentID;
             if (isByMasterInfo_) {
+                agentID = localRankInfo_.superPodId + "/";
                 GenerateAgentID(localRankInfo_, agentID);
             } else {
                 std::string rankID = std::to_string(localRankInfo_.rank);
@@ -231,6 +261,7 @@ void TopoInfoExchangeAgent::GenerateAgentID(HcclBasicRankInfo &localRankInfo, st
     CHK_PRT_RET(devID.size() > DEVICE_LOGIC_ID_LENGTH, HCCL_ERROR("deviceLogicID[%s] is invalid", devID.c_str()),);
     // device id转换为4位十进制数字，左对齐补零
     agentID.append(std::string((DEVICE_LOGIC_ID_LENGTH - devID.size()), '0') + devID);
+    HCCL_INFO("GenerateAgentID agentID[%s]", agentID.c_str());
     return;
 }
 
@@ -291,7 +322,7 @@ void TopoInfoExchangeAgent::ConstructRankTableServerId(std::string &serverId)
 {
     serverId = localRankInfo_.hostIP.GetReadableIP();
     // 配置逻辑超节点时, serverId要根据逻辑超节点划分
-    if (localRankInfo_.deviceType == DevType::DEV_TYPE_910_73 && GetExternalInputLogicSuperPodId().empty() == false) {
+    if (localRankInfo_.deviceType == DevType::DEV_TYPE_910_93 && GetExternalInputLogicSuperPodId().empty() == false) {
         serverId += "_" + GetExternalInputLogicSuperPodId();
     }
     HCCL_INFO("ConstructRankTableServerId serverId %s", serverId.c_str());
@@ -331,9 +362,8 @@ HcclResult TopoInfoExchangeAgent::VerifyClusterInfo(const RankTable_t &clusterIn
         HCCL_ERROR("[Verify][ClusterInfo]rank num[%u] is different with rank list size[%zu] in total topo rank "\
         "info.", localRankInfo_.rankSize, clusterInfo.rankList.size()), HCCL_E_PARA);
 
-    CHK_PRT_RET((clusterInfo.rankNum != localRankInfo_.rankSize), HCCL_ERROR("[Verify][ClusterInfo]rank num[%u] "\
-        "is different with rank num[%u] in total topo rank info.", localRankInfo_.rankSize, clusterInfo.rankNum),
-        HCCL_E_PARA);
+    CHK_PRT_RET((clusterInfo.rankNum != localRankInfo_.rankSize), HCCL_ERROR("[Verify][ClusterInfo]rank num[%u] is "\
+        "different with rank num[%u] in total topo rank info.", localRankInfo_.rankSize, clusterInfo.rankNum), HCCL_E_PARA);
 
     CHK_PRT_RET((clusterInfo.serverList.size() != clusterInfo.serverNum), HCCL_ERROR("[Verify][ClusterInfo]server "\
         "num[%u] is different with server list size[%zu] in total topo rank info.", clusterInfo.serverNum,
@@ -360,8 +390,7 @@ HcclResult TopoInfoExchangeAgent::VerifyClusterInfo(const RankTable_t &clusterIn
     }
 
     CHK_PRT_RET((clusterInfo.serverNum != serverMap.size()), HCCL_ERROR("[Verify][ClusterInfo]server num[%u] is "\
-        "different with server num[%u] in total topo rank info.", clusterInfo.serverNum, serverMap.size()),
-        HCCL_E_PARA);
+        "different with server num[%u] in total topo rank info.", clusterInfo.serverNum, serverMap.size()), HCCL_E_PARA);
 
     uint32_t deviceNumInServer = 0;
     for (auto &server : serverMap) {
@@ -373,12 +402,15 @@ HcclResult TopoInfoExchangeAgent::VerifyClusterInfo(const RankTable_t &clusterIn
         }
         deviceNumInServer = server.second.size();
         HcclResult ret = VerifyServerDevicePhysicID(server.second);
-        CHK_PRT_RET(ret != HCCL_SUCCESS,
-            HCCL_ERROR("[Verify][ClusterInfo]server id[%s] verify device physic id failed.",
+        CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Verify][ClusterInfo]server id[%s] verify device physic id failed.",
             server.first.c_str()), HCCL_E_PARA);
     }
 
-    if (clusterInfo.serverNum > 1) {
+    bool useSuperPodMode = false;
+    CHK_RET(IsSuperPodMode(useSuperPodMode));
+    bool isSinglePodInterHccs = clusterInfo.superPodNum == 1 && GetExternalInputInterHccsDisable() == false && useSuperPodMode;
+    // 单超节点，并且节点间走HCCS场景，不校验ip family
+    if (clusterInfo.serverNum > 1 && !isSinglePodInterHccs) {
         CHK_RET(CheckRankIpFamily(clusterInfo.rankList));
     }
 

@@ -21,8 +21,7 @@ CollRunAlltoAllVFullMesh::CollRunAlltoAllVFullMesh(const HcclDispatcher dispatch
 
 HcclResult CollRunAlltoAllVFullMesh::CalcStreamNum(u32& streamNum)
 {
-    if (NAFullmeshSatisfyHighPerfAlltoallMeshCondition(topoAttr_.deviceType, topoAttr_.userRankSize,
-        topoAttr_.useSuperPodMode)) {
+    if (SatisfyIntraSuperPod(topoAttr_.deviceType, topoAttr_.userRankSize, topoAttr_.useSuperPodMode)) {
         streamNum = topoAttr_.userRankSize - 1;
     } else {
         streamNum = 0;
@@ -65,14 +64,14 @@ HcclResult CollRunAlltoAllVFullMesh::CalAlltoAllFullMeshCommInfo(TransportMemTyp
     // 将网卡初始化判断，提到上层调用，减少无必要的循环依赖。
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         // level0 - level1 全连接通信域
-        CalcLevel0CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport);
+        CHK_RET(CalcLevel0CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport));
         // level2 层通信域
-        CalcLevel2CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport);
+        CHK_RET(CalcLevel2CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport));
     } else {
         // level0 - level1 全连接通信域
-        CalcLevel0CommInfo(TransportMemType::PARAM_INPUT, TransportMemType::PARAM_OUTPUT, opTransport);
+        CHK_RET(CalcLevel0CommInfo(TransportMemType::PARAM_INPUT, TransportMemType::PARAM_OUTPUT, opTransport));
         // level2 层通信域
-        CalcLevel2CommInfo(TransportMemType::PARAM_INPUT, TransportMemType::PARAM_OUTPUT, opTransport);
+        CHK_RET(CalcLevel2CommInfo(TransportMemType::PARAM_INPUT, TransportMemType::PARAM_OUTPUT, opTransport));
     }
     return HCCL_SUCCESS;
 }
@@ -82,7 +81,7 @@ HcclResult CollRunAlltoAllVFullMesh::CalcCommInfo(std::vector<LevelNSubCommTrans
     TransportMemType inputType = TransportMemType::RESERVED;
     TransportMemType outputType = TransportMemType::RESERVED;
 
-    CalAlltoAllFullMeshCommInfo(inputType, outputType, opTransport);
+    CHK_RET(CalAlltoAllFullMeshCommInfo(inputType, outputType, opTransport));
     return HCCL_SUCCESS;
 }
 
@@ -94,26 +93,28 @@ HcclResult CollRunAlltoAllVFullMesh::KernelRun(const OpParam &param, ExecMem &ex
 
     // 构造入参
     AlltoAllVBufferInfo sendInfo;
-    sendInfo.mem = opbaseCopyMode ? execMem.inputMem : algRes_.paramInputMem;
+    sendInfo.mem = opbaseCopyMode ? execMem.inputMem : algResResp_->paramInputMem;
     sendInfo.counts = &allMeshAggregationSendRecvInfo_[topoAttr_.userRank].sendCounts[0];
     sendInfo.displs = &allMeshAggregationSendRecvInfo_[topoAttr_.userRank].sendDispls[0];
     sendInfo.dataType = param.All2AllDataDes.sendType;
 
     AlltoAllVBufferInfo recvInfo;
-    recvInfo.mem = opbaseCopyMode ? execMem.outputMem : algRes_.paramOutputMem;
+    recvInfo.mem = opbaseCopyMode ? execMem.outputMem : algResResp_->paramOutputMem;
     recvInfo.counts = &allMeshAggregationSendRecvInfo_[topoAttr_.userRank].recvCounts[0];
     recvInfo.displs = &allMeshAggregationSendRecvInfo_[topoAttr_.userRank].recvDispls[0];
     recvInfo.dataType = param.All2AllDataDes.recvType;
 
     CHK_RET(CheckCommSize(COMM_COMBINE_ORDER, COMM_INDEX_0 + 1));
     SubCommInfo outerCommInfo = GetSubCommInfo(COMM_COMBINE_ORDER, COMM_INDEX_0);
-
-    if (NAFullmeshSatisfyHighPerfAlltoallMeshCondition(topoAttr_.deviceType, topoAttr_.userRankSize,
-        topoAttr_.useSuperPodMode)) {
+    bool usePairwiseAlgorithm =
+        GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[0] == HcclAlgoType::HCCL_ALGO_TYPE_NA &&
+        GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[1] == HcclAlgoType::HCCL_ALGO_TYPE_PAIRWISE;
+    if (SatisfyIntraSuperPod(topoAttr_.deviceType, topoAttr_.userRankSize,
+        topoAttr_.useSuperPodMode) && !usePairwiseAlgorithm) {
         HCCL_INFO("[CollRunAlltoAllVFullMesh] one level read only algo");
 
         if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
-            ActiveSlaveStreams(param.stream);
+            CHK_RET(ActiveSlaveStreams(param.stream));
         }
         CHK_RET(AddSubStreamToProfiling());
 
@@ -131,11 +132,12 @@ HcclResult CollRunAlltoAllVFullMesh::KernelRun(const OpParam &param, ExecMem &ex
         CalcIntraMeshAggregationAlltoAllMemInfo(userRankInfo, allMeshAggregationSendRecvInfo_, sendAddrInfosIntra,
             recvAddrInfosIntra, topoAttr_.userRankSize, true);
         if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
-            CHK_RET(alltoallReadOnly->Prepare(algRes_.paramInputMem, algRes_.paramOutputMem, execMem.inputMem,
+            CHK_RET(alltoallReadOnly->Prepare(algResResp_->paramInputMem, algResResp_->paramOutputMem, execMem.inputMem,
                 execMem.outputMem, sendAddrInfosIntra, recvAddrInfosIntra, workflowMode_));
         } else {
-            CHK_RET(alltoallReadOnly->Prepare(algRes_.paramInputMem, algRes_.paramOutputMem, algRes_.paramInputMem,
-                algRes_.paramOutputMem, sendAddrInfosIntra, recvAddrInfosIntra, workflowMode_));
+            CHK_RET(alltoallReadOnly->Prepare(algResResp_->paramInputMem, algResResp_->paramOutputMem,
+                algResResp_->paramInputMem, algResResp_->paramOutputMem, sendAddrInfosIntra,
+                recvAddrInfosIntra, workflowMode_));
         }
         CHK_RET(alltoallReadOnly->RunAsync());
         return HCCL_SUCCESS;
@@ -164,15 +166,15 @@ HcclResult CollRunAlltoAllVFullMesh::KernelRun(const OpParam &param, ExecMem &ex
         pairWisePtr.reset(new (std::nothrow)AlltoAllVPairWise(dispatcher_, rankSendDisplsMap, rankRecvDisplsMap,
             HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE));
         CHK_SMART_PTR_NULL(pairWisePtr);
-        DeviceMem dstMem = execMem.inputMem.range(0, algRes_.paramInputMem.size());
-        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, algRes_.paramInputMem, const_cast<Stream&>(param.stream)));
+        DeviceMem dstMem = execMem.inputMem.range(0, algResResp_->paramInputMem.size());
+        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, algResResp_->paramInputMem, const_cast<Stream&>(param.stream)));
 
         CHK_RET(pairWisePtr->Prepare(sendInfo, recvInfo, execMem.inputMem, execMem.outputMem,
             isAlltoAllZCopyMode_, const_cast<Stream&>(param.stream)));
         CHK_RET(RunAlltoAllTemplate(pairWisePtr, outerCommInfo)); // inputMem_ -> outputMem_
 
-        DeviceMem srcMem = execMem.outputMem.range(0, algRes_.paramOutputMem.size());
-        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, algRes_.paramOutputMem, srcMem, const_cast<Stream&>(param.stream)));
+        DeviceMem srcMem = execMem.outputMem.range(0, algResResp_->paramOutputMem.size());
+        CHK_RET(HcclD2DMemcpyAsync(dispatcher_, algResResp_->paramOutputMem, srcMem, const_cast<Stream&>(param.stream)));
     } else if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
         pairWisePtr.reset(new (std::nothrow)AlltoAllVPairWise(dispatcher_, rankSendDisplsMap, rankRecvDisplsMap,
             HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB));

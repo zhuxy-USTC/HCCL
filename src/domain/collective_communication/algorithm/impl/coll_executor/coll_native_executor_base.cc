@@ -26,6 +26,7 @@ void CollNativeExecutorBase::ParseParam(const OpParam& param)
     tag_ = param.tag;
     root_ = param.root;
     aicpuUnfoldMode_ = param.aicpuUnfoldMode;
+    opType_ = param.opType;
 }
 
 // ----------------------资源计算接口----------------------
@@ -88,6 +89,13 @@ HcclResult CollNativeExecutorBase::GetIfNeedAivBuffer(bool &needAivBuffer)
     return HCCL_SUCCESS;
 }
 
+HcclResult CollNativeExecutorBase::CheckIfAllowAHC()
+{
+    // 非 AllReduce 场景不允许使用 AHC 算法
+    HCCL_ERROR("[CollNativeExecutorBase][CheckIfAllowAHC]Only support AHC in AllReduce.");
+    return HCCL_E_PARA;
+}
+
 HcclResult CollNativeExecutorBase::CalcCommInfo(std::vector<LevelNSubCommTransport>& opTransport)
 {
     return HCCL_SUCCESS;
@@ -104,9 +112,15 @@ HcclResult CollNativeExecutorBase::CalcLevel1CommInfo(TransportMemType inputType
     TransportMemType outputType,
     std::vector<LevelNSubCommTransport>& opTransport)
 {
-    HCCL_INFO("[CollNativeExecutorBase][CalcInnerCommInfo]tag[%s]start", tag_.c_str());
+    HCCL_INFO("[CollNativeExecutorBase][CalcInnerCommInfo]tag[%s] start", tag_.c_str());
+    u32 root = root_;
+    if (opType_ == HcclCMDType::HCCL_CMD_BROADCAST && topoAttr_.devNumInLevel2 > 1) {
+        root = topoMatcher_->GetSubRootWithSuperPod(topoAttr_.userRank, root_);
+        HCCL_DEBUG("[CollNativeExecutorBase][CalcInnerCommInfo]tag[%s] subroot is %u usrRank is %u root_ is %u",
+            tag_.c_str(), root, topoAttr_.userRank, root_);
+    }
+        CommParaInfo commParaLevel1(COMM_LEVEL1, CommType::COMM_TAG_MAX, root);
 
-    CommParaInfo commParaLevel1(COMM_LEVEL1, CommType::COMM_TAG_MAX, root_);
     if (UseInterServerRingAlgo(algType_)) {
         commParaLevel1.commType = CommType::COMM_TAG_RING_INNER;
         HCCL_INFO("[CollNativeExecutorBase][CalcInnerCommInfo]tag[%s] Calc RingCommInfo", tag_.c_str());
@@ -116,6 +130,14 @@ HcclResult CollNativeExecutorBase::CalcLevel1CommInfo(TransportMemType inputType
     } else if (UseInterServerNHRV1Algo(algType_)) {
         commParaLevel1.commType = CommType::COMM_TAG_NONUNIFORM_HIERARCHICAL_RING_V1;
         HCCL_INFO("[CollNativeExecutorBase][CalcInnerCommInfo]tag[%s] Calc NHRV1CommInfo", tag_.c_str());
+    } else if (UseInterServerAHCAlgo(algType_)) {
+        CHK_RET(CheckIfAllowAHC());
+        commParaLevel1.commType = CommType::COMM_TAG_ASYMMETRIC_HIERARCHICAL_CONCATENATE;
+        HCCL_INFO("[CollNativeExecutorBase][CalcInnerCommInfo]tag[%s] Calc AHCCommInfo", tag_.c_str());
+    } else if (UseInterServerAHCBrokeAlgo(algType_)) {
+        CHK_RET(CheckIfAllowAHC());
+        commParaLevel1.commType = CommType::COMM_TAG_ASYMMETRIC_HIERARCHICAL_CONCATENATE_BROKE;
+        HCCL_INFO("[CollNativeExecutorBase][CalcInnerCommInfo]tag[%s] Calc AHCBrokeCommInfo", tag_.c_str());
     } else if (UseInterServerNBAlgo(algType_)) {
         commParaLevel1.commType = CommType::COMM_TAG_NONUNIFORM_BRUCK;
         HCCL_INFO("[CollNativeExecutorBase][CalcInnerCommInfo]tag[%s] Calc NBCommInfo", tag_.c_str());
@@ -204,17 +226,16 @@ HcclResult CollNativeExecutorBase::AddSubStreamToProfiling()
 
     for (u32 streamIndex = 0; streamIndex < algResResp_->slaveStreams.size(); streamIndex++) {
         // profiling加入从环的stream
-        HCCL_PROFILER_ADD_STREAM(algResResp_->slaveStreams[streamIndex].id(), tag_, streamIndex + 1, algType_);
+        HCCL_PROFILER_ADD_STREAM_BY_STREAMID(algResResp_->slaveStreams[streamIndex].id(), tag_, streamIndex + 1, algType_);
     }
     return HCCL_SUCCESS;
 }
-
 
 HcclResult CollNativeExecutorBase::CheckCommSize(const CommPlane levelIndex, const u32 expectedSize)
 {
     if (algResResp_->opTransportResponse[levelIndex].size() < expectedSize) {
         HCCL_ERROR("[CollNativeExecutorBase][CheckCommSize]tag[%s], levelIndex[%u], " \
-            "ring size[%u] is less than expected[%u]",
+            "ring size[%zu] is less than expected[%u]",
             tag_.c_str(), levelIndex, algResResp_->opTransportResponse[levelIndex].size(), expectedSize);
         return HCCL_E_INTERNAL;
     }

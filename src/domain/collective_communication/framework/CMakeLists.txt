@@ -15,7 +15,10 @@ set(hccl_include_list
     ${HCCL_BASE_DIR}/algorithm/base/executor
     ${HCCL_BASE_DIR}/algorithm/base/executor/component/inc
     ${HCCL_BASE_DIR}/algorithm/base/communicator
+    ${HCCL_BASE_DIR}/algorithm/base/communicator/legacy
     ${HCCL_BASE_DIR}/algorithm/impl
+    ${HCCL_BASE_DIR}/algorithm/impl/legacy
+    ${HCCL_BASE_DIR}/algorithm/impl/inc
     ${HCCL_BASE_DIR}/algorithm/impl/task
     ${HCCL_BASE_DIR}/algorithm/impl/resource_manager
     ${HCCL_BASE_DIR}/algorithm/impl/operator

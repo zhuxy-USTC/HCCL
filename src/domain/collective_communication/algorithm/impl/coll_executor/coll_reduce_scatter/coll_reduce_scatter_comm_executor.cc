@@ -23,11 +23,9 @@ void CollReduceScatterCommExecutor::ParseParam(const OpParam& param)
 {
     tag_ = param.tag;
 
-    // 是否需要scratch memory
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        (topoAttr_.deviceType == DevType::DEV_TYPE_910B || topoAttr_.deviceType == DevType::DEV_TYPE_910_73) &&
-        IsSupportSDMAReduce(param.inputPtr, param.outputPtr, param.DataDes.dataType, param.reduceType) &&
-        IsSupportRDMAReduce(param.DataDes.dataType, param.reduceType)) {
+        (topoAttr_.deviceType == DevType::DEV_TYPE_910B || topoAttr_.deviceType == DevType::DEV_TYPE_910_93) &&
+        isSupportSDMAReduce_ && IsSupportRDMAReduce(param.DataDes.dataType, param.reduceType)) {
         scratchMemFlag_ = false;
     } else {
         scratchMemFlag_ = true;
@@ -50,7 +48,7 @@ HcclResult CollReduceScatterCommExecutor::CalcScratchMemSize(u64& scratchMemSize
         scratchMemSize = 0U;
     }
 
-    HCCL_INFO("[CollReduceScatterCommExecutor][CalcScratchMemSize] tag[%s] scratchMemSize[%u]",
+    HCCL_INFO("[CollReduceScatterCommExecutor][CalcScratchMemSize] tag[%s] scratchMemSize[%llu]",
         tag_.c_str(), scratchMemSize);
     return HCCL_SUCCESS;
 }

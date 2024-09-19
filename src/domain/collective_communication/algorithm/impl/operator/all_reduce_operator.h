@@ -24,7 +24,8 @@ enum class HcclDataCountType {
 
 class AllReduceOperator : public CollAlgOperator {
 public:
-    AllReduceOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
+    AllReduceOperator(AlgConfigurator* algConfigurator, CCLBufferManager &cclBufferManager,
+        HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~AllReduceOperator();
     HcclResult SelectAlg(const std::string& tag, const OpParam& param, std::string& algName, std::string& newTag);
     HcclResult GetAllReduceScratchSize(const u32 count, const HcclDataType dataType, u64 &scratchSize);
@@ -40,7 +41,13 @@ private:
 
     HcclResult SelectAlgfor910B(const OpParam& param, std::string& algName);
 
-    HcclResult SelectAlgfor91073(const OpParam& param, std::string& algName);
+    HcclResult SelectAlgfor91093(const OpParam& param, std::string& algName);
+
+    HcclResult SelectAlgforAHC();
+
+    HcclResult AHCAlgSelect(CommPlane ahcSubGroupLevel);
+
+    HcclResult PrepareAHCSubGroups(AlgTypeLevel1 &algType, CommPlane algLevel);
 
     HcclResult MeshTopoSelector(std::string& algName, u64 unitSize);
 

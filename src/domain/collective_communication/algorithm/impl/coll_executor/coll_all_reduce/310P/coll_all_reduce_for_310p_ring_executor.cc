@@ -45,7 +45,7 @@ HcclResult CollAllReduceFor310PRingExecutor::CalcLevel0CommInfo(TransportMemType
     TransportMemType outputType,
     std::vector<LevelNSubCommTransport>& opTransport)
 {
-    HCCL_INFO("[CollAllReduceFor310PRingExecutor][CalcOuterCommInfo]tag[%s ]start", tag_.c_str());
+    HCCL_INFO("[CollAllReduceFor310PRingExecutor][CalcOuterCommInfo]tag[%s] start", tag_.c_str());
 
     if (algType_ == AlgType::ALG_NP_HD) {
         CommParaInfo commParaInfo(COMM_LEVEL0, CommType::COMM_TAG_HALVING_DOUBLING);

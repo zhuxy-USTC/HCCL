@@ -35,7 +35,8 @@ struct PreProcessMetaInfo {
 
 class CollAlgOperator {
 public:
-    CollAlgOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher, HcclCMDType opType);
+    CollAlgOperator(AlgConfigurator* algConfigurator, CCLBufferManager &cclBufferManager,
+                    HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher, HcclCMDType opType);
     virtual ~CollAlgOperator() = default;
 
     virtual HcclResult SelectAlg(const std::string& tag,
@@ -48,28 +49,22 @@ public:
     HcclResult CalcIncreLinkRequest(const std::string& algName, const OpParam& param,
         AlgResourceRequest& resourceRequest);
     AlgType GetAlgType();
-
-    HcclResult RunExecutor(std::unique_ptr<CommBase> &commCombine, std::unique_ptr<ExecutorBase> &executor,
-                              DeviceMem &inputMem, DeviceMem &outputMem, u64 count, HcclDataType dataType,
-                              HcclReduceOp op, u32 root, Stream &stream) const;
-    bool Is2U2PInfer();
-    bool Is910BSingleMesh();
-    bool NeedCreateSingleMeshPlane(const bool isInlineReduce);
-    bool SingleMeshInlineReduce(void *inputPtr, void *outputPtr, HcclDataType dataType, HcclReduceOp op);
-    bool IsMultiMeshInlineReduce(void *inputPtr, void *outputPtr, HcclDataType dataType, HcclReduceOp op);
-
+    void SetLegacyHcclImpl(std::unique_ptr<hcclImpl> &hcclImpl);
 protected:
     std::string GenerateNewTagByAlgTypeLevel1(std::string tag, std::string algTypeLevel1Tag) const;
+    u32 CalcContextNumForPipeline(HcclCMDType hcclCMDType);
     HcclResult  AutoSelectAlgTypeLevel1(HcclCMDType hcclCMDType, u64 countSize, u64 cclBufferSize,
                                         std::string &algTypeLevel1Tag, bool isInlineReduce = false,
                                         bool isRdmaReduce = false, bool isAivMode = false);
-
-    bool Is310P3Common()
-    {
-        return !isHaveCpuRank_ && !Is310PDevice() && deviceType_ == DevType::DEV_TYPE_310P3;
-    }
-
-    virtual HcclResult SetExecutorAttr();
+    bool SingleMeshInlineReduce(void *inputPtr, void *outputPtr, HcclDataType dataType, HcclReduceOp op);
+    bool Is2U2PInfer();
+    bool IsMultiMeshInlineReduce(void *inputPtr, void *outputPtr, HcclDataType dataType, HcclReduceOp op);
+    bool Is910BSingleMesh();
+    bool NeedCreateSingleMeshPlane(const bool isInlineReduce);
+    HcclResult RunExecutor(std::unique_ptr<CommBase> &commCombine, std::unique_ptr<ExecutorBase> &executor,
+                              DeviceMem &inputMem, DeviceMem &outputMem, u64 count, HcclDataType dataType,
+                              HcclReduceOp op, u32 root, Stream &stream) const;
+    virtual HcclResult SetExecutorAttr(const OpParam& param);
 
     AlgType algType_;    // 算法类型
     TopoType topoType_;
@@ -81,7 +76,6 @@ protected:
 
     AlgConfigurator* algConfigurator_ = nullptr;
     CCLBufferManager &cclBufferManager_;
-    const std::unique_ptr<NotifyPool> &notifyPool_;
 
     u32 serverNum_;
     u32 moduleNum_;
@@ -105,11 +99,10 @@ protected:
     DevType deviceType_;
     std::vector<u32> nicList_;
     std::unordered_map<u32, u32> pairLinkCounter_; // server内所有device间的链路类型计数
-    std::vector<RankInfo> &rankInfoList_; // world group内rank的信息, 按照rank id递增依次排列
-    std::unique_ptr<hcclImpl> &hcclImpl_;
+    hcclImpl* hcclImpl_ = nullptr;
     std::unique_ptr<CollExecutorBase> executor_;
+    HcclDispatcher dispatcher_;
     std::unique_ptr<TopoMatcher> &topoMatcher_;
-    HcclDispatcher dispatcher_; // dispatcher放到最后析构
     HcclWorkflowMode workflowMode_;
 private:
     virtual HcclResult SelectAlgoTypeForReduceScatter(float delay, u64 recvCurSize, float bandWidth,
@@ -130,8 +123,8 @@ private:
         AlgTypeLevel1 &algType);
     HcclResult GetDefaultAlgoLevel1V2(HcclCMDType hcclCMDType, u64 curSize, u64 cclBufferSize,
         AlgTypeLevel1 &algType, bool isInlineReduce = false, bool isRdmaReduce = false, bool isAivMode = false);
-    void SetAlgoAttr();
-    void SetTopoAttr();
+    void SetAlgoAttr(AlgConfigurator* algConfigurator);
+    void SetTopoAttr(AlgConfigurator* algConfigurator);
 
     std::map<HcclCMDType, std::function<HcclResult(float, u64, float, AlgTypeLevel1 &)>> selectFuncMap_ = {
         {HcclCMDType::HCCL_CMD_REDUCE_SCATTER,

@@ -20,7 +20,7 @@
 #include "stream_pub.h"
 
 namespace hccl {
-constexpr u64 MAX_SUBSTREAM_NUM = 16; // 最多支持申请的substream数量
+constexpr u64 MAX_SUBSTREAM_NUM = 32; // 最多支持申请的substream数量
 
 class OpBaseStreamManager {
 public:

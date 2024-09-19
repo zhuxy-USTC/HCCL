@@ -12,8 +12,8 @@
 #define COLL_ALLTOALL_COMM_EXECUTOR_H
 #include "coll_comm_executor.h"
 namespace hccl {
-constexpr u64 TINY_MEM_SIZE = 2 * 1024 * 1024; // tinyMem size
 constexpr u32 MINORS_NUM_TWO = 2;
+constexpr u64 SMALL_SIZE_FULLMESH = 262144;
 
 class CollAlltoAllExecutor : public CollNativeExecutorBase {
 public:
@@ -40,7 +40,7 @@ public:
 protected:
     /* *************** 算法编排 *************** */
     // 公共接口
-    HcclOpMetaInfo GetOpMeta(HcclCMDType opType, const u64 size);
+    virtual HcclOpMetaInfo GetOpMeta(HcclCMDType opType, const u64 size);
     void UpdateAlltoAllZCopyMode(std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo);
     void CalcIntraMeshAggregationAlltoAllMemInfo(const AlltoAllUserRankInfo &userRankInfo,
         const std::vector<SendRecvInfo> &allSendRecvInfo,
@@ -61,8 +61,8 @@ protected:
     bool HasMassTasks(std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo);
 
     OpParam AlltoAllVParam_;
-    AlgResourceResponse algRes_;
     std::vector<SendRecvInfo> allMeshAggregationSendRecvInfo_;
+    SendRecvInfo localSendRecvInfo_;
     bool isAlltoAllZCopyMode_ = false;
 
     HcclDispatcher vDispatcher_;

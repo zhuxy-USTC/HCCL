@@ -13,8 +13,9 @@
 #include "executor_impl.h"
 
 namespace hccl {
-SendOperator::SendOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher)
-    : CollAlgOperator(algConfigurator, pImpl, topoMatcher, HcclCMDType::HCCL_CMD_SEND)
+SendOperator::SendOperator(AlgConfigurator* algConfigurator, CCLBufferManager &cclBufferManager,
+    HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAlgOperator(algConfigurator, cclBufferManager, dispatcher, topoMatcher, HcclCMDType::HCCL_CMD_SEND)
 {
 }
 

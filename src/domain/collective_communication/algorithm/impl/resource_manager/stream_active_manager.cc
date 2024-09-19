@@ -43,9 +43,9 @@ HcclResult StreamActiveManager::Init()
 
 HcclResult StreamActiveManager::StreamActive(HcclRtStream activeStream, HcclRtStream stream)
 {
+    std::unique_lock<std::mutex> lock(streamActiveManagerMutex_);
     if (initFlag_ && streamActiveManager_.count(activeStream) == 0) {
         CHK_RET(hrtStreamActive(activeStream, stream));
-        std::unique_lock<std::mutex> lock(streamActiveManagerMutex_);
         streamActiveManager_.insert(activeStream);
         lock.unlock();
         s32 activeStreamId = 0;

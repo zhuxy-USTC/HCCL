@@ -28,22 +28,24 @@ struct EnumClassHash
     }
 };
 
-using CollAlgOpCreator = std::function<CollAlgOperator *(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &, std::unique_ptr<TopoMatcher> &)>;
+using CollAlgOpCreator = std::function<CollAlgOperator *(AlgConfigurator* algConfigurator, CCLBufferManager &,
+    HcclDispatcher, std::unique_ptr<TopoMatcher> &)>;
 
 template <typename P> static CollAlgOperator *DefaultOpCreator(AlgConfigurator* algConfigurator,
-                                                               std::unique_ptr<hcclImpl> &pImpl,
+                                                               CCLBufferManager &cclBufferManager,
+                                                               HcclDispatcher dispatcher,
                                                                std::unique_ptr<TopoMatcher> &topoMatcher)
 {
     static_assert(std::is_base_of<CollAlgOperator, P>::value, "CollAlgOp type must derived from Hccl::CollAlgOperator");
-    return new (std::nothrow) P(algConfigurator, pImpl, topoMatcher);
+    return new (std::nothrow) P(algConfigurator, cclBufferManager, dispatcher, topoMatcher);
 }
 
 class CollAlgOpRegistry {
 public:
-    static CollAlgOpRegistry *Instance();
+    static CollAlgOpRegistry &Instance();
     HcclResult Register(const HcclCMDType &opType, const CollAlgOpCreator &collAlgOpCreator);
     std::unique_ptr<CollAlgOperator> GetAlgOp(const HcclCMDType &opType, AlgConfigurator* algConfigurator,
-        std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
+        CCLBufferManager &cclBufferManager, HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
 
 private:
     std::unordered_map<HcclCMDType, const CollAlgOpCreator, EnumClassHash> opCreators_;
@@ -52,7 +54,7 @@ private:
 
 #define REGISTER_OP_HELPER(ctr, type, name, collOpBase)       \
     static HcclResult g_func_##name##_##ctr             \
-        = CollAlgOpRegistry::Instance()->Register(type, DefaultOpCreator<collOpBase>)
+        = CollAlgOpRegistry::Instance().Register(type, DefaultOpCreator<collOpBase>)
 
 #define REGISTER_OP_HELPER_1(ctr, type, name, collOpBase) REGISTER_OP_HELPER(ctr, type, name, collOpBase)
 

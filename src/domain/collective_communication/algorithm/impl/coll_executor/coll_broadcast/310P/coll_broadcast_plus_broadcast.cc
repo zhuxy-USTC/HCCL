@@ -32,7 +32,7 @@ HcclResult CollBroadcastPlusBroadcast::CalcCommInfo(std::vector<LevelNSubCommTra
 HcclResult CollBroadcastPlusBroadcast::CalcLevel0CommInfo(TransportMemType inputType,
     TransportMemType outputType, std::vector<LevelNSubCommTransport>& opTransport)
 {
-    HCCL_INFO("[CollBroadcastPlusBroadcast][CalcOuterCommInfo]tag[%s ]start", tag_.c_str());
+    HCCL_INFO("[CollBroadcastPlusBroadcast][CalcOuterCommInfo]tag[%s] start", tag_.c_str());
     CommParaInfo commParaLevel0(COMM_LEVEL0, CommType::COMM_TAG_MESH);
     CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel0, opTransport[COMM_LEVEL0], inputType, outputType));
     HCCL_INFO("[CollBroadcastPlusBroadcast][CalcOuterCommInfo]tag[%s] Calc MeshComm finish", tag_.c_str());

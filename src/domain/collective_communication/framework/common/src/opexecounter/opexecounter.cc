@@ -37,6 +37,21 @@ HcclResult OpExeCounter::InitCounter()
     if (refCount_ <= 0) {
         refCount_ = 0;
         int32_t defCount = 0;
+        if (headCountMem_ != nullptr) {
+            CHK_PRT(hrtFree(headCountMem_));
+            HCCL_WARNING("headCountMem_ should be nullptr");
+            headCountMem_ = nullptr;
+        }
+        if (tailCountMem_ != nullptr) {
+            CHK_PRT(hrtFree(tailCountMem_));
+            HCCL_WARNING("tailCountMem_ should be nullptr");
+            tailCountMem_ = nullptr;
+        }
+        if (addOneMem_ != nullptr) {
+            CHK_PRT(hrtFree(addOneMem_));
+            HCCL_WARNING("addOneMem_ should be nullptr");
+            addOneMem_ = nullptr;
+        }
         CHK_RET(hrtMalloc(&headCountMem_, sizeof(int32_t)));
         CHK_PTR_NULL(headCountMem_);
         CHK_RET(hrtMemSyncCopy(headCountMem_, sizeof(int32_t), &defCount,
@@ -61,7 +76,8 @@ HcclResult OpExeCounter::InitCounter()
 }
 
 OpExeCounter::~OpExeCounter()
-{}
+{
+}
 
 HcclResult OpExeCounter::DeInitCounter()
 {
@@ -72,17 +88,18 @@ HcclResult OpExeCounter::DeInitCounter()
     refCount_--;
     if (refCount_ == 0) {
         if (headCountMem_ != nullptr) {
-            CHK_RET(hrtFree(headCountMem_));
+            CHK_PRT(hrtFree(headCountMem_));
             headCountMem_ = nullptr;
         }
         if (tailCountMem_ != nullptr) {
-            CHK_RET(hrtFree(tailCountMem_));
+            CHK_PRT(hrtFree(tailCountMem_));
             tailCountMem_ = nullptr;
         }
         if (addOneMem_ != nullptr) {
-            CHK_RET(hrtFree(addOneMem_));
+            CHK_PRT(hrtFree(addOneMem_));
             addOneMem_ = nullptr;
         }
+        isNeedOpCounter_= false;
         HCCL_RUN_INFO("free counter mem resource");
     }
     return HCCL_SUCCESS;

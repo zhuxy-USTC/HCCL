@@ -21,7 +21,11 @@ target_include_directories(hccl_alg PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/base/executor
     ${CMAKE_CURRENT_SOURCE_DIR}/base/executor/component/inc
     ${CMAKE_CURRENT_SOURCE_DIR}/base/communicator
+    ${CMAKE_CURRENT_SOURCE_DIR}/base/communicator/legacy
     ${CMAKE_CURRENT_SOURCE_DIR}/impl
+    ${CMAKE_CURRENT_SOURCE_DIR}/impl/inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/impl/legacy
+    ${CMAKE_CURRENT_SOURCE_DIR}/impl/legacy/operator
     ${CMAKE_CURRENT_SOURCE_DIR}/impl/resource_manager
     ${CMAKE_CURRENT_SOURCE_DIR}/impl/task
     ${CMAKE_CURRENT_SOURCE_DIR}/impl/operator

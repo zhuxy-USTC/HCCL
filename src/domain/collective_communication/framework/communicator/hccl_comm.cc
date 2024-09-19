@@ -227,6 +227,13 @@ HcclResult hcclComm::GetAlgType(AlgType &algType, HcclCMDType opType)
     return communicator_->GetAlgType(algType, opType);
 }
 
+void hcclComm::PrintSubmittedOpCnt(const std::string &tag, HcclResult ret)
+{
+    u32 index = 0;
+    ProfilerBase::GetSubmittedOpCnt(index);
+    HCCL_ERROR("[HcclComm][%s]errNo[0x%016llx] index[%u]", tag.c_str(), ret, index);
+}
+
 HcclResult hcclComm::AllGather(const std::string &tag, void *inputPtr, void *outputPtr, u64 inputCount,
                                HcclDataType dataType, HcclRtStream stream, HcomCollOpInfo *opInfo)
 {
@@ -244,7 +251,11 @@ HcclResult hcclComm::AllGather(const std::string &tag, void *inputPtr, void *out
 
     CHK_RET(communicator_->CheckCount(inputCount));
     CHK_RET(communicator_->CheckDataType(dataType, false));
-    CHK_RET(communicator_->AllGather(tag, inputPtr, outputPtr, inputCount, dataType, stream, opInfo));
+    HcclResult ret = communicator_->AllGather(tag, inputPtr, outputPtr, inputCount, dataType, stream, opInfo);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -257,7 +268,11 @@ HcclResult hcclComm::AllGatherOutPlace(const std::string &tag, void *inputPtr, v
 
     /* * 入参检查 */
     CHK_RET(communicator_->CheckDataType(dataType, false));
-    CHK_RET(communicator_->AllGatherOutPlace(tag, inputPtr, outputPtr, inputCount, dataType, stream));
+    HcclResult ret = communicator_->AllGatherOutPlace(tag, inputPtr, outputPtr, inputCount, dataType, stream);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -282,7 +297,11 @@ HcclResult hcclComm::AllReduce(const std::string &tag, void *inputPtr, void *out
     CHK_RET(communicator_->CheckDataType(dataType, true));
     CHK_RET(communicator_->CheckReduceDataType(dataType, op));
     CHK_RET(communicator_->CheckReductionOp(op));
-    CHK_RET(communicator_->AllReduce(tag, inputPtr, outputPtr, count, dataType, op, stream, syncMode));
+    HcclResult ret = communicator_->AllReduce(tag, inputPtr, outputPtr, count, dataType, op, stream, syncMode);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -298,7 +317,11 @@ HcclResult hcclComm::AllReduceOutPlace(const std::string &tag, void *inputPtr, v
     /* * 入参检查 */
     CHK_RET(communicator_->CheckDataType(dataType, true));
     CHK_RET(communicator_->CheckReduceDataType(dataType, op));
-    CHK_RET(communicator_->AllReduceOutPlace(tag, inputPtr, outputPtr, count, dataType, op, stream, syncMode));
+    HcclResult ret = communicator_->AllReduceOutPlace(tag, inputPtr, outputPtr, count, dataType, op, stream, syncMode);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -321,8 +344,12 @@ HcclResult hcclComm::AlltoAllV(const void *sendBuf, const void *sendCounts, cons
 
     CHK_RET(communicator_->CheckDataType(recvType, false));
 
-    CHK_RET(communicator_->AlltoAllV(sendBuf, sendCounts, sdispls, sendType, recvBuf, recvCounts, rdispls, recvType,
-        stream, tag));
+    HcclResult ret = communicator_->AlltoAllV(sendBuf, sendCounts, sdispls, sendType, recvBuf, recvCounts, rdispls, recvType,
+        stream, tag);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -335,8 +362,12 @@ HcclResult hcclComm::AlltoAllVOutPlace(const void *sendBuf, const void *sendCoun
     CHK_RET(communicator_->CheckDataType(sendType, false));
     CHK_RET(communicator_->CheckDataType(recvType, false));
 
-    CHK_RET(communicator_->AlltoAllVOutPlace(
-        sendBuf, sendCounts, sdispls, sendType, recvBuf, recvCounts, rdispls, recvType, stream, tag));
+    HcclResult ret = communicator_->AlltoAllVOutPlace(
+        sendBuf, sendCounts, sdispls, sendType, recvBuf, recvCounts, rdispls, recvType, stream, tag);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -355,7 +386,11 @@ HcclResult hcclComm::AlltoAllVC(const void *sendBuf, const void *sendCountMatrix
 
     CHK_RET(communicator_->CheckDataType(recvType, false));
 
-    CHK_RET(communicator_->AlltoAllVC(sendBuf, sendCountMatrix, sendType, recvBuf, recvType, stream, tag));
+    HcclResult ret = communicator_->AlltoAllVC(sendBuf, sendCountMatrix, sendType, recvBuf, recvType, stream, tag);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -367,7 +402,12 @@ HcclResult hcclComm::AlltoAllVCOutPlace(const void *sendBuf, const void *sendCou
     CHK_RET(communicator_->CheckDataType(sendType, false));
     CHK_RET(communicator_->CheckDataType(recvType, false));
 
-    CHK_RET(communicator_->AlltoAllVCOutPlace(sendBuf, sendCountMatrix, sendType, recvBuf, recvType, stream, tag));
+    HcclResult ret = communicator_->AlltoAllVCOutPlace(sendBuf, sendCountMatrix, sendType, recvBuf, recvType, stream, tag);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
+
     return HCCL_SUCCESS;
 }
 
@@ -384,7 +424,11 @@ HcclResult hcclComm::AlltoAll(const void *sendBuf, u64 sendCount, HcclDataType s
 
     CHK_RET(communicator_->CheckDataType(recvType, false));
 
-    CHK_RET(communicator_->AlltoAll(sendBuf, sendCount, sendType, recvBuf, recvCount, recvType, stream, tag));
+    HcclResult ret = communicator_->AlltoAll(sendBuf, sendCount, sendType, recvBuf, recvCount, recvType, stream, tag);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -411,7 +455,11 @@ HcclResult hcclComm::Broadcast(const std::string &tag, void *ptr, u64 count, Hcc
     CHK_RET(communicator_->CheckCount(count));
     CHK_RET(communicator_->CheckDataType(dataType, false));
     CHK_RET(communicator_->CheckUserRank(root));
-    CHK_RET(communicator_->Broadcast(tag, ptr, count, dataType, root, stream));
+    HcclResult ret = communicator_->Broadcast(tag, ptr, count, dataType, root, stream);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -426,7 +474,11 @@ HcclResult hcclComm::BroadcastOutPlace(const std::string &tag, void *ptr, u64 co
     /* * 入参检查 */
     CHK_RET(communicator_->CheckDataType(dataType, false));
     CHK_RET(communicator_->CheckUserRank(root));
-    CHK_RET(communicator_->BroadcastOutPlace(tag, ptr, count, dataType, root, stream));
+    HcclResult ret = communicator_->BroadcastOutPlace(tag, ptr, count, dataType, root, stream);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -447,7 +499,11 @@ HcclResult hcclComm::ScatterOutPlace(const std::string &tag, void *inputPtr, voi
     CHK_RET(communicator_->CheckCount(recvCount));
     CHK_RET(communicator_->CheckDataType(dataType, false));
     CHK_RET(communicator_->CheckUserRank(root));
-    CHK_RET(communicator_->ScatterOutPlace(tag, inputPtr, outputPtr, recvCount, dataType, root, stream));
+    HcclResult ret = communicator_->ScatterOutPlace(tag, inputPtr, outputPtr, recvCount, dataType, root, stream);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -475,7 +531,11 @@ HcclResult hcclComm::ReduceScatter(const std::string &tag, void *inputPtr, void 
     CHK_RET(communicator_->CheckDataType(dataType, true));
     CHK_RET(communicator_->CheckReduceDataType(dataType, op));
     CHK_RET(communicator_->CheckReductionOp(op));
-    CHK_RET(communicator_->ReduceScatter(tag, inputPtr, outputPtr, count, dataType, op, stream));
+    HcclResult ret = communicator_->ReduceScatter(tag, inputPtr, outputPtr, count, dataType, op, stream);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -490,7 +550,11 @@ HcclResult hcclComm::ReduceScatterOutPlace(const std::string &tag, void *inputPt
     /* * 入参检查 */
     CHK_RET(communicator_->CheckDataType(dataType, true));
     CHK_RET(communicator_->CheckReduceDataType(dataType, op));
-    CHK_RET(communicator_->ReduceScatterOutPlace(tag, inputPtr, outputPtr, count, dataType, op, stream));
+    HcclResult ret = communicator_->ReduceScatterOutPlace(tag, inputPtr, outputPtr, count, dataType, op, stream);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -519,7 +583,11 @@ HcclResult hcclComm::Reduce(const std::string &tag, void *inputPtr, void *output
     CHK_RET(communicator_->CheckReduceDataType(dataType, op));
     CHK_RET(communicator_->CheckReductionOp(op));
     CHK_RET(communicator_->CheckUserRank(root));
-    CHK_RET(communicator_->Reduce(tag, inputPtr, outputPtr, count, dataType, op, root, stream));
+    HcclResult ret = communicator_->Reduce(tag, inputPtr, outputPtr, count, dataType, op, root, stream);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -536,15 +604,23 @@ HcclResult hcclComm::ReduceOutPlace(const std::string &tag, void *inputPtr, void
     CHK_RET(communicator_->CheckDataType(dataType, true));
     CHK_RET(communicator_->CheckReduceDataType(dataType, op));
     CHK_RET(communicator_->CheckUserRank(root));
-    CHK_RET(communicator_->ReduceOutPlace(tag, inputPtr, outputPtr, count, dataType, op, root, stream));
+    HcclResult ret = communicator_->ReduceOutPlace(tag, inputPtr, outputPtr, count, dataType, op, root, stream);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
 
-HcclResult hcclComm::ProcessSendRecvTasks(const std::string &tag, std::vector<struct HcclSendRecvItemDef*> &orderedList,
-    u32 itemNum, u32 startIndex, rtStream_t stream)
+HcclResult hcclComm::BatchSendRecv(const std::string &tag, struct HcclSendRecvItemDef* sendRecvItemsPtr,
+    u32 itemNum, rtStream_t stream)
 {
-    CHK_RET(communicator_->ProcessSendRecvTasks(tag, orderedList, itemNum, startIndex, stream));
+    HcclResult ret = communicator_->BatchSendRecv(tag, sendRecvItemsPtr, itemNum, stream);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -568,7 +644,11 @@ HcclResult hcclComm::send(const std::string &tag, void *inputPtr, u64 count, Hcc
     CHK_RET(communicator_->CheckCount(count));
     CHK_RET(communicator_->CheckDataType(dataType, false));
     CHK_RET(communicator_->CheckUserRank(destRank));
-    CHK_RET(communicator_->Send(tag, inputPtr, count, dataType, destRank, stream));
+    HcclResult ret = communicator_->Send(tag, inputPtr, count, dataType, destRank, stream);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -583,7 +663,11 @@ HcclResult hcclComm::SendOutPlace(const std::string &tag, void *inputPtr, u64 co
     /* 入参检查 */
     CHK_RET(communicator_->CheckDataType(dataType, false));
     CHK_RET(communicator_->CheckUserRank(destRank));
-    CHK_RET(communicator_->SendOutPlace(tag, inputPtr, count, dataType, destRank, stream));
+    HcclResult ret = communicator_->SendOutPlace(tag, inputPtr, count, dataType, destRank, stream);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -598,7 +682,11 @@ HcclResult hcclComm::ReceiveOutPlace(const std::string &tag, void *outputPtr, u6
     /* * 入参检查 */
     CHK_RET(communicator_->CheckDataType(dataType, false));
     CHK_RET(communicator_->CheckUserRank(srcRank));
-    CHK_RET(communicator_->ReceiveOutPlace(tag, outputPtr, count, dataType, srcRank, stream));
+    HcclResult ret = communicator_->ReceiveOutPlace(tag, outputPtr, count, dataType, srcRank, stream);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -619,7 +707,11 @@ HcclResult hcclComm::receive(const std::string &tag, void *outputPtr, u64 count,
     CHK_RET(communicator_->CheckCount(count));
     CHK_RET(communicator_->CheckDataType(dataType, false));
     CHK_RET(communicator_->CheckUserRank(srcRank));
-    CHK_RET(communicator_->Receive(tag, outputPtr, count, dataType, srcRank, stream));
+    HcclResult ret = communicator_->Receive(tag, outputPtr, count, dataType, srcRank, stream);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -850,6 +942,12 @@ HcclResult hcclComm::SetGlobalWorkSpace(std::vector<void *> &globalWorkSpaceAddr
     return HCCL_SUCCESS;
 }
 
+HcclResult hcclComm::SetAttachedStream(const std::vector<rtStream_t> &streams)
+{
+    CHK_RET(communicator_->SetAttachedStream(streams));
+    return HCCL_SUCCESS;
+}
+
 HcclResult hcclComm::GetandClearOverFlowTasks(std::vector<HcclDumpInfo> &hcclDumpInfo)
 {
     CHK_RET(communicator_->GetandClearOverFlowTasks(hcclDumpInfo));
@@ -911,7 +1009,11 @@ HcclResult hcclComm::Gather(const std::string &tag, void *inputPtr, void *output
 
     CHK_RET(communicator_->CheckCount(inputCount));
     CHK_RET(communicator_->CheckDataType(dataType, false));
-    CHK_RET(communicator_->Gather(tag, inputPtr, outputPtr, rootRank, inputCount, dataType, stream));
+    HcclResult ret = communicator_->Gather(tag, inputPtr, outputPtr, rootRank, inputCount, dataType, stream);
+    if (ret != HCCL_SUCCESS) {
+        PrintSubmittedOpCnt(tag, ret);
+        return ret;
+    }
 
     return HCCL_SUCCESS;
 }
@@ -1002,6 +1104,26 @@ u64 hcclComm::GetConfigInCCLbufferSize()
 u64 hcclComm::GetConfigOutCCLbufferSize()
 {
     return outCCLbufferSize_;
+}
+
+u32 hcclComm::GetRankTableCrc()
+{
+    return communicator_->GetRankTableCrc();
+}
+
+HcclResult hcclComm::GetCommParams(HcclCommParams &params)
+{
+    CHK_RET(communicator_->GetCommParams(params));
+    params.deviceType = deviceType_;
+    params.isHeterogComm = isHeterogComm_;
+    params.identifier = identifier_;
+    return HCCL_SUCCESS;
+}
+
+HcclResult hcclComm::GetCommRankTable(RankTable_t &rankTable)
+{
+    CHK_RET(communicator_->GetCommRankTable(rankTable));
+    return HCCL_SUCCESS;
 }
 
 HcclResult hcclComm::RegistTaskAbortHandler() const

@@ -123,7 +123,6 @@ void WorkspaceResourceImpl::DestroyWorkspaceResource(const std::string &tag)
     }
     
     // 销毁 work space stream资源
-    // 疑问：为什么有这个判断？
     if (static_cast<s32>(devicePhyId_) != HOST_DEVICE_ID) {
         ret = offloadStreamManager_.ClearSlaves(tag);
         if (ret != HCCL_SUCCESS) {
@@ -140,7 +139,6 @@ void WorkspaceResourceImpl::DestroyWorkspaceResource()
     workSpaceMem_.DestroyMemResource();
 
     // 销毁 work space stream资源
-    // 疑问：为什么有这个判断？
     if (static_cast<s32>(devicePhyId_) != HOST_DEVICE_ID) {
         offloadStreamManager_.ClearSlaves();
     }
@@ -177,7 +175,6 @@ bool WorkspaceResourceImpl::IsExistResourceWorkSpaceMem(const std::string &tag)
     return workSpaceMem_.IsExist(tag);
 }
 
-// 这个接口为什么叫这个名字，以及为什么作这个判断，没梳理清楚
 HcclResult WorkspaceResourceImpl::GetDevMemSize(const std::string &tag)
 {
     auto interIter = opBaseDeviceMemMap_.find(tag);
@@ -191,8 +188,10 @@ HcclResult WorkspaceResourceImpl::GetDevMemSize(const std::string &tag)
 
 HcclResult WorkspaceResourceImpl::InsertDevMem(const std::string &tag, DeviceMem &deviceMem)
 {
+    std::unique_lock<std::mutex> lock(memResMutex_);
     opBaseDeviceMemMap_.erase(tag);
     opBaseDeviceMemMap_.insert(std::pair<std::string, DeviceMem>(tag, std::move(deviceMem)));
+    lock.unlock();
     return HCCL_SUCCESS;
 }
 

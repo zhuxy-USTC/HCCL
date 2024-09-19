@@ -34,7 +34,7 @@ HcclResult CollScatterExecutor::CalcCommInfo(std::vector<LevelNSubCommTransport>
 
 HcclResult CollScatterExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_INPUT;
     } else {
@@ -144,10 +144,6 @@ HcclResult CollScatterExecutor::RunLoopInner(OpParam &param, ExecMem &execMem, A
         }
     }
 
-    /* 记录指令信息用于一致性校验 */
-    CHK_RET(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_SCATTER, tag_.c_str(),
-        execMem.count, dataType, root, algRes.cclInputMem.size(), algRes.cclOutputMem.size()));
-
     /* 入参的正确性由HCCL确保 */
     HcclResult ret = KernelRun(param, execMem);
 
@@ -157,8 +153,6 @@ HcclResult CollScatterExecutor::RunLoopInner(OpParam &param, ExecMem &execMem, A
             HCCL_ERROR_CODE(ret), tag_.c_str(), algRes.cclInputMem.ptr(), algRes.cclOutputMem.ptr(),
             recvSize, dataType, root),
         ret);
-
-    CHK_RET(RankConsistent::GetInstance().DelOpPara(tag_));
 
     // 将 CCLOut 上的数据搬运到 userOut
     srcMem = algRes.cclOutputMem.range(0, recvSize);
@@ -189,7 +183,7 @@ HcclResult CollScatterExecutor::ReorderSlice(std::vector<Slice> &dataSlice, std:
     std::vector<Slice> tempDataSegsSlice(dataSlice.size());
     for (size_t i = 0; i < dataSlice.size(); i++) {
         CHK_PRT_RET(order[i] >= dataSlice.size(),
-            HCCL_ERROR("[ReorderSlice] order value [%zu] >=  dataSlice size [%zu]", order[i], dataSlice.size()),
+            HCCL_ERROR("[ReorderSlice] order value [%u] >=  dataSlice size [%zu]", order[i], dataSlice.size()),
             HCCL_E_INTERNAL);
         tempDataSegsSlice[i] = dataSlice[order[i]];
     }
@@ -206,12 +200,12 @@ HcclResult CollScatterExecutor::KernelRunInner(DeviceMem& inputMem, u64 count, H
     u32 subCommSize = subCommInfo.localRankSize;
 
     if (subCommSize <= 1 || subRoot != topoAttr_.userRank) {
-        HCCL_INFO("[ScatterRing][KernelRunInner]: no need to run intra-server, subCommSize[%u], subRoot[%u]," \
+        HCCL_INFO("[Scatter][KernelRunInner]: no need to run intra-server, subCommSize[%u], subRoot[%u]," \
             "userRank[%u]", subCommSize, subRoot, topoAttr_.userRank);
         return HCCL_SUCCESS;
     }
 
-    HCCL_INFO("[ScatterRing][KernelRunInner]: start to run intra-server, subCommSize[%u], subRoot[%u]," \
+    HCCL_INFO("[Scatter][KernelRunInner]: start to run intra-server, subCommSize[%u], subRoot[%u]," \
         "userRank[%u]", subCommSize, subRoot, topoAttr_.userRank);
 
     u32 rootRankInner = 0;
@@ -221,24 +215,18 @@ HcclResult CollScatterExecutor::KernelRunInner(DeviceMem& inputMem, u64 count, H
     if (UseInterServerNBAlgo(algType_)) {
         // server间NB算法走NB
         innerExecutor.reset(new (std::nothrow) ScatterNB(dispatcher_));
-        CHK_SMART_PTR_NULL(innerExecutor);
-        HCCL_INFO("[ScatterRing][KernelRunInner]: using NB algo inter-server.");
-        // 申请临时内存作为scratch内存
-        CHK_RET(innerExecutor->Prepare(inputMem, inputMem, inputMem, count * topoAttr_.userRankSize,
-            dataType, stream, HCCL_REDUCE_RESERVED, rootRankInner, std::vector<Slice>(0)));
+        HCCL_INFO("[Scatter][KernelRunInner]: using NB algo inter-server.");
     } else if (UseInterServerNHRAlgo(algType_)) {
         innerExecutor.reset(new (std::nothrow) ScatterNHR(dispatcher_));
-        CHK_SMART_PTR_NULL(innerExecutor);
-        HCCL_INFO("[ScatterRing][KernelRunInner]: using NHR algo inter-server.");
-        CHK_RET(innerExecutor->Prepare(inputMem, inputMem, inputMem, count * topoAttr_.userRankSize,
-            dataType, stream, HCCL_REDUCE_RESERVED, rootRankInner, std::vector<Slice>(0)));
+        HCCL_INFO("[Scatter][KernelRunInner]: using NHR algo inter-server.");
     } else {
         innerExecutor.reset(new (std::nothrow) ScatterRing(dispatcher_));
-        CHK_SMART_PTR_NULL(innerExecutor);
-        HCCL_INFO("[ScatterRing][KernelRunInner]: using ring algo inter-server.");
-        CHK_RET(innerExecutor->Prepare(inputMem, inputMem, inputMem, count * topoAttr_.userRankSize,
-            dataType, stream, HCCL_REDUCE_RESERVED, rootRankInner, std::vector<Slice>(0))); // count是output的数据个数
+        HCCL_INFO("[Scatter][KernelRunInner]: using ring algo inter-server.");
     }
+
+    CHK_SMART_PTR_NULL(innerExecutor);
+    CHK_RET(innerExecutor->Prepare(inputMem, inputMem, inputMem, count * topoAttr_.userRankSize,
+        dataType, stream, HCCL_REDUCE_RESERVED, rootRankInner, std::vector<Slice>(0))); // count是output的数据个数
     CHK_RET(innerExecutor->RegisterProfiler(
         (subCommSize << PROF_RANKSIZE_OFFSET_OF_PLANEID) + subCommInfo.localRank,
         PROF_STAGE_0, HCCL_EXEC_STEP_NOT_SET, stream));
@@ -253,7 +241,10 @@ HcclResult CollScatterExecutor::Orchestrate(OpParam& param, AlgResourceResponse&
     tag_ = param.tag;
     algResResp_ = &algRes;
     HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, workflowMode_);
-    HCCL_PROFILER_ADD_STREAM(param.stream.id(), param.tag, 0, algType_);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(param.stream.id(), param.tag, 0, algType_);
+    HCCL_PROFILER_ADD_OPDATA_OP(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr, param.DataDes.dataType, \
+        param.root, algoAttr_.identifier, param.reduceType);
+    HCCL_PROFILER_ADD_GROUPRANK(algoAttr_.identifier, topoAttr_.userRankSize, topoAttr_.userRank);
     CHK_RET(AddSubStreamToProfiling());
 
     HcclResult ret = HCCL_SUCCESS;
@@ -277,8 +268,10 @@ HcclResult CollScatterExecutor::Orchestrate(OpParam& param, AlgResourceResponse&
             HCCL_ERROR_CODE(ret)), ret);
 
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
-        HCCL_PROFILER_DEL_STREAM(param.stream.id());
+        HCCL_PROFILER_DEL_STREAM_BY_STREAMID(param.stream.id());
         HCCL_PROFILER_DEL_TAG(param.tag);
+        HCCL_PROFILER_DEL_OPDATA(param.tag);
+        HCCL_PROFILER_DEL_GROUPRANK(algoAttr_.identifier);
     }
     HCCL_INFO("tag[%s] Scatter executor orchestrate success, take time [%lld]us.",
         param.tag.c_str(), DURATION_US(TIME_NOW() - startut));

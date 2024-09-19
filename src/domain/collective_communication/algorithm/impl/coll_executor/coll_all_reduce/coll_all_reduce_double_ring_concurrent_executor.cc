@@ -25,8 +25,8 @@ CollAllReduceDoubleRingConcurrentExecutor::CollAllReduceDoubleRingConcurrentExec
 HcclResult CollAllReduceDoubleRingConcurrentExecutor::CalcStreamNum(u32& streamNum)
 {
     u32 totalStreamNum = 0U;
-    // DoubleRing只支持910_73场景
-    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
+    // DoubleRing只支持910_93场景
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_DOUBLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
     } else {
         totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_DOUBLE;
@@ -133,7 +133,7 @@ HcclResult CollAllReduceDoubleRingConcurrentExecutor::KernelRun(const OpParam &p
     // 构造ring algorithm对应的reduce-scatter实例
     multi2RingsSlice = PrepareMultiRingSlice(dataSegsSlice, param.tag, false, topoAttr_.nicList);
     CHK_PRT_RET(multi2RingsSlice.size() != ringNum, HCCL_ERROR("[CollAllReduceDoubleRingConcurrentExecutor][Run]"\
-        "ringNum[%u] != multRingsSliceZero size[%llu]", ringNum, multi2RingsSlice.size()),
+        "ringNum[%u] != multRingsSliceZero size[%zu]", ringNum, multi2RingsSlice.size()),
         HCCL_E_INTERNAL);
 
     // 根据数据量计算每个环上数据的偏移和大小
@@ -149,9 +149,9 @@ HcclResult CollAllReduceDoubleRingConcurrentExecutor::KernelRun(const OpParam &p
         for (u32 segsIndex = 0; segsIndex < multi2RingsSlice[ringIndex].size(); segsIndex++) {
             auto totalSize = multi2RingsSlice[ringIndex][segsIndex].size;
             auto sdmaSliceOffset = multi2RingsSlice[ringIndex][segsIndex].offset;
-            auto sdmaSliceSize = ((totalSize <= HCCL_MIN_SLICE_ALIGN_910_73) || (syncTrans == MAX_SPLIT_VALUE)) ? 
-                totalSize : ((syncTrans * totalSize / MAX_SPLIT_VALUE) / HCCL_MIN_SLICE_ALIGN_910_73) *
-                HCCL_MIN_SLICE_ALIGN_910_73;
+            auto sdmaSliceSize = ((totalSize <= HCCL_MIN_SLICE_ALIGN_910_93) || (syncTrans == MAX_SPLIT_VALUE)) ?
+                totalSize : ((syncTrans * totalSize / MAX_SPLIT_VALUE) / HCCL_MIN_SLICE_ALIGN_910_93) *
+                HCCL_MIN_SLICE_ALIGN_910_93;
             Slice sdmaSliceTmp;
             sdmaSliceTmp.offset = sdmaSliceOffset;
             sdmaSliceTmp.size = sdmaSliceSize;
@@ -205,13 +205,13 @@ HcclResult CollAllReduceDoubleRingConcurrentExecutor::KernelRun(const OpParam &p
         innerMultSlice.resize(RDMA_PLANE_NUM_IN_NPRING_DOUBLE);
         Slice sdmaSlice;
         Slice rdmaSlice;
-        auto sdmaSliceSize = ((hdSize <= HCCL_MIN_SLICE_ALIGN_910_73) || (syncTrans == MAX_SPLIT_VALUE)) ? hdSize:
-                ((syncTrans * hdSize / MAX_SPLIT_VALUE) / HCCL_MIN_SLICE_ALIGN_910_73) * HCCL_MIN_SLICE_ALIGN_910_73;
+        auto sdmaSliceSize = ((hdSize <= HCCL_MIN_SLICE_ALIGN_910_93) || (syncTrans == MAX_SPLIT_VALUE)) ? hdSize:
+                ((syncTrans * hdSize / MAX_SPLIT_VALUE) / HCCL_MIN_SLICE_ALIGN_910_93) * HCCL_MIN_SLICE_ALIGN_910_93;
         sdmaSlice.size = sdmaSliceSize;
         sdmaSlice.offset = dataSegsSlice[segmentIdx].offset;
         rdmaSlice.size = hdSize - sdmaSlice.size;
         rdmaSlice.offset = dataSegsSlice[segmentIdx].offset + sdmaSlice.size;
-        HCCL_DEBUG("Level1 Total [offset:%u, size:%u], sdma [offset %llu, size %llu], rdma [offset %llu, size %llu], ",
+        HCCL_DEBUG("Level1 Total[offset:%llu, size:%llu], sdma[offset %llu, size %llu], rdma[offset %llu, size %llu]",
             hdSize, sdmaSlice.offset, sdmaSlice.offset, sdmaSlice.size, rdmaSlice.offset, rdmaSlice.size);
         innerMultSlice[0] = std::make_pair(true, sdmaSlice);
         innerMultSlice[1] = std::make_pair(false, rdmaSlice);

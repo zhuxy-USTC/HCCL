@@ -207,7 +207,7 @@ HcclResult HcomRegRemoteAccessMem(const MemRegisterAddr* addrList, u32 count)
 {
     HcomInfo &hcomInfo = HcomGetCtxHomInfo();
     if (hcomInfo.params.deviceType == DevType::DEV_TYPE_910B ||
-        hcomInfo.params.deviceType == DevType::DEV_TYPE_910_73) { // 910_73场景临时使用SDMA模拟RDMA
+        hcomInfo.params.deviceType == DevType::DEV_TYPE_910_93) { // 910_93场景临时使用SDMA模拟RDMA
         return HCCL_SUCCESS;
     }
 
@@ -304,7 +304,7 @@ HcclResult GetRankList(u32 rankNum, const u32 *rankIds, HcclGroupParams &params)
     CHK_RET(hcomInfo.pComm->IsStandardCard(isStandardCard));
 
     if (!isStandardCard && hcomInfo.params.deviceType != DevType::DEV_TYPE_910B &&
-        hcomInfo.params.deviceType != DevType::DEV_TYPE_910_73) {
+        hcomInfo.params.deviceType != DevType::DEV_TYPE_910_93) {
         CHK_RET(CheckRankTableConfigInfo(rankList, rankNum, serverNum));
     }
     return HCCL_SUCCESS;
@@ -924,6 +924,8 @@ HcclResult HcomDestroyOneDevice(HcomInfo &hcomInfo)
     }
 
     // group资源在word group资源销毁之前进行销毁
+    hcomInfo.params.commConnections.agentConnection = nullptr;
+    hcomInfo.params.commConnections.serverConnections.clear();
     hcomInfo.hcomGroupMap.clear();
     std::unique_lock<std::mutex> backloggedGroupLock(hcomInfo.backloggedGroupLock);
     hcomInfo.backloggedGroup.clear();
@@ -1147,7 +1149,7 @@ HcclResult HcomGenerateCommId(hccl::HcclCommParams &params)
     return HCCL_SUCCESS;
 }
 
-HcclResult InitHcomMiscInfo(const char *rankTable)
+HcclResult InitHcomMiscInfo(hccl::HcclCommParams &params, const char *rankTable)
 {
     CHK_PTR_NULL(rankTable);
 
@@ -1156,7 +1158,7 @@ HcclResult InitHcomMiscInfo(const char *rankTable)
     CHK_RET(RankConsistent::GetInstance().RecordVerInfo(curVersion));
     HcomInfo &hcomInfo = HcomGetCtxHomInfo();
     // 计算rankTable的crc值并保存
-    HcclResult ret = HcomCalcCRC(hcomInfo.params, rankTable);
+    HcclResult ret = HcomCalcCRC(params, rankTable);
     CHK_PRT_RET(ret != HCCL_SUCCESS, HCCL_ERROR("[Init][OtherInfo]errNo[0x%016llx] calc ranktable crc error",
         HCCL_ERROR_CODE(HCCL_E_INTERNAL)), HCCL_E_INTERNAL);
     // 生成通信域标识符
@@ -1177,10 +1179,29 @@ bool HcomCheckrtMemcpyAddrAsync(void)
     void *deviceMemSrc = nullptr;
     void *deviceMemDst = nullptr;
 
+     auto deleter = [&](void *dst) {
+        if (dst != nullptr) {
+            CHK_PRT(hrtFree(dst));
+            if (dst == deviceMemSrcLevel2) {
+                deviceMemSrcLevel2 = nullptr;
+            } else if (dst == deviceMemDstLevel2) {
+                deviceMemDstLevel2 = nullptr;
+            } else if (dst == deviceMemSrc) {
+                deviceMemSrc = nullptr;
+            } else if (dst == deviceMemDst) {
+                deviceMemDst = nullptr;
+            }
+        }
+    };
+
     CHK_RET(hrtMalloc(&deviceMemSrcLevel2, sizeof(void*)));
+    unique_ptr<void, decltype(deleter)> deviceMemSrcLevel2Unique(deviceMemSrcLevel2, deleter);
     CHK_RET(hrtMalloc(&deviceMemDstLevel2, sizeof(void*)));
+    unique_ptr<void, decltype(deleter)> deviceMemDstLevel2Unique(deviceMemDstLevel2, deleter);
     CHK_RET(hrtMalloc(&deviceMemSrc, sizeof(float)));
+    unique_ptr<void, decltype(deleter)> deviceMemSrcUnique(deviceMemSrc, deleter);
     CHK_RET(hrtMalloc(&deviceMemDst, sizeof(float)));
+    unique_ptr<void, decltype(deleter)> deviceMemDstUnique(deviceMemDst, deleter);
 
     CHK_RET(hrtMemSyncCopy(deviceMemDst, sizeof(float), &counterVaule,
         sizeof(float), HcclRtMemcpyKind::HCCL_RT_MEMCPY_KIND_HOST_TO_DEVICE));
@@ -1205,15 +1226,6 @@ bool HcomCheckrtMemcpyAddrAsync(void)
     } else {
         CHK_RET(hcclStreamSynchronize(stream.ptr()));
     }
-
-    CHK_RET(hrtFree(deviceMemDst));
-    deviceMemDst = nullptr;
-    CHK_RET(hrtFree(deviceMemSrc));
-    deviceMemSrc = nullptr;
-    CHK_RET(hrtFree(deviceMemDstLevel2));
-    deviceMemDstLevel2 = nullptr;
-    CHK_RET(hrtFree(deviceMemSrcLevel2));
-    deviceMemSrcLevel2 = nullptr;
 
     g_notSupportSecAddrCopyWithOffset = notSupportSecAddrCopyWithOffset;
 
@@ -1248,7 +1260,7 @@ HcclResult HcomNormalInit(const char *rankTableM, const char *identify)
     s32 logicDevId = 0;
     hcomInfo.params.commWorkMode = WorkMode::HCCL_MODE_NORMAL;
     do {
-        ret = InitHcomMiscInfo(rankTableM);
+        ret = InitHcomMiscInfo(hcomInfo.params, rankTableM);
         CHK_PRT_BREAK(ret != HCCL_SUCCESS, HCCL_ERROR("[Init][Result]errNo[0x%016llx] init other Info.",
             HCOM_ERROR_CODE(ret)), errorFlag = true);
 

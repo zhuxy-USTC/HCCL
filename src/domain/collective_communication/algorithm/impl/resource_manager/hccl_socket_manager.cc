@@ -64,7 +64,6 @@ HcclResult HcclSocketManager::ServerInit(const HcclNetDevCtx netDevCtx, u32 port
     std::shared_ptr<HcclSocket> tempSocket;
     EXECEPTION_CATCH((tempSocket = std::make_shared<HcclSocket>(
         netDevCtx, port)), return HCCL_E_PTR);
-    CHK_SMART_PTR_NULL(tempSocket);
     CHK_RET(tempSocket->Init());
 
     CHK_RET(tempSocket->Listen());
@@ -712,7 +711,6 @@ HcclResult HcclSocketManager::ConstructSockets(const std::string &commTag, bool 
         std::shared_ptr<HcclSocket> tempSocket;
         EXECEPTION_CATCH((tempSocket = std::make_shared<HcclSocket>(socketTag,
             netDevCtx, remoteIp, remotePort, localRole)), return HCCL_E_PTR);
-        CHK_SMART_PTR_NULL(tempSocket);
         CHK_RET(tempSocket->Init());
         socketList.push_back(tempSocket);
     }

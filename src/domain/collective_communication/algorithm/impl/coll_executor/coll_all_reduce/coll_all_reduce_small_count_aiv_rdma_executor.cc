@@ -94,7 +94,7 @@ HcclResult CollAllReduceSmallCountAivRdmaExecutor::Orchestrate(OpParam& param, A
 {
     HcclUs startut = TIME_NOW();
     allreduceSmallDataAivRdmaCount_ += 1;
-    HCCL_INFO("[CollAllReduceSmallCountAivRdmaExecutor][Orchestrate] AllreduceSmallCountAivRdma has been called [%d].",
+    HCCL_INFO("[CollAllReduceSmallCountAivRdmaExecutor][Orchestrate] AllreduceSmallCountAivRdma has been called [%llu].",
         allreduceSmallDataAivRdmaCount_);
     tag_ = param.tag;
     algResResp_ = &algRes;
@@ -139,7 +139,7 @@ HcclResult CollAllReduceSmallCountAivRdmaExecutor::InterServerHDOneshot(const Op
     for (u32 step = 1; step <= hdStepNum; step++) {
         u32 peerMask = 1 << (hdStepNum - step);
         u32 peer = interRankId ^ peerMask;
-        HCCL_INFO("[CollAllReduceSmallCountAivRdmaExecutor][InterServerHDOneshot] Step %llu, peer %llu.", step, peer);
+        HCCL_INFO("[CollAllReduceSmallCountAivRdmaExecutor][InterServerHDOneshot] Step %u, peer %u.", step, peer);
         if (step == 1 && interLinks[peer]->GetLinkType() == LinkType::LINK_PCIE) {
             // a+x单机，走PCIE
             void *dataBuffers[MAX_RANK_SIZE];
@@ -204,7 +204,7 @@ HcclResult CollAllReduceSmallCountAivRdmaExecutor::KernelRun(const OpParam &para
     u32 sliceNum = outerCommInfo.localRankSize;
     CHK_RET(PrepareSliceDataWithAlignSize(totalSize, sliceNum, 0, dataSegsSlice, perDataSize));
     CHK_PRT_RET(commIndex >= dataSegsSlice.size(),
-        HCCL_ERROR("[CollAllReduceMeshExecutor][Run]commIndex[%u] >= dataSegsSlice size[%llu]", commIndex,
+        HCCL_ERROR("[CollAllReduceMeshExecutor][Run]commIndex[%u] >= dataSegsSlice size[%zu]", commIndex,
         dataSegsSlice.size()), HCCL_E_INTERNAL);
     std::vector<hccl::LINK> intraLinks = outerCommInfo.links;
     std::vector<hccl::LINK> interLinks = innerCommInfo.links;

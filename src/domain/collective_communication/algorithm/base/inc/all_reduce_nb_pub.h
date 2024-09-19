@@ -29,7 +29,7 @@ public:
 protected:
     HcclResult PrepareRunAsync(const u32 rank, const u32 rankSize, const std::vector<LINK> &links) override;
 private:
-    HcclResult RunReduceScatter(u32 rank, u32 rankSize, const std::vector<LINK> &links, bool needBarrier = false);
+    HcclResult RunReduceScatter(u32 rank, u32 rankSize, const std::vector<LINK> &links);
     HcclResult RunAllGather(u32 rank, u32 rankSize, const std::vector<LINK> &links);
 
     const u64 reduceAttr_; /* 0x1:表示data_type + reduce_type支持inlinereduce  */

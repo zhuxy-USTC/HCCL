@@ -114,6 +114,7 @@ HcclResult TopoInfoExchangeDispather::PrepareResource(
         }
         fdcontext.txState.bodyLen = rankTableJson_.length();
         fdcontext.txState.data    = &rankTableJson_[0];
+        fdcontext.txState.rankId  = socketIndex;
         socketIndex++;
         HCCL_DEBUG("[TopoInfoExchangeDispather][PrepareResource]socketIndex:%u, bodyLen:%u, data:%u", socketIndex,
             fdcontext.txState.bodyLen, fdcontext.txState.data);
@@ -169,7 +170,7 @@ HcclResult TopoInfoExchangeDispather::ProcessOneSendEvent(s32 epollFd, FdHandle 
     }
     auto ctx = &(fdHandleToFdContextMap_.at(fdHanlde));
     if (ctx->txState.Send(ctx->socket) != 0) {
-        HCCL_ERROR("[TopoInfoExchangeDispather][ProcessOneSendEvent]send data failed.");
+        HCCL_ERROR("[TopoInfoExchangeDispather][ProcessOneSendEvent]send data to rank[%u] failed.", ctx->txState.rankId);
         stop_ = true;
         return HCCL_E_INTERNAL;
     }
@@ -197,7 +198,7 @@ HcclResult TopoInfoExchangeDispather::SendOnce()
     for (auto &it : fdHandleToFdContextMap_) {
         auto fdCtx = &(it.second);
         if (fdCtx->txState.Send(fdCtx->socket) != 0) {
-            HCCL_ERROR("[TopoInfoExchangeDispather][SendOnce]Send data failed.");
+            HCCL_ERROR("[TopoInfoExchangeDispather][SendOnce]Send data to rank[%u] failed.", fdCtx->txState.rankId);
             stop_ = true;
             return HCCL_E_INTERNAL;
         }

@@ -55,6 +55,7 @@ private:
     HcclResult SendClusterInfo(std::shared_ptr<HcclSocket> socket, const RankTable_t &clusterInfo);
     HcclResult RecvClusterInfo(std::shared_ptr<HcclSocket> socket, RankTable_t &clusterInfo);
     HcclResult SetServerIdx(RankTable_t &clusterInfo) const;
+    HcclResult SetSuperPodIdx(RankTable_t &clusterInfo) const;
     HcclResult GenerateLocalRankInfo(u32 rankSize, u32 rankID);
     void GenerateAgentID(HcclBasicRankInfo &localRankInfo, std::string &agentID);
     HcclResult ConstructRankTableMsg(RankTable_t &clusterInfo);

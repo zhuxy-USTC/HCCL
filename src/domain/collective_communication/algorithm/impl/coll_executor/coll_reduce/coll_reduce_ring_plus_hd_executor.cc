@@ -48,15 +48,15 @@ HcclResult CollReduceRingPlusHdExecutor::CalcCommInfo(std::vector<LevelNSubCommT
 {
     TransportMemType inputType = TransportMemType::RESERVED;
     TransportMemType outputType = TransportMemType::RESERVED;
-    CalcTransportMemType(inputType, outputType);
-    CalcLevel0CommInfo(inputType, outputType, opTransport);
-    CalcLevel1CommInfo(inputType, outputType, opTransport);
+    CHK_RET(CalcTransportMemType(inputType, outputType));
+    CHK_RET(CalcLevel0CommInfo(inputType, outputType, opTransport));
+    CHK_RET(CalcLevel1CommInfo(inputType, outputType, opTransport));
     return HCCL_SUCCESS;
 }
 
 HcclResult CollReduceRingPlusHdExecutor::CalcTransportMemType(TransportMemType &inputType, TransportMemType &outputType)
 {
-    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE || aicpuUnfoldMode_) {
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         inputType = TransportMemType::CCL_INPUT;
         outputType = TransportMemType::CCL_OUTPUT;
     } else {
@@ -72,7 +72,7 @@ HcclResult CollReduceRingPlusHdExecutor::CalcLevel0CommInfo(TransportMemType inp
     TransportMemType outputType,
     std::vector<LevelNSubCommTransport>& opTransport)
 {
-    HCCL_INFO("[CollReduceRingPlusHdExecutor][CalcOuterCommInfo]tag[%s]start", tag_.c_str());
+    HCCL_INFO("[CollReduceRingPlusHdExecutor][CalcOuterCommInfo]tag[%s] start", tag_.c_str());
     CommParaInfo commParaLevel0(COMM_LEVEL0, CommType::COMM_TAG_RING_INNER);
     CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel0, opTransport[COMM_LEVEL0], inputType, outputType));
     HCCL_INFO("[CollReduceRingPlusHdExecutor][CalcOuterCommInfo]tag[%s] Calc RingComm finish", tag_.c_str());
@@ -103,7 +103,7 @@ HcclResult CollReduceRingPlusHdExecutor::KernelRun(const OpParam &param, ExecMem
         // 构造ring algorithm对应的reduce-scatter实例
         mulRingSlice = PrepareMultiRingSlice(dataSegsSlice, tag_, false, topoAttr_.nicList);
         CHK_PRT_RET(mulRingSlice.size() != ringNum, HCCL_ERROR("[CollReduceRingPlusHdExecutor]ringNum[%u] "\
-            "!=mulRingSlice size[%llu]", ringNum, mulRingSlice.size()), HCCL_E_INTERNAL);
+            "!=mulRingSlice size[%zu]", ringNum, mulRingSlice.size()), HCCL_E_INTERNAL);
     } else {
         mulRingSlice.push_back(dataSegsSlice); // 应该offset全为0，而大小和dataSegsSlice中一样,里面的offset不使用
     }
@@ -121,7 +121,7 @@ HcclResult CollReduceRingPlusHdExecutor::KernelRun(const OpParam &param, ExecMem
 
     u64 hdCount = hdSize / perDataSize;
 
-    HCCL_DEBUG("commIdx:%u TagCommInfo[%s].commInner.size():%llu", commIndex, tag_.c_str(),
+    HCCL_DEBUG("commIdx:%u TagCommInfo[%s].commInner.size():%u", commIndex, tag_.c_str(),
         outerCommInfo.localRankSize);
 
     CHK_RET(CheckCommSize(COMM_LEVEL1, commIndex + 1));

@@ -479,6 +479,18 @@ void TopoInfoRanktableParser::GenerateServerIdx(const std::string &serverId, u32
     }
 }
 
+void TopoInfoRanktableParser::GenerateSuperPodIdx(const std::string &superPodId, u32 &superPodIdx)
+{
+    auto it = find(superPodRecord_.begin(), superPodRecord_.end(), superPodId);
+    if (it == superPodRecord_.end()) {
+        superPodIdx = superPodRecord_.size();
+        superPodRecord_.push_back(superPodId);
+    } else {
+        superPodIdx = std::distance(superPodRecord_.begin(), it);
+    }
+    HCCL_INFO("GenerateSuperPodIdx superPodId[%s], superPodIdx[%u]", superPodId.c_str(), superPodIdx);
+}
+
 HcclResult TopoInfoRanktableParser::CheckUniqueIntegerAndInsertPool(const std::string &serverId)
 {
     u32 serverIdValue = 0;

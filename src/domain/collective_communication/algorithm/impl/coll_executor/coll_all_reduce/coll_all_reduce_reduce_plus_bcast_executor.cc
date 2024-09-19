@@ -56,7 +56,7 @@ HcclResult CollAllReduceReducePlusBcastExecutor::CalcLevel0CommInfo(TransportMem
     TransportMemType outputType,
     std::vector<LevelNSubCommTransport>& opTransport)
 {
-    HCCL_INFO("[CollAllReduceReducePlusBcastExecutor][CalcOuterCommInfo]tag[%s ]start", tag_.c_str());
+    HCCL_INFO("[CollAllReduceReducePlusBcastExecutor][CalcOuterCommInfo]tag[%s] start", tag_.c_str());
     CommParaInfo commParaLevel0(COMM_LEVEL0, CommType::COMM_TAG_MESH);
     CHK_RET(CalcCommPlaneInfo(tag_, commParaLevel0, opTransport[COMM_LEVEL0], inputType, outputType));
     HCCL_INFO("[CollAllReduceReducePlusBcastExecutor][CalcOuterCommInfo]tag[%s] Calc RingComm finish",
@@ -84,8 +84,8 @@ HcclResult CollAllReduceReducePlusBcastExecutor::KernelRun(const OpParam &param,
 {
     u64 reduceAttr = GetReduceAttr(execMem.inputMem, execMem.outputMem, param.DataDes.dataType, param.reduceType);
 
-    std::unique_ptr<ExecutorBase> reduceExecutor =
-        std::make_unique<ReduceRecursiveHalvingDoubling>(dispatcher_, reduceAttr);
+    std::unique_ptr<ExecutorBase> reduceExecutor;
+    reduceExecutor.reset(new (std::nothrow) ReduceRecursiveHalvingDoubling(dispatcher_, reduceAttr));
     CHK_SMART_PTR_NULL(reduceExecutor);
 
     std::vector<u32> nicRankList{0, 1};
@@ -121,6 +121,18 @@ HcclResult CollAllReduceReducePlusBcastExecutor::KernelRun(const OpParam &param,
         } else if (UseInterServerNHRV1Algo(algType_)) {
             allreduceExecutor.reset(new (std::nothrow) AllReduceNHRV1(dispatcher_, reduceAttr));
             HCCL_INFO("allreduce recursive hd: using nhr_v1 algo inter-server.");
+        } else if (UseInterServerAHCAlgo(algType_)) {
+            // 获取通信域分组信息
+            std::vector<std::vector<u32>> subGroups;
+            CHK_RET(topoMatcher_->GetLevelSubGroups(COMM_LEVEL1, subGroups));
+            allreduceExecutor.reset(new (std::nothrow) AllReduceAHC(dispatcher_, reduceAttr, execMem.count, subGroups));
+            HCCL_INFO("allreduce recursive hd: using ahc algo inter-server.");
+        } else if (UseInterServerAHCBrokeAlgo(algType_)) {
+            // 获取通信域分组信息
+            std::vector<std::vector<u32>> subGroups;
+            CHK_RET(topoMatcher_->GetLevelSubGroups(COMM_LEVEL1, subGroups));
+            allreduceExecutor.reset(new (std::nothrow) AllReduceAHCBroke(dispatcher_, reduceAttr, execMem.count, subGroups));
+            HCCL_INFO("allreduce recursive hd: using ahc-broke algo inter-server.");
         } else if (UseInterServerNBAlgo(algType_)) {
             allreduceExecutor.reset(new (std::nothrow) AllReduceNB(dispatcher_, reduceAttr));
             HCCL_INFO("allreduce recursive hd: using nb algo inter-server.");
@@ -140,7 +152,8 @@ HcclResult CollAllReduceReducePlusBcastExecutor::KernelRun(const OpParam &param,
     }
 
     // 执行server内broadcast
-    std::unique_ptr<ExecutorBase> bcastExecutor = std::make_unique<BroadcastRing>(dispatcher_);
+    std::unique_ptr<ExecutorBase> bcastExecutor;
+    bcastExecutor.reset(new (std::nothrow) BroadcastRing(dispatcher_));
     CHK_SMART_PTR_NULL(bcastExecutor);
     CHK_RET(bcastExecutor->Prepare(execMem.outputMem, execMem.outputMem, execMem.inputMem, execMem.count,
         param.DataDes.dataType, param.stream, param.reduceType, 0));

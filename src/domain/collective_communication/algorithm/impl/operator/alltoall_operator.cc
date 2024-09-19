@@ -24,16 +24,26 @@ namespace hccl {
 
 constexpr u64 ALLTOALL_PIPELINE_MIN_CCL_SIZE = 80 * 1024 * 1024;
 
-AlltoAllOperator::AlltoAllOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl,
-    std::unique_ptr<TopoMatcher> &topoMatcher)
-    : CollAlgOperator(algConfigurator, pImpl, topoMatcher, HcclCMDType::HCCL_CMD_ALLTOALL)
+AlltoAllOperator::AlltoAllOperator(AlgConfigurator* algConfigurator, CCLBufferManager &cclBufferManager,
+    HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher)
+    : CollAlgOperator(algConfigurator, cclBufferManager, dispatcher, topoMatcher, HcclCMDType::HCCL_CMD_ALLTOALL)
 {
-    hcclImpl_->GetVirtualDispatcher(vDispatcher_);
-    hcclImpl_->GetAlltoAllStatus(tinySendRecvMem_, isAlltoAllZCopyMode_);
 }
 
 AlltoAllOperator::~AlltoAllOperator()
 {
+}
+
+void AlltoAllOperator::SetVirtualDispatcher(const HcclDispatcher vDispatcher)
+{
+    vDispatcher_ = vDispatcher;
+    return;
+}
+
+void AlltoAllOperator::SetParallelTaskLoader(ParallelTaskLoader* parallelTaskLoader)
+{
+    parallelTaskLoader_ = parallelTaskLoader;
+    return;
 }
 
 HcclResult AlltoAllOperator::CheckSendRecvParams(
@@ -192,22 +202,31 @@ HcclResult AlltoAllOperator::GetAlltoAllvSendRecvInfo(const OpParam& param, cons
 
 HcclResult AlltoAllOperator::SelectAlgforAlltoAll(const OpParam& param, std::string& algName, std::string& copyMode)
 {
+    if (IsSatisfyAlltoAllAivCondition(param)) {
+        algName = "AlltoAllMeshAivExecutor";
+        HCCL_INFO("[SelectAlgforAlltoAll] all_to_all algName is [%s]", algName.c_str());
+        return HCCL_SUCCESS; // alltoall aiv不需要后面操作，直接返回
+    }
 
     bool useOneLevelAlgorithm =
-        (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[0] == HcclAlgoType::HCCL_ALGO_TYPE_NA &&
-        (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[1] == HcclAlgoType::HCCL_ALGO_TYPE_PAIRWISE ||
-        NAFullmeshSatisfyHighPerfAlltoallMeshCondition(deviceType_, userRankSize_, useSuperPodMode_)));
+        GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[0] == HcclAlgoType::HCCL_ALGO_TYPE_NA &&
+        GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_ALLTOALL)[1] == HcclAlgoType::HCCL_ALGO_TYPE_PAIRWISE;
         // 用户配置打平 alltoall
 
     // NA+pairwise算法不支持A+X跨mesh两卡
-    bool isSingleDeviceModuleP2p = (userRankSize_ <= HCCL_ALLTOALLV_P2P_SIZE) ;
+    bool isSingleDeviceModuleP2p = (userRankSize_ <= HCCL_ALLTOALLV_P2P_SIZE);
     if (userRankSize_ == 1 && GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         algName = "RunAlltoAllSingleExecutor";
         return HCCL_SUCCESS ;
+    } else if (IsSupportDirectFullmeshFor91093(param.opType, deviceType_, devNumInLevel2_, useSuperPodMode_, serverNum_) ||
+        param.aicpuUnfoldMode) {
+        algName = "RunAlltoAllDirectFullmesh";
+        HCCL_INFO("[SelectAlgforAlltoAll] all_to_all algName is [%s]", algName.c_str());
+        return HCCL_SUCCESS;
     } else if (IsSatisfyAlltoallPipelineCondition()) {
         algName = "RunAlltoAllVTwoLevelPipeline";
-    } else if (useOneLevelAlgorithm || isAllRankSamePlane_ || isSingleDeviceModuleP2p ||
-        multiModuleDiffDeviceNumMode_) {
+    } else if (SatisfyIntraSuperPod(deviceType_, userRankSize_, useSuperPodMode_) ||
+        useOneLevelAlgorithm || isAllRankSamePlane_ || isSingleDeviceModuleP2p || multiModuleDiffDeviceNumMode_) {
         algName = "RunAlltoAllVFullMesh";
     } else {
         algName = "RunAlltoAllVStaged";
@@ -235,18 +254,28 @@ HcclResult AlltoAllOperator::SelectAlg(const std::string& tag, const OpParam& pa
 {
     HcclResult ret;
     std::string copyMode = "BCopy";
-
+    
     ret = SelectAlgforAlltoAll(param, algName, copyMode);
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[SelectAlgforAlltoAll][SelectAlg]tag[%s], Alltoall failed, return[%d]", tag.c_str(), ret), ret);
 
     if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
-        newTag = tag + algName + copyMode;
+        if (IsSupportDirectFullmeshFor91093(param.opType, deviceType_, devNumInLevel2_, useSuperPodMode_, serverNum_) ||
+            param.aicpuUnfoldMode) {
+            newTag = tag + algName;
+        } else {
+            newTag = tag + algName + copyMode;
+        }
     } else {
         newTag = tag;
     }
     HCCL_INFO("[SelectAlg] Alltoall newTag is [%s]", newTag.c_str());
-    CHK_PRT_RET(ret != HCCL_SUCCESS,
-        HCCL_ERROR("[SelectAlgforAlltoAll][SelectAlg]tag[%s], Alltoall failed, return[%d]", tag.c_str(), ret), ret);
-    CHK_RET(SetExcutorExtraInfo(algName));
+
+    if (!IsSatisfyAlltoAllAivCondition(param) &&
+        !IsSupportDirectFullmeshFor91093(param.opType, deviceType_, devNumInLevel2_, useSuperPodMode_, serverNum_) &&
+        !param.aicpuUnfoldMode) {
+        CHK_RET(SetExcutorExtraInfo(algName, param));
+    }
     return ret;
 }
 
@@ -318,7 +347,11 @@ HcclResult AlltoAllOperator::PreparePreOpParam(OpParam& preProcessOpParam,
 bool AlltoAllOperator::JudgeIfNeedPreProcessAndGetParam(const OpParam& param,
     std::unique_ptr<PreProcessMetaInfo> &preMetaInfo)
 {
-    if (param.opType == HcclCMDType::HCCL_CMD_ALLTOALLV) {
+    if (param.opType == HcclCMDType::HCCL_CMD_ALLTOALLV && !IsSatisfyAlltoAllAivCondition(param)) {
+        if (IsSupportDirectFullmeshFor91093(param.opType, deviceType_, devNumInLevel2_,
+            useSuperPodMode_, serverNum_) || param.aicpuUnfoldMode) {
+            return false;
+        }
         CHK_RET(PrepareAlltoAllAddrInfo(param.All2AllDataDes.sendCounts, param.All2AllDataDes.sdispls,
             param.All2AllDataDes.sendType, param.All2AllDataDes.recvCounts, param.All2AllDataDes.rdispls,
             param.All2AllDataDes.recvType, preMetaInfo));
@@ -333,40 +366,40 @@ void AlltoAllOperator::SetPreProcessResult(HostMem hostCollectBuffer)
     hostCollectBuffer_ = std::move(hostCollectBuffer);
 }
 
-HcclResult AlltoAllOperator::SetExcutorExtraInfo(const std::string& algName)
+HcclResult AlltoAllOperator::SetExcutorExtraInfo(const std::string& algName, const OpParam& param)
 {
     HCCL_DEBUG("[AlltoAllOperator][SetExcutorExtraInfo]algName[%s]", algName.c_str());
     if (executor_.get() == nullptr) {
-        executor_ = CollAlgExecRegistry::Instance()->GetAlgExec(algName, dispatcher_, topoMatcher_);
+        executor_ = CollAlgExecRegistry::Instance().GetAlgExec(algName, dispatcher_, topoMatcher_);
         CHK_PRT_RET(executor_.get() == nullptr,
             HCCL_ERROR("[AlltoAllOperator][CalcResRequest]Fail to find executor for algName[%s]", algName.c_str()),
             HCCL_E_PARA);
-        CHK_RET(SetExecutorAttr());
+        CHK_RET(SetExecutorAttr(param));
     }
 
     CollAlltoAllExecutor* alltoAllExecutor = dynamic_cast<CollAlltoAllExecutor *>(executor_.get());
     return alltoAllExecutor->SetExcutorExtraInfo(allMeshAggregationSendRecvInfo_);
 }
 
-HcclResult AlltoAllOperator::SetExecutorAttr()
+HcclResult AlltoAllOperator::SetExecutorAttr(const OpParam& param)
 {
     CollAlltoAllExecutor* alltoAllExecutor = dynamic_cast<CollAlltoAllExecutor *>(executor_.get());
     CHK_RET(alltoAllExecutor->SetAlgType(algType_));
     CHK_RET(alltoAllExecutor->SetVirtualDispatcher(vDispatcher_));
-    CHK_RET(alltoAllExecutor->SetCCLInBuffer(hcclImpl_->GetInCCLbufferSize()));
-    ParallelTaskLoader* parallelTaskLoader = nullptr;
-    CHK_RET(hcclImpl_->GetParallelTaskLoader(parallelTaskLoader));
-    CHK_PTR_NULL(parallelTaskLoader);
-    CHK_RET(alltoAllExecutor->SetParallelTaskLoader(parallelTaskLoader));
+    CHK_RET(alltoAllExecutor->SetCCLInBuffer(cclBufferManager_.GetInCCLbufferSize()));
+    CHK_RET(alltoAllExecutor->SetParallelTaskLoader(parallelTaskLoader_));
     return HCCL_SUCCESS;
 }
 
-HcclResult AlltoAllOperator::CheckNeedRecreateComm(const std::string& algName, u64 lastScratchMemSize,
-    bool& needRecreateAlltoallComm)
+HcclResult AlltoAllOperator::CheckNeedRecreateComm(const std::string& algName, const OpParam& param,
+    u64 lastScratchMemSize, bool& needRecreateAlltoallComm)
 {
     if (executor_.get() == nullptr) {
-        executor_ = CollAlgExecRegistry::Instance()->GetAlgExec(algName, dispatcher_, topoMatcher_);
-        CHK_RET(SetExecutorAttr());
+        executor_ = CollAlgExecRegistry::Instance().GetAlgExec(algName, dispatcher_, topoMatcher_);
+        CHK_PRT_RET(executor_.get() == nullptr,
+            HCCL_ERROR("[AlltoAllOperator][CheckNeedRecreateComm]Fail to find executor for algName[%s]",
+            algName.c_str()), HCCL_E_PARA);
+        CHK_RET(SetExecutorAttr(param));
     }
     CollAlltoAllExecutor* alltoAllExecutor = dynamic_cast<CollAlltoAllExecutor *>(executor_.get());
     CHK_RET(alltoAllExecutor->CheckNeedRecreateComm(lastScratchMemSize, needRecreateAlltoallComm));
@@ -380,7 +413,8 @@ bool AlltoAllOperator::IsSatisfyAlltoallPipelineCondition()
     bool isMultiServer = ((userRankSize_ > meshAggregationRankSize_) &&
         (userRankSize_ % meshAggregationRankSize_) == 0);
     const u32 algLevel1 = static_cast<u32>(algType_) >> HCCL_LEVEL_ALGO_WIDTH;
-    bool satisfyAlgType = (static_cast<AlgTypeLevel1>(algLevel1) == AlgTypeLevel1::ALG_LEVEL1_PIPELINE);
+    bool satisfyAlgType = (static_cast<AlgTypeLevel1>(algLevel1) == AlgTypeLevel1::ALG_LEVEL1_PIPELINE) &&
+        CalcContextNumForPipeline(HcclCMDType::HCCL_CMD_ALLTOALL) <= HCCL_FFTS_CAPACITY;
     HCCL_DEBUG("[AlltoAllOperator][IsSatisfyAlltoallPipelineCondition]multiRankPerServer %u, "
         "isMultiServer %u, satisfyAlgType, %u, multiModuleDiffDeviceNumMode_ %u", multiRankPerServer,
         isMultiServer, satisfyAlgType, multiModuleDiffDeviceNumMode_);
@@ -392,6 +426,15 @@ bool AlltoAllOperator::IsSatisfyAlltoallPipelineCondition()
             "isMultiServer is %u", cclBigEnough, multiRankPerServer, isMultiServer);
     }
     return res;
+}
+
+bool AlltoAllOperator::IsSatisfyAlltoAllAivCondition(const OpParam& param)
+{
+    bool isMeshTopo = topoType_ == TopoType::TOPO_TYPE_NP_MESH || topoType_ == TopoType::TOPO_TYPE_4P_MESH ||
+        topoType_ == TopoType::TOPO_TYPE_2P_MESH || topoType_ == TopoType::TOPO_TYPE_1P_MESH;
+
+    return deviceType_ == DevType::DEV_TYPE_910B && GetExternalInputHcclAivMode() && isSingleMeshAggregation_
+        && isMeshTopo && IsSupportAIVCopy(param.All2AllDataDes.sendType);
 }
 
 HcclResult AlltoAllOperator::GetAlltoAllStagedWorkSpaceMemSize(const OpParam& param, u64 &memSize)

@@ -12,10 +12,9 @@
 #include "device_capacity.h"
 
 namespace hccl {
-ReduceScatterOperator::ReduceScatterOperator(AlgConfigurator* algConfigurator,
-    std::unique_ptr<hcclImpl> &pImpl,
-    std::unique_ptr<TopoMatcher> &topoMatcher) :
-    CollAlgOperator(algConfigurator, pImpl, topoMatcher, HcclCMDType::HCCL_CMD_REDUCE_SCATTER)
+ReduceScatterOperator::ReduceScatterOperator(AlgConfigurator* algConfigurator, CCLBufferManager &cclBufferManager,
+    HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher) :
+    CollAlgOperator(algConfigurator, cclBufferManager, dispatcher, topoMatcher, HcclCMDType::HCCL_CMD_REDUCE_SCATTER)
 {
 }
 
@@ -26,8 +25,7 @@ ReduceScatterOperator::~ReduceScatterOperator()
 HcclResult ReduceScatterOperator::SelectAlg(const std::string& tag, const OpParam& param, std::string& algName,
     std::string& newTag)
 {
-    if (userRankSize_ == 1 && (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE ||
-        param.aicpuUnfoldMode)) { // aicpu normal
+    if (userRankSize_ == 1 && (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE)) {
         algName = "ReduceScatterSingleExecutor";
         return HCCL_SUCCESS;
     }
@@ -39,8 +37,11 @@ HcclResult ReduceScatterOperator::SelectAlg(const std::string& tag, const OpPara
     } else if (deviceType_ == DevType::DEV_TYPE_910B) {
         ret = SelectAlgfor910B(param, algName);
     } else {
-        ret = SelectAlgfor91073(param, algName);
+        ret = SelectAlgfor91093(param, algName);
     }
+    CHK_PRT_RET(ret != HCCL_SUCCESS,
+        HCCL_ERROR("[ReduceScatterSelector][SelectAlg]tag[%s], reduce_scatter fsailed, retrun[%d]",
+            tag.c_str(), ret), ret);
 
     if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OPS_KERNEL_INFO_LIB) {
         newTag = tag;
@@ -50,20 +51,19 @@ HcclResult ReduceScatterOperator::SelectAlg(const std::string& tag, const OpPara
         } else {
             AlgTypeLevel1 algType1 = GetLevel1AlgType(algType_);
             auto level1Iter = HCCL_ALGO_LEVEL1_NAME_MAP.find(algType1);
+        CHK_PRT_RET(level1Iter == HCCL_ALGO_LEVEL1_NAME_MAP.end(), HCCL_ERROR("level1: algType1[%u] is invalid.",
+            algType1), HCCL_E_INTERNAL);
             newTag = tag + level1Iter->second + algName;
         }
 
-        bool isInlineReduce =
-            IsSupportSDMAReduce(param.inputPtr, param.outputPtr, param.DataDes.dataType, param.reduceType);
+        bool isInlineReduce = IsSupportSDMAReduce(cclBufferManager_.GetInCCLbuffer().ptr(),
+            cclBufferManager_.GetOutCCLbuffer().ptr(), param.DataDes.dataType, param.reduceType);
         bool isRdmaReduce = IsSupportRDMAReduce(param.DataDes.dataType, param.reduceType);
         const std::string REDUCE_SCATTER_NO_INLINE = "_no_inline";
         newTag = (isInlineReduce && isRdmaReduce) ? newTag : newTag + REDUCE_SCATTER_NO_INLINE;
     }
 
     HCCL_INFO("[SelectAlg] reduce_scatter newTag is [%s]", newTag.c_str());
-    CHK_PRT_RET(ret != HCCL_SUCCESS,
-        HCCL_ERROR("[ReduceScatterSelector][SelectAlg]tag[%s], reduce_scatter fsailed, retrun[%d]",
-            tag.c_str(), ret), ret);
     return ret;
 }
 
@@ -94,9 +94,6 @@ HcclResult ReduceScatterOperator::SelectAlgfor910B(const OpParam& param, std::st
 {
     u32 unitSize = SIZE_TABLE[param.DataDes.dataType];
 
-    bool isInlineReduce =
-        IsSupportSDMAReduce(param.inputPtr, param.outputPtr, param.DataDes.dataType, param.reduceType);
-    bool isRdmaReduce = IsSupportRDMAReduce(param.DataDes.dataType, param.reduceType);
     bool isMeshTopo = topoType_ == TopoType::TOPO_TYPE_NP_MESH || topoType_ == TopoType::TOPO_TYPE_4P_MESH ||
         topoType_ == TopoType::TOPO_TYPE_2P_MESH || topoType_ == TopoType::TOPO_TYPE_1P_MESH;
     bool isRingTopo = topoType_ == TopoType::TOPO_TYPE_NP_SINGLE_RING;
@@ -104,6 +101,10 @@ HcclResult ReduceScatterOperator::SelectAlgfor910B(const OpParam& param, std::st
     u64 dataSize = param.DataDes.count * unitSize; // 单位：字节
     u64 cclBufferSize = cclBufferManager_.GetInCCLbufferSize() / userRankSize_;
     if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
+        bool isInlineReduce = IsSupportSDMAReduce(cclBufferManager_.GetInCCLbuffer().ptr(),
+            cclBufferManager_.GetOutCCLbuffer().ptr(), param.DataDes.dataType, param.reduceType);
+        bool isRdmaReduce = IsSupportRDMAReduce(param.DataDes.dataType, param.reduceType);
+
         std::string algTypeLevel1Tag;
         CHK_RET(AutoSelectAlgTypeLevel1(HcclCMDType::HCCL_CMD_REDUCE_SCATTER, dataSize, cclBufferSize, algTypeLevel1Tag,
             isInlineReduce, isRdmaReduce));
@@ -112,22 +113,35 @@ HcclResult ReduceScatterOperator::SelectAlgfor910B(const OpParam& param, std::st
         }
     }
 
+    // pipeline算法task数量多，如果超出FFTS子图限制，则重定向到HD算法
+    if (GetLevel1AlgType(algType_) == AlgTypeLevel1::ALG_LEVEL1_PIPELINE) {
+        u32 contextNum = CalcContextNumForPipeline(HcclCMDType::HCCL_CMD_REDUCE_SCATTER);
+        if (contextNum > HCCL_FFTS_CAPACITY) {
+            CHK_RET(SetInterServerHDAlgo(algType_));
+            HCCL_WARNING("[ReduceScatterOperator][SelectAlgfor910B] context num[%u] is out of capacity of FFTS+"
+                "graph[%u], reset algorithm to HD.", contextNum, HCCL_FFTS_CAPACITY);
+        }
+    }
+
     if (isMeshTopo) {
         if (GetWorkflowMode() == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
-            if (SingleMeshInlineReduce(param.inputPtr, param.outputPtr, param.DataDes.dataType, param.reduceType)) {
+            if (SingleMeshInlineReduce(cclBufferManager_.GetInCCLbuffer().ptr(),
+                cclBufferManager_.GetOutCCLbuffer().ptr(), param.DataDes.dataType, param.reduceType)) {
                 if (topoMatcher_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_ENABLE) {
                     algName = "ReduceScatterDeterExecutor";
                 } else {
                     algName = "ReduceScatterMeshDmaEliminationExecutor";
                 }
             } else if (topoMatcher_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_DISABLE &&
-            GetLevel1AlgType(algType_) == AlgTypeLevel1::ALG_LEVEL1_PIPELINE &&
-            IsMultiMeshInlineReduce(param.inputPtr, param.outputPtr, param.DataDes.dataType, param.reduceType)) {
+                GetLevel1AlgType(algType_) == AlgTypeLevel1::ALG_LEVEL1_PIPELINE &&
+                IsMultiMeshInlineReduce(cclBufferManager_.GetInCCLbuffer().ptr(),
+                cclBufferManager_.GetOutCCLbuffer().ptr(), param.DataDes.dataType, param.reduceType)) {
                 algName = "ReduceScatterMeshOpbasePipelineExecutor";
             }
         } else {
             if (SingleMeshInlineReduce(param.inputPtr, param.outputPtr, param.DataDes.dataType, param.reduceType)) {
-                if (topoMatcher_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_ENABLE) {
+                if (topoMatcher_->GetDeterministicConfig() == DETERMINISTIC_CONFIG_ENABLE &&
+                    deviceNumPerAggregation_ > DEVICE_TWO) {
                     algName = "ReduceScatterDeterExecutor";
                 } else {
                     algName = "ReduceScatterMeshExecutor";
@@ -146,44 +160,44 @@ HcclResult ReduceScatterOperator::SelectAlgfor910B(const OpParam& param, std::st
     return HCCL_SUCCESS;
 }
 
-HcclResult ReduceScatterOperator::SelectAlgfor91073(const OpParam& param, std::string& algName)
+HcclResult ReduceScatterOperator::SelectAlgfor91093(const OpParam& param, std::string& algName)
 {
     if (topoType_ == TopoType::TOPO_TYPE_NP_SINGLE_RING) {
-        algName = "ReduceScatterRingFor91073Executor";
+        algName = "ReduceScatterRingFor91093Executor";
     } else if (topoType_ == TopoType::TOPO_TYPE_NP_DOUBLE_RING) {
         if (GetExternalInputEnableRdmaSdmaConcurrent() && !param.aicpuUnfoldMode) {
             if (!(UseInterServerRingAlgo(algType_) || UseInterServerNBAlgo(algType_))) {
                 HcclResult ret = SetInterServerRingAlgo(algType_);
-                HCCL_WARNING("[ReduceScatterOperator][SelectAlgfor91073] env HCCL_CONCURRENT_ENABLE is set, "
+                HCCL_WARNING("[ReduceScatterOperator][SelectAlgfor91093] env HCCL_CONCURRENT_ENABLE is set, "
                     "set interserver algo to ring.");
                 CHK_PRT_RET(ret != HCCL_SUCCESS,
-                    HCCL_ERROR("[ReduceScatterOperator][SelectAlgfor91073]errNo[0x%016llx] tag[%s], ReduceScatter "
+                    HCCL_ERROR("[ReduceScatterOperator][SelectAlgfor91093]errNo[0x%016llx] tag[%s], ReduceScatter "
                     "set inter server ring algo failed", HCCL_ERROR_CODE(ret), param.tag.c_str()), ret);
             }
             algName = "ReduceScatterDoubleRingConcurrentExecutor";
         } else {
             if (GetExternalInputHcclAlgoConfig(HcclCMDType::HCCL_CMD_REDUCE_SCATTER)[HCCL_ALGO_LEVEL_0] ==
                 HcclAlgoType::HCCL_ALGO_TYPE_FAST_DOUBLE_RING) {
-                algName = "ReduceScatterFastDoubleRingFor91073Executor";
+                algName = "ReduceScatterFastDoubleRingFor91093Executor";
             } else {
-                algName = "ReduceScatterRingFor91073Executor";
+                algName = "AlignedReduceScatterDoubleRingFor91093Executor";
             }
         }
     } else {
         algName = "ReduceScatterComm";
     }
 
-    // 910_73超节点只支持server间ring,NB和NHR，默认需继续使用NHR
+    // 910_93超节点只支持server间ring,NB和NHR，默认需继续使用NHR
     if (!(UseInterServerRingAlgo(algType_) || UseInterServerNBAlgo(algType_))) {
         HcclResult ret = SetInterServerNHRAlgo(algType_);
-        HCCL_WARNING("[ReduceScatterOperator][SelectAlgfor91073] only support ring, NB and NHR in AlgoLevel1 yet, "\
+        HCCL_WARNING("[ReduceScatterOperator][SelectAlgfor91093] only support ring, NB and NHR in AlgoLevel1 yet, "\
             "default is algType=NHR.");
         CHK_PRT_RET(ret != HCCL_SUCCESS,
-            HCCL_ERROR("[ReduceScatterOperator][SelectAlgfor91073]errNo[0x%016llx] tag[%s], ReduceScatter set inter "\
+            HCCL_ERROR("[ReduceScatterOperator][SelectAlgfor91093]errNo[0x%016llx] tag[%s], ReduceScatter set inter "\
                 "server nhr algo failed", HCCL_ERROR_CODE(ret), param.tag.c_str()), ret);
     }
 
-    HCCL_INFO("[SelectAlgfor91073] reduce_scatter SelectAlgfor91073 is algName [%s]", algName.c_str());
+    HCCL_INFO("[SelectAlgfor91093] reduce_scatter SelectAlgfor91093 is algName [%s]", algName.c_str());
     return HCCL_SUCCESS;
 }
 

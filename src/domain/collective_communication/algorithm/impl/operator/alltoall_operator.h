@@ -15,7 +15,8 @@
 namespace hccl {
 class AlltoAllOperator : public CollAlgOperator {
 public:
-    AlltoAllOperator(AlgConfigurator* algConfigurator, std::unique_ptr<hcclImpl> &pImpl, std::unique_ptr<TopoMatcher> &topoMatcher);
+    AlltoAllOperator(AlgConfigurator* algConfigurator, CCLBufferManager &cclBufferManager,
+        HcclDispatcher dispatcher, std::unique_ptr<TopoMatcher> &topoMatcher);
     ~AlltoAllOperator();
 
     HcclResult GetAlltoAllStagedWorkSpaceMemSize(const OpParam& param, u64 &memSize);
@@ -38,10 +39,13 @@ public:
         Stream &preProcessStream);
     bool JudgeIfNeedPreProcessAndGetParam(const OpParam& param, std::unique_ptr<PreProcessMetaInfo> &preMetaInfo);
     void SetPreProcessResult(HostMem hostCollectBuffer);
-    HcclResult SetExcutorExtraInfo(const std::string& algName);
+    HcclResult SetExcutorExtraInfo(const std::string& algName, const OpParam& param);
 
-    virtual HcclResult CheckNeedRecreateComm(const std::string& algName, u64 lastScratchMemSize,
+    virtual HcclResult CheckNeedRecreateComm(const std::string& algName, const OpParam& param, u64 lastScratchMemSize,
         bool& needRecreateAlltoallComm);
+    void SetVirtualDispatcher(const HcclDispatcher vDispatcher);
+    void SetParallelTaskLoader(ParallelTaskLoader* parallelTaskLoader);
+    bool IsSatisfyAlltoAllAivCondition(const OpParam& param);
 
 private:
     bool IsSatisfyAlltoallPipelineCondition();
@@ -51,14 +55,13 @@ private:
         HcclDataType recvType, std::vector<SendRecvInfo> &allMeshAggregationSendRecvInfo,
         Stream &stream, const std::string &tag);
 
-    HcclResult SetExecutorAttr() override;
+    HcclResult SetExecutorAttr(const OpParam& param) override;
 
-    bool isAlltoAllZCopyMode_ = false;
     std::map<std::string, bool> isAlltoAllZCopyModeMap_;
-    DeviceMem tinySendRecvMem_; // 在sendCount/recvCount全0时, 使用tinySendRecvMem_, 避免使用空deviceMem
     HostMem hostCollectBuffer_;
     std::vector<SendRecvInfo> allMeshAggregationSendRecvInfo_;
-    HcclDispatcher vDispatcher_; // virtualDispatcher放到最后析构
+    HcclDispatcher vDispatcher_;
+    ParallelTaskLoader* parallelTaskLoader_ = nullptr;
 };
 }
 

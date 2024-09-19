@@ -25,8 +25,7 @@ void CollReduceScatterDoubleRingConcurrentExecutor::ParseParam(const OpParam& pa
     tag_ = param.tag;
 
     // 是否需要scratch memory
-    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-        IsSupportSDMAReduce(param.inputPtr, param.outputPtr, param.DataDes.dataType, param.reduceType) &&
+    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && isSupportSDMAReduce_ &&
         IsSupportRDMAReduce(param.DataDes.dataType, param.reduceType)) {
         scratchMemFlag_ = false;
     } else {
@@ -49,7 +48,7 @@ HcclResult CollReduceScatterDoubleRingConcurrentExecutor::CalcScratchMemSize(u64
     } else {
         scratchMemSize = 0U;
     }
-    HCCL_INFO("[CollReduceScatterDoubleRingConcurrentExecutor][CalcScratchMemSize] tag[%s] scratchMemSize[%u]",
+    HCCL_INFO("[CollReduceScatterDoubleRingConcurrentExecutor][CalcScratchMemSize] tag[%s] scratchMemSize[%llu]",
         tag_.c_str(), scratchMemSize);
     return HCCL_SUCCESS;
 }
@@ -57,7 +56,7 @@ HcclResult CollReduceScatterDoubleRingConcurrentExecutor::CalcScratchMemSize(u64
 HcclResult CollReduceScatterDoubleRingConcurrentExecutor::CalcStreamNum(u32& streamNum)
 {
     u32 totalStreamNum = 0U;
-    // DoubleRing只支持910_73场景
+    // DoubleRing只支持910_93场景
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
         totalStreamNum = OUTER_PLANE_NUM_IN_NPRING_DOUBLE * STREAM_NUM_FOR_DMAREDUCE_ONE_RING;
     } else {
@@ -272,8 +271,8 @@ HcclResult CollReduceScatterDoubleRingConcurrentExecutor::KernelRun(const OpPara
             dataSegsSlice, param.tag);
         bool bRet = (multiStreamSlice.size() != ringNum);
         CHK_PRT_RET(bRet,
-            HCCL_ERROR("[CollReduceScatterRingFor91073Executor][KernelRun]sliceNum-1[%u] != multiStreamSlice" \
-            "size[%llu]", sliceNum - 1, multiStreamSlice.size()), HCCL_E_INTERNAL);
+            HCCL_ERROR("[CollReduceScatterRingFor91093Executor][KernelRun]sliceNum-1[%u] != multiStreamSlice" \
+            "size[%zu]", sliceNum - 1, multiStreamSlice.size()), HCCL_E_INTERNAL);
 
         DeviceMem srcMem;
         // 每个server分配的slice大小
@@ -340,9 +339,9 @@ HcclResult CollReduceScatterDoubleRingConcurrentExecutor::KernelRun(const OpPara
         for (u32 segsIndex = 0; segsIndex < level0DataSegsSlice[ringIndex].size(); segsIndex++) {
             auto totalSize = level0DataSegsSlice[ringIndex][segsIndex].size;
             auto sdmaSliceOffset = level0DataSegsSlice[ringIndex][segsIndex].offset;
-            auto sdmaSliceSize = ((totalSize <= HCCL_MIN_SLICE_ALIGN_910_73)|| (syncTrans == MAX_SPLIT_VALUE)) ? 
-                totalSize : ((syncTrans * totalSize / MAX_SPLIT_VALUE) / HCCL_MIN_SLICE_ALIGN_910_73) *
-                HCCL_MIN_SLICE_ALIGN_910_73;
+            auto sdmaSliceSize = ((totalSize <= HCCL_MIN_SLICE_ALIGN_910_93)|| (syncTrans == MAX_SPLIT_VALUE)) ? 
+                totalSize : ((syncTrans * totalSize / MAX_SPLIT_VALUE) / HCCL_MIN_SLICE_ALIGN_910_93) *
+                HCCL_MIN_SLICE_ALIGN_910_93;
             Slice sdmaSliceTmp;
             sdmaSliceTmp.offset = sdmaSliceOffset;
             sdmaSliceTmp.size = sdmaSliceSize;
@@ -447,9 +446,9 @@ HcclResult CollReduceScatterDoubleRingConcurrentExecutor::KernelRun(const OpPara
         {
             auto totalSize = level1DataSegsSlice[segsIndex].size;
             auto sdmaSliceOffset = level1DataSegsSlice[segsIndex].offset;
-            auto sdmaSliceSize = ((totalSize <= HCCL_MIN_SLICE_ALIGN_910_73) || (syncTrans == MAX_SPLIT_VALUE)) ? 
+            auto sdmaSliceSize = ((totalSize <= HCCL_MIN_SLICE_ALIGN_910_93) || (syncTrans == MAX_SPLIT_VALUE)) ? 
                 totalSize :
-                ((syncTrans * totalSize / MAX_SPLIT_VALUE) / HCCL_MIN_SLICE_ALIGN_910_73) * HCCL_MIN_SLICE_ALIGN_910_73;
+                ((syncTrans * totalSize / MAX_SPLIT_VALUE) / HCCL_MIN_SLICE_ALIGN_910_93) * HCCL_MIN_SLICE_ALIGN_910_93;
             Slice sdmaSliceTmp;
             sdmaSliceTmp.offset = sdmaSliceOffset;
             sdmaSliceTmp.size = sdmaSliceSize;

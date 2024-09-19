@@ -24,11 +24,11 @@ HcclResult CollAllGatherExecutor::Orchestrate(OpParam& param, AlgResourceRespons
     algResResp_ = &algRes;
 
     HCCL_PROFILER_ADD_TAG(param.tag, algoAttr_.identifier, workflowMode_);
-    HCCL_PROFILER_ADD_STREAM(param.stream.id(), param.tag, 0, algType_);
+    HCCL_PROFILER_ADD_STREAM_BY_STREAMID(param.stream.id(), param.tag, 0, algType_);
     CHK_RET(AddSubStreamToProfiling());
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
-        HCCL_PROFILER_ADD_OPDATA(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr,
-            param.DataDes.dataType, INVALID_VALUE_RANKID, algoAttr_.identifier);
+        HCCL_PROFILER_ADD_OPDATA_OP(param.tag, param.DataDes.count, param.inputPtr, param.outputPtr,
+            param.DataDes.dataType, INVALID_VALUE_RANKID, algoAttr_.identifier, HcclReduceOp::HCCL_REDUCE_RESERVED);
         HCCL_PROFILER_ADD_GROUPRANK(algoAttr_.identifier, topoAttr_.userRankSize, topoAttr_.userRank);
     }
 
@@ -43,8 +43,8 @@ HcclResult CollAllGatherExecutor::Orchestrate(OpParam& param, AlgResourceRespons
         execMem.scratchMem = algRes.scratchMem;
         execMem.inputPtr = param.inputPtr;
         execMem.outputPtr = param.outputPtr;
-        HCCL_DEBUG("[CollAllGatherExecutor][Orchestrate]offload inputMem[%p][%u], outputMem[%p][%u]," \
-            "scratchMem[%p][%u], inputPtr[%p] outputPtr[%p], count[%llu]",
+        HCCL_DEBUG("[CollAllGatherExecutor][Orchestrate]offload inputMem[%p][%llu], outputMem[%p][%llu]," \
+            "scratchMem[%p][%llu], inputPtr[%p] outputPtr[%p], count[%llu]",
             execMem.inputMem.ptr(), execMem.inputMem.size(), execMem.outputMem.ptr(), execMem.outputMem.size(),
             execMem.scratchMem.ptr(), execMem.scratchMem.size(), execMem.inputPtr, execMem.outputPtr, execMem.count);
         ret = KernelRun(param, execMem);
@@ -65,10 +65,10 @@ HcclResult CollAllGatherExecutor::Orchestrate(OpParam& param, AlgResourceRespons
             HCCL_ERROR_CODE(ret)), ret);
 
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE && !is310P3Common_) {
-        HCCL_PROFILER_DEL_STREAM(param.stream.id());
+        HCCL_PROFILER_DEL_STREAM_BY_STREAMID(param.stream.id());
         HCCL_PROFILER_DEL_TAG(param.tag);
         HCCL_PROFILER_DEL_OPDATA(param.tag);
-        HCCL_PROFILER_DEL_GROUPRANK(param.tag);
+        HCCL_PROFILER_DEL_GROUPRANK(algoAttr_.identifier);
     }
     HCCL_INFO("tag[%s], Allgather executor orchestrate success, take time [%lld]us.",
         param.tag.c_str(), DURATION_US(TIME_NOW() - startut));
@@ -112,10 +112,14 @@ HcclResult CollAllGatherExecutor::RunLoop(OpParam &param, AlgResourceResponse &a
     u8 *commOutputPtr = static_cast<u8 *>(algRes.cclOutputMem.ptr());
     CHK_PTR_NULL(curInputPtr);
     CHK_PTR_NULL(curOutputPtr);
+    CHK_PTR_NULL(commInputPtr);
+    CHK_PTR_NULL(commOutputPtr);
 
     u64 maxCountPerLoop = CalcLoopMaxCount(algRes.cclInputMem.size(), unitSize);   // override
-    HCCL_DEBUG("[CollAllGatherExecutor][RunLoop]tag[%s], userRankSize is [%llu], maxCountPerLoop is [%llu].",
-        param.tag.c_str(), topoAttr_.userRankSize, maxCountPerLoop);
+    CHK_PRT_RET(maxCountPerLoop == 0,
+        HCCL_ERROR("[CollAllGatherExecutor][RunLoop]tag[%s], userRankSize is [%u], maxCountPerLoop is [%llu].",
+            param.tag.c_str(), topoAttr_.userRankSize, maxCountPerLoop),
+        HCCL_E_PARA);
 
     for (u64 countLeft = param.DataDes.count, curCount = 0, inputOffset = 0, outputOffset = 0;
             countLeft > 0; countLeft -= curCount) {
@@ -130,10 +134,6 @@ HcclResult CollAllGatherExecutor::RunLoop(OpParam &param, AlgResourceResponse &a
             param.tag.c_str(), inputOffset, outputOffset, curInputPtr, curOutputPtr, curCount, param.DataDes.dataType);
 
         if (!is310P3Common_) {
-            /* 记录指令信息用于一致性校验 */
-            u64 cclBuffSize = algRes.cclInputMem.size();
-            CHK_RET(RankConsistent::GetInstance().RecordOpPara(HcclCMDType::HCCL_CMD_ALLGATHER,
-                param.tag, curCount, param.DataDes.dataType, cclBuffSize, cclBuffSize, HCCL_WORLD_GROUP));
             /* 设置子图复用标志 */
             auto autoSelectedAlgTypeLevel1 = static_cast<u32>(algType_) >> HCCL_LEVEL_ALGO_WIDTH;
             bool hugeData = IsHugeData(curSize);    // override
@@ -163,7 +163,7 @@ HcclResult CollAllGatherExecutor::RunLoop(OpParam &param, AlgResourceResponse &a
         HcclResult ret = KernelRun(param, execMem);
         CHK_PRT_RET(ret != HCCL_SUCCESS,
             HCCL_ERROR("[CollAllGatherExecutor][RunLoop]errNo[0x%016llx]kernel run error, tag[%s], " \
-            "inputMem ptr[%p], outputMem ptr[%p], count[%llu], dataType[%d], reduce op type[%d]",
+            "inputMem ptr[%p], outputMem ptr[%p], count[%llu], dataType[%d]",
             HCCL_ERROR_CODE(ret), param.tag.c_str(), commInputPtr, commOutputPtr,
             curCount, param.DataDes.dataType),
             ret);
@@ -179,7 +179,6 @@ HcclResult CollAllGatherExecutor::RunLoop(OpParam &param, AlgResourceResponse &a
         }
 
         if (!is310P3Common_) {
-            CHK_RET(RankConsistent::GetInstance().DelOpPara(param.tag));
             CHK_RET(LaunchTaskExtend(dispatcher_, param.stream, algResResp_->slaveStreams));
         }
 
@@ -207,6 +206,9 @@ HcclResult CollAllGatherExecutor::CalculateLevel1AllgatherSlice(u64 inputMemSize
     for (u32 ringIndex = 0; ringIndex < multRingsSliceZero.size(); ringIndex++) {
         std::vector<Slice> level1DataSlice;
         for (u32 level0Idx = 0; level0Idx < level0RankSize; level0Idx++) {
+            CHK_PRT_RET(multRingsSliceZero[ringIndex].size() < level0RankSize,
+                HCCL_ERROR("[CalculateLevel1AllgatherSlice]multRingsSliceZero[ringIndex]" \
+                "size is smaller than level0RankSize."), HCCL_E_INTERNAL);
             for (u32 level1Idx = 0; level1Idx < level1RankSize; level1Idx++) {
                 Slice tmpSlice;
                 tmpSlice.size = multRingsSliceZero[ringIndex][level0Idx].size;
@@ -220,17 +222,18 @@ HcclResult CollAllGatherExecutor::CalculateLevel1AllgatherSlice(u64 inputMemSize
     return HCCL_SUCCESS;
 }
 
-HcclResult CollAllGatherExecutor::CalculateLevel2AllgatherSlice(u64 inputMemSize, u32 level0RankSize, u32 level1RankSize,
-    u32 level2RankSize, std::vector<Slice> dataSegsSlice, std::vector<Slice> &level0DataSlice) const
+HcclResult CollAllGatherExecutor::CalculateLevel2AllgatherSlice(u64 inputMemSize, u32 level0RankSize,
+    u32 level1RankSize, u32 level2RankSize, std::vector<std::vector<Slice>> multRingsSliceZero,
+    std::vector<Slice> &level2DataSlice, u32 ringIndex) const
 {
-    for (u32 i = 0; i < level0RankSize; i++) {
-        for (u32 j = 0; j < level1RankSize; j++) {
-            for (u32 z = 0; z < level2RankSize; z++) {
-                Slice rankSliceTemp;
-                rankSliceTemp.size = dataSegsSlice[i].size;
-                rankSliceTemp.offset = dataSegsSlice[i].offset +
-                    (j * level0RankSize * level1RankSize +  z * level1RankSize) * inputMemSize;
-                level0DataSlice.push_back(rankSliceTemp);
+    for (u32 level0Idx = 0; level0Idx < level0RankSize; level0Idx++) {
+        for (u32 level2Idx = 0; level2Idx < level2RankSize; level2Idx++) {
+            for (u32 level1Idx = 0; level1Idx < level1RankSize; level1Idx++) {
+                Slice tmpSlice;
+                tmpSlice.size = multRingsSliceZero[ringIndex][level0Idx].size;
+                tmpSlice.offset = multRingsSliceZero[ringIndex][level0Idx].offset +
+                    (level1Idx * level0RankSize + level2Idx * level0RankSize * level1RankSize) *inputMemSize;
+                level2DataSlice.push_back(tmpSlice);
             }
         }
     }
@@ -238,7 +241,7 @@ HcclResult CollAllGatherExecutor::CalculateLevel2AllgatherSlice(u64 inputMemSize
 }
 
 HcclResult CollAllGatherExecutor::AllGatherLevel2(const std::string &tag, DeviceMem &inputMem, DeviceMem &outputMem,
-    u64 count, HcclDataType dataType, Stream &stream, const HcomCollOpInfo *opInfo)
+    u64 count, HcclDataType dataType, Stream &stream, HcomCollOpInfo *opInfo)
 {
     u32 perDataSize = 0;
     CHK_RET(SalGetDataTypeSize(dataType, perDataSize));
@@ -246,8 +249,8 @@ HcclResult CollAllGatherExecutor::AllGatherLevel2(const std::string &tag, Device
     SubCommInfo outerCommInfo = GetSubCommInfo(COMM_LEVEL0, COMM_INDEX_0);
     u32 commIndex = outerCommInfo.localRank;
     SubCommInfo innerCommInfo = GetSubCommInfo(COMM_LEVEL1, commIndex);
-    CHK_RET(CheckCommSize(COMM_LEVEL2, commIndex + 1));
-    SubCommInfo level2CommInfo = GetSubCommInfo(COMM_LEVEL2, commIndex);
+    CHK_RET(CheckCommSize(COMM_LEVEL2, COMM_INDEX_0));
+    SubCommInfo level2CommInfo = GetSubCommInfo(COMM_LEVEL2, COMM_INDEX_0);
 
     u64 inputMemSize = inputMem.size();
     u32 level0RankSize = outerCommInfo.localRankSize;
@@ -257,13 +260,8 @@ HcclResult CollAllGatherExecutor::AllGatherLevel2(const std::string &tag, Device
     u32 level1ServerIndex = innerCommInfo.localRank;
 
     std::unique_ptr<ExecutorBase> level2AGExecutor;
-    if (UseLevel2RingAlgo(algType_)) {
-        level2AGExecutor.reset(new (std::nothrow) AllGatherRing(dispatcher_));
-        HCCL_INFO("allgather ring: using ring algo inter-server.");
-    } else {
-        level2AGExecutor.reset(new (std::nothrow) AllGatherRecursiveHalvingDoubling(dispatcher_));
-        HCCL_INFO("allgather ring: using halving-doubling algo inter-server.");
-    }
+    level2AGExecutor.reset(new (std::nothrow) AllGatherRing(dispatcher_));
+    HCCL_INFO("allgather ring: using ring algo inter-server.");
     CHK_SMART_PTR_NULL(level2AGExecutor);
 
     // 计算slice, 不同超节点相同slice
@@ -281,7 +279,7 @@ HcclResult CollAllGatherExecutor::AllGatherLevel2(const std::string &tag, Device
 
     CHK_RET(level2AGExecutor->RegisterProfiler((
         level2RankSize << PROF_RANKSIZE_OFFSET_OF_PLANEID) + level2CommInfo.localRank,
-        PROF_STAGE_2, HCCL_EXEC_STEP_NOT_SET, stream));
+        PROF_STAGE_0, HCCL_EXEC_STEP_NOT_SET, stream));
 
     CHK_RET(RunTemplate(level2AGExecutor, level2CommInfo));
     HCCL_INFO("allgather double ring [superpod] level2 allgather run success");
@@ -290,58 +288,92 @@ HcclResult CollAllGatherExecutor::AllGatherLevel2(const std::string &tag, Device
     HCCL_INFO("commIdx:%u Tag[%s].commInner.size():%u", commIndex, tag.c_str(),
         level1RankSize);
 
-    std::unique_ptr<ExecutorBase> level1AGExecutor;
-    if (UseInterServerRingAlgo(algType_)) {
-        level1AGExecutor.reset(new (std::nothrow) AllGatherRing(dispatcher_));
-        HCCL_INFO("allgather ring: using ring algo inter-server.");
-    } else {
-        level1AGExecutor.reset(new (std::nothrow) AllGatherNHR(dispatcher_));
-        HCCL_INFO("allgather ring: using nonuniform-hierarchical-ring algo inter-server.");
-    }
-    CHK_SMART_PTR_NULL(level1AGExecutor);
-
-    // 计算slice, 不同超节点相同slice
-    std::vector<Slice> level1DataSegsSlice;
-    for (u32 j = 0; j < level1RankSize; j++) {
-        for (u32 i = 0; i < level2RankSize; i++) {
-            sliceTemp.size = inputMemSize;
-            sliceTemp.offset =
-                j * level0RankSize *inputMemSize + i * level1RankSize * level0RankSize * inputMemSize;
-            level1DataSegsSlice.push_back(sliceTemp);
+    if (level1RankSize > 1) {
+        std::unique_ptr<ExecutorBase> level1AGExecutor;
+        if (UseInterServerRingAlgo(algType_)) {
+            level1AGExecutor.reset(new (std::nothrow) AllGatherRing(dispatcher_));
+            HCCL_INFO("allgather ring: using ring algo inter-server.");
+        } else if (UseInterServerNBAlgo(algType_)) {
+            level1AGExecutor.reset(new (std::nothrow) AllGatherNB(dispatcher_));
+            HCCL_INFO("allgather ring: using nonuniform-bruck algo inter-server.");
+        } else if (UseInterServerNHRAlgo(algType_)) {
+            level1AGExecutor.reset(new (std::nothrow) AllGatherNHR(dispatcher_));
+            HCCL_INFO("allgather ring: using nonuniform-hierarchical-ring algo inter-server.");
+        } else {
+            HCCL_ERROR("allgather ring: algType[%u] is not supported.", algType_);
+            return HCCL_E_NOT_SUPPORT;
         }
+        CHK_SMART_PTR_NULL(level1AGExecutor);
+
+        // 计算slice, 不同超节点相同slice
+        std::vector<Slice> level1DataSegsSlice;
+        for (u32 j = 0; j < level2RankSize; j++) {
+            for (u32 i = 0; i < level1RankSize; i++) {
+                sliceTemp.size = inputMemSize;
+                sliceTemp.offset =
+                    (i * level0RankSize +  j * level1RankSize * level0RankSize + level0ServerIndex) *inputMemSize;
+                level1DataSegsSlice.push_back(sliceTemp);
+            }
+        }
+
+        CHK_RET(level1AGExecutor->Prepare(outputMem, outputMem, inputMem, count, dataType, stream,
+            HCCL_REDUCE_RESERVED, INVALID_VALUE_RANKID, level1DataSegsSlice, 0));
+
+        CHK_RET(level1AGExecutor->RegisterProfiler((
+            level1RankSize << PROF_RANKSIZE_OFFSET_OF_PLANEID) + level2CommInfo.localRank,
+            PROF_STAGE_1, HCCL_EXEC_STEP_NOT_SET, stream));
+
+        CHK_RET(RunTemplate(level1AGExecutor, innerCommInfo));
+        HCCL_INFO("allgather double ring [superpod] level1 allgather run success");
     }
-    //  outputMem传整块，通过baseOffset偏移?
-    u64 level1BaseOffset = level0ServerIndex * inputMemSize;
-    CHK_RET(level1AGExecutor->Prepare(outputMem, outputMem, inputMem, count, dataType, stream,
-        HCCL_REDUCE_RESERVED, INVALID_VALUE_RANKID, level1DataSegsSlice, level1BaseOffset));
-
-    CHK_RET(level1AGExecutor->RegisterProfiler((
-        level1RankSize << PROF_RANKSIZE_OFFSET_OF_PLANEID) + level2CommInfo.localRank,
-        PROF_STAGE_2, HCCL_EXEC_STEP_NOT_SET, stream));
-
-    CHK_RET(RunTemplate(level1AGExecutor, innerCommInfo));
-    HCCL_INFO("allgather double ring [superpod] level1 allgather run success");
 
     // 节点内做all gather double ring
     std::vector<Slice> dataSegsSlice;
     std::vector<std::vector<Slice>> multRingsSliceZero; // 数据基于该rank上环0的偏移
     CHK_RET(PrepareAllgatherSlice(level0RankSize, inputMemSize, dataSegsSlice));
 
-    // 多环数据切分
-    multRingsSliceZero = PrepareMultiRingSlice(dataSegsSlice, tag, false, topoAttr_.nicList);
-
-    // 计算slice
+    //  多环数据切分
+    if (topoType_ == TopoType::TOPO_TYPE_NP_DOUBLE_RING) {
+        multRingsSliceZero = PrepareMultiRingSlice(dataSegsSlice, tag, false, topoAttr_.nicList);
+    } else {
+        multRingsSliceZero.push_back(dataSegsSlice);
+    }
     std::vector<std::vector<Slice>> multRingsSlice;
     for (u32 ringIndex = 0; ringIndex < multRingsSliceZero.size(); ringIndex++) {
-        std::vector<Slice> level0DataSlice;
-        CHK_RET(CalculateLevel2AllgatherSlice(inputMemSize, level0RankSize, level1RankSize,
-            level2RankSize, dataSegsSlice, level0DataSlice));
-        multRingsSlice.push_back(level0DataSlice);
+        std::vector<Slice> level2DataSlice;
+        CHK_RET(CalculateLevel2AllgatherSlice(inputMemSize, level0RankSize, level1RankSize, level2RankSize,
+            multRingsSliceZero, level2DataSlice, ringIndex));
+        multRingsSlice.push_back(level2DataSlice);
+    }
+
+    std::vector<std::vector<Slice>> multRingsUserMemSlice;
+    if (!DMAReduceFlag_) {
+        multRingsUserMemSlice = multRingsSlice;
+    } else {
+        for (u32 ringIndex = 0; ringIndex < multRingsSlice.size(); ringIndex++) {
+            std::vector<Slice> level2UserMemSlice;
+            for (auto &cclSlice : multRingsSlice[ringIndex]) {
+                Slice tmpSlice;
+                tmpSlice.size = cclSlice.size;
+                tmpSlice.offset =
+                    (cclSlice.offset / inputMemSize) * count * perDataSize +
+                    multRingsSliceZero[ringIndex][0].offset;
+                level2UserMemSlice.push_back(tmpSlice);
+                HCCL_DEBUG("rank[%u], ringIndex[%u], tmpSlice.offset=[%llu], size=[%llu]",
+                    topoAttr_.userRank, ringIndex, tmpSlice.offset, tmpSlice.size);
+            }
+            multRingsUserMemSlice.push_back(level2UserMemSlice);
+        }
     }
 
     CHK_RET(ActiveSlaveStreams(stream));
-    CHK_RET(MultiRingAllGather(tag, inputMem, outputMem, count, dataType,
-                               multRingsSliceZero, stream, PROF_STAGE_1, 0, opInfo));
+    if (DMAReduceFlag_ && level1RankSize > 1) {
+        // allgather输入放在CCL buffer上，通过设置nullptr指示要从CCL buffer获取输入
+        opInfo->inputAddr = nullptr;
+    }
+    CHK_RET(MultiRingAllGather(tag, inputMem, outputMem, count,
+        dataType, multRingsSlice, stream, PROF_STAGE_2, 0, opInfo, multRingsUserMemSlice));
+
     HCCL_INFO("allgather double ring [superpod] level2 allgather run success");
     return HCCL_SUCCESS;
 }

@@ -35,7 +35,7 @@ HcclResult CollReduceSingleRankExecutor::KernelRun(const OpParam &param, ExecMem
 
     DeviceMem srcMem(execMem.inputPtr, totalSize);
     DeviceMem dstMem(execMem.outputPtr, totalSize);
-    HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, const_cast<Stream &>(param.stream));
+    CHK_RET(HcclD2DMemcpyAsync(dispatcher_, dstMem, srcMem, const_cast<Stream &>(param.stream)));
     CHK_RET(LaunchTask(dispatcher_, const_cast<Stream &>(param.stream)));
     return HCCL_SUCCESS;
 }

@@ -57,7 +57,7 @@ HcclResult CollRunAlltoAllVTwoLevelPipeline::CalcScratchMemSize(u64& scratchMemS
         tmpMemSize = GetAlltoall2LevelPipelineMaxScratchSize910B(allMeshAggregationSendRecvInfo_);
     }
     scratchMemSize = CalAlltoAllVScratchMemSize(tmpMemSize);
-    HCCL_INFO("[CollRunAlltoAllVTwoLevelPipeline][CalcScratchMemSize] tag_[%s] scratchMemSize[%u]",
+    HCCL_INFO("[CollRunAlltoAllVTwoLevelPipeline][CalcScratchMemSize] tag_[%s] scratchMemSize[%llu]",
         tag_.c_str(), scratchMemSize);
     return HCCL_SUCCESS;
 }
@@ -91,7 +91,7 @@ HcclResult CollRunAlltoAllVTwoLevelPipeline::CalcCommInfo(std::vector<LevelNSubC
     TransportMemType inputType = TransportMemType::RESERVED;
     TransportMemType outputType = TransportMemType::RESERVED;
 
-    CalNoScratchAlltoallCommInfo(inputType, outputType, opTransport);
+    CHK_RET(CalNoScratchAlltoallCommInfo(inputType, outputType, opTransport));
     return HCCL_SUCCESS;
 }
 
@@ -100,41 +100,38 @@ HcclResult CollRunAlltoAllVTwoLevelPipeline::CalNoScratchAlltoallCommInfo(Transp
     std::vector<LevelNSubCommTransport>& opTransport)
 {
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
-        CalcLevel0CommInfo(TransportMemType::CCL_OUTPUT, TransportMemType::CCL_OUTPUT, opTransport);
-        CalcLevel1CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport);
+        CHK_RET(CalcLevel0CommInfo(TransportMemType::CCL_OUTPUT, TransportMemType::CCL_OUTPUT, opTransport));
+        CHK_RET(CalcLevel1CommInfo(TransportMemType::CCL_INPUT, TransportMemType::CCL_OUTPUT, opTransport));
     } else {
-        CalcLevel0CommInfo(TransportMemType::SCRATCH, TransportMemType::CCL_OUTPUT, opTransport);
-        CalcLevel1CommInfo(TransportMemType::CCL_INPUT, TransportMemType::SCRATCH, opTransport);
+        CHK_RET(CalcLevel0CommInfo(TransportMemType::SCRATCH, TransportMemType::CCL_OUTPUT, opTransport));
+        CHK_RET(CalcLevel1CommInfo(TransportMemType::CCL_INPUT, TransportMemType::SCRATCH, opTransport));
     }
 
     return HCCL_SUCCESS;
 }
 
+HcclOpMetaInfo CollRunAlltoAllVTwoLevelPipeline::GetOpMeta(HcclCMDType opType, const u64 size)
+{
+    bool hugeData = (isAlltoAllZCopyMode_) ? (algResResp_->paramInputMem.size() > SDMA_SEND_MAX_SIZE) : (false);
+    bool alltoallPingPong = (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
+        !topoAttr_.multiModuleDiffDeviceNumMode &&
+        GetAlltoall2LevelPipelineMaxScratchSize910B(allMeshAggregationSendRecvInfo_) >
+        algResResp_->cclInputMem.size());
+    HcclOpMetaInfo opMeta;
+    if (AlltoAllVParam_.opType == HcclCMDType::HCCL_CMD_ALLTOALLV) {
+        opMeta = HcclOpMetaInfo::GetOneForAllToAllV((isAlltoAllZCopyMode_ ?
+            CopyPattern::ZCOPY : CopyPattern::BCOPY), algResResp_->paramInputMem.size(), hugeData || alltoallPingPong);
+    } else {
+        opMeta = HcclOpMetaInfo::GetOneForAllToAllV((isAlltoAllZCopyMode_ ?
+            CopyPattern::ZCOPY : CopyPattern::BCOPY), algResResp_->paramInputMem.size(), hugeData || alltoallPingPong);
+    }
+    HCCL_DEBUG("[CollRunAlltoAllVTwoLevelPipeline][GetOpMeta] Get OpMeta for alltoall pipeline success.");
+    return opMeta;
+}
+
 HcclResult CollRunAlltoAllVTwoLevelPipeline::KernelRun(const OpParam &param, ExecMem &execMem)
 {
     HCCL_INFO("[CollRunAlltoAllVTwoLevelPipeline][KernelRun] alltoall two level pipeline start");
-
-    // 子图
-    if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
-        bool hugeData = (isAlltoAllZCopyMode_) ? (algRes_.paramInputMem.size() > SDMA_SEND_MAX_SIZE) : (false);
-        bool alltoallPingPong = (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
-            !topoAttr_.multiModuleDiffDeviceNumMode &&
-            GetAlltoall2LevelPipelineMaxScratchSize910B(allMeshAggregationSendRecvInfo_) >
-            execMem.inputMem.size());
-        if (AlltoAllVParam_.opType == HcclCMDType::HCCL_CMD_ALLTOALLV) {
-            auto opMeta = HcclOpMetaInfo::GetOneForAllToAllV((isAlltoAllZCopyMode_ ?
-                CopyPattern::ZCOPY : CopyPattern::BCOPY), algRes_.paramInputMem.size(),
-                hugeData || alltoallPingPong);
-            CHK_RET(InitTask(dispatcher_, const_cast<Stream&>(param.stream), opMeta.isEnableCache,
-                opMeta.GetCacheKey()));
-        } else {
-            auto opMeta = HcclOpMetaInfo::GetOneForAllToAllV((isAlltoAllZCopyMode_ ?
-                CopyPattern::ZCOPY : CopyPattern::BCOPY),
-                algRes_.paramInputMem.size(), hugeData || alltoallPingPong);
-            CHK_RET(InitTask(dispatcher_, const_cast<Stream&>(param.stream), opMeta.isEnableCache,
-                opMeta.GetCacheKey()));
-        }
-    }
 
     bool cclEnough = true;
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE &&
@@ -145,8 +142,8 @@ HcclResult CollRunAlltoAllVTwoLevelPipeline::KernelRun(const OpParam &param, Exe
     HCCL_DEBUG("[CollRunAlltoAllVTwoLevelPipeline][KernelRun] alltoall pipeline run %s algo",
         cclEnough ? "cclEnough" : "ping pong");
     A2aPipelineMemory a2aPipelineMemory;
-    a2aPipelineMemory.userInput = algRes_.paramInputMem;
-    a2aPipelineMemory.userOutput = algRes_.paramOutputMem;
+    a2aPipelineMemory.userInput = algResResp_->paramInputMem;
+    a2aPipelineMemory.userOutput = algResResp_->paramOutputMem;
     // 具体传入 A2aPipelineMemory 对象的 alltoall pipeline executor 会根据图模式还是单算子模式
     // 选择使用 ccl 还是 scratch，不会访问空指针
     if (workflowMode_ == HcclWorkflowMode::HCCL_WORKFLOW_MODE_OP_BASE) {
