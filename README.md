@@ -39,7 +39,7 @@ HCCL采用α–β模型（Hockney）进行性能评估，算法耗时计算用�
 ## 版本配套说明
 - 本源码仓会适配CANN软件版本创建相应的标签并发行，关于CANN软件版本与本源码仓中标签的配套关系可参见"[开放项目与CANN版本配套表](https://gitee.com/ascend/cann-community/blob/master/README.md#cannversionmap)"。**需要注意，为确保您的源码定制开发顺利进行，请选择配套的CANN版本与Gitee标签源码，使用master分支可能存在版本不匹配的风险。**
 
-- 本源码仓支持的固件驱动版本与配套CANN软件支持的固件驱动版本相同，开发者可通过[昇腾社区-固件与驱动](https://www.hiascend.com/hardware/firmware-drivers/community?product=2&model=28)页面根据产品型号与CANN软件版本获取配套的固件与驱动。
+- 本源码仓支持的固件驱动版本与配套CANN软件支持的固件驱动版本相同，开发者可通过“[昇腾社区-固件与驱动](https://www.hiascend.com/hardware/firmware-drivers/community?product=2&model=28)”页面根据产品型号与CANN软件版本获取配套的固件与驱动。
 
 ## 目录结构说明
 
