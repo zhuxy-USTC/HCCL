@@ -36,9 +36,10 @@ HCCL采用α–β模型（Hockney）进行性能评估，算法耗时计算用�
     
     其中单步传输并规约计算n byte数据的耗时为： D = α + nβ + nγ。
 
+## 版本配套说明
+- 本源码仓会适配CANN软件版本创建相应的标签并发行，关于CANN软件版本与本源码仓中标签的配套关系可参见"[开放项目与CANN版本配套表](https://gitee.com/ascend/cann-community/blob/master/README.md#cannversionmap)"。**需要注意，为确保您的源码定制开发顺利进行，请选择配套的CANN版本与Gitee标签源码，使用master分支可能存在版本不匹配的风险。**
 
-## 源码定制指南
-开发者可以基于本源码仓中的源码进行通信算法与通信算子的定制开发，详细的定制开发指引文档及相关API说明文档可参见[HCCL源码定制开发指南](docs/hccl_customized_dev/README.md)。
+- 本源码仓支持的固件驱动版本与配套CANN软件支持的固件驱动版本相同，开发者可通过“[昇腾社区-固件与驱动](https://www.hiascend.com/hardware/firmware-drivers/community?product=2&model=28)”页面根据产品型号与CANN软件版本获取配套的固件与驱动。
 
 ## 目录结构说明
 
@@ -61,11 +62,9 @@ HCCL仓关键目录如下所示：
 HCCL支持源码编译，在源码编译前，请根据如下步骤完成相关环境准备。
 
 1. 获取CANN开发套件包。
-   
-   请参见"[开放项目与CANN版本配套表](https://gitee.com/ascend/cann-community/blob/master/README.md#cannversionmap)"获取对应的CANN开发套件包`Ascend-cann-toolkit_<cann_version>_linux-<arch>.run`。
-   - **为确保您的源码定制开发顺利进行，请选择配套的CANN版本与Gitee分支源码，使用master分支可能存在版本不匹配的风险。**
-   - 支持的安装方式及操作系统请参见配套版本的[用户手册](https://hiascend.com/document/redirect/CannCommunityInstSoftware)。
-   
+
+   请参见"[开放项目与CANN版本配套表](https://gitee.com/ascend/cann-community/blob/master/README.md#cannversionmap)"获取对应的CANN开发套件包`Ascend-cann-toolkit_<cann_version>_linux-<arch>.run`，CANN开发套件包支持的安装方式及操作系统请参见配套版本的[用户手册](https://hiascend.com/document/redirect/CannCommunityInstSoftware)。
+
 2. 安装依赖
   
    以下所列仅为cann-hccl源码编译用到的依赖，其中python、gcc、cmake的安装方法请参见配套版本[用户手册](https://hiascend.com/document/redirect/CannCommunityInstDepend)的“安装依赖”章节。
@@ -213,6 +212,9 @@ HCCL软件包安装完成后，开发者可通过HCCL Test工具进行集合通�
 
    安装`CANN开发套件包` -> 安装`HCCL自定义软件包1` -> 安装`HCCL自定义软件包2`，然后执行回退命令，则仅支持回退到安装`HCCL自定义软件包1`的状态。
 
+## 源码定制指南
+
+开发者可以基于本源码仓中的源码进行通信算法与通信算子的定制开发，详细的定制开发指引文档及相关API说明文档可参见[HCCL源码定制开发指南](docs/hccl_customized_dev/README.md)。
 
 ## 贡献指南
 
