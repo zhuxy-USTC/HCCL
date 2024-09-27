@@ -72,6 +72,7 @@ void hcclComm::UpdateIsHaveCpuRank(const RankTable_t &rankTable)
         // 同一server的标识IP 是一样的，所以可以以此推算出平均dev个数
         if (rankTable.rankList[i].deviceInfo.devicePhyId == HOST_DEVICE_ID) {
             isHaveCpuRank_ = true;
+            return;
         }
     }
 }
@@ -82,6 +83,7 @@ void hcclComm::UpdateIsHaveCpuRank(const std::vector<RankInfo> &rankList)
         // 同一server的标识IP 是一样的，所以可以以此推算出平均dev个数
         if (rankList[i].devicePhyId == HOST_DEVICE_ID) {
             isHaveCpuRank_ = true;
+            return;
         }
     }
 }
